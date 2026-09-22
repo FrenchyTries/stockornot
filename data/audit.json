@@ -1,14 +1,29 @@
 {
-  "ranAt": "2026-09-19T01:09:17.440Z",
-  "snapshotUpdated": "2026-09-19T01:09:17.204Z",
-  "companies": 501,
+  "ranAt": "2026-09-22T03:03:01.243Z",
+  "snapshotUpdated": "2026-09-22T03:03:00.987Z",
+  "companies": 499,
   "deep": {
-    "present": 501,
+    "present": 499,
     "charts": 0,
-    "analysts": 500
+    "analysts": 498
   },
   "verdict": "published with warnings",
   "findings": [
+    {
+      "level": "warn",
+      "code": "coverage-dip",
+      "msg": "Company count fell from 501 to 499."
+    },
+    {
+      "level": "warn",
+      "code": "tickers-dropped",
+      "msg": "2 tickers present yesterday are missing today.",
+      "tickers": [
+        "GIS",
+        "RVTY"
+      ],
+      "count": 2
+    },
     {
       "level": "warn",
       "code": "range-inconsistent",
@@ -102,7 +117,7 @@
     {
       "level": "warn",
       "code": "charts-missing",
-      "msg": "Only 0 of 501 companies have a price chart."
+      "msg": "Only 0 of 499 companies have a price chart."
     }
   ]
 }
