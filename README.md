@@ -199,6 +199,15 @@ result before anything is committed, and refuses to publish a snapshot that is
 worse than yesterday's. The site itself is served by Vercel, which also runs the
 functions under `api/`.
 
+A second workflow, `pages.yml`, rebuilds only the company pages whenever the
+code or data they are built from changes on `main`. Both need GitHub Actions
+enabled on the repository. Without it, the same pages can be built by hand, and
+come out byte for byte what the Action would have committed:
+
+```bash
+SITE_ORIGIN=https://stockornot.com node scripts/build-pages.mjs
+```
+
 ### Setting it up on your own fork
 
 1. Get a free key at [finnhub.io/register](https://finnhub.io/register).
@@ -278,7 +287,7 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
 ## Design notes
 
 One system for every page, in `styles.css`: the deck, the dialogs, the company
-pages, the method and pricing pages. Dark and quiet, set in
+pages, and the method, pricing, privacy and not-found pages. Dark and quiet, set in
 [Inter](https://rsms.me/inter/) (served from `fonts/`, SIL Open Font License),
 with hairline rules instead of boxes inside boxes, one accent colour, and the
 five financial checks marked with small line icons (`lib/icons.mjs`). Up and down
@@ -286,6 +295,10 @@ moves carry a ▲/▼ glyph and a signed number as well as colour, so nothing de
 on colour alone. `prefers-reduced-motion` and `forced-colors` are honoured. The
 swipe gesture locks to an axis on the first 8px of movement, so dragging sideways
 swipes and dragging vertically scrolls the card.
+
+The link preview (`og.png`), the home-screen icon and the store screenshots
+are all captured from the running site by `marketing/capture.cjs`, so they
+change when the design does rather than drifting from it.
 
 No framework, no build step. Plain HTML, CSS and JavaScript, some JSON, and three
 small serverless functions under `api/` for the parts that need a secret: the

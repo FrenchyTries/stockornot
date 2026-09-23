@@ -12,7 +12,13 @@
 <meta property="og:title" content="StockOrNot membership" />
 <meta property="og:description" content="Every company in the index, an unlimited cart and earnings alerts. $9 a month, or $79 a year." />
 <meta property="og:url" content="https://stockornot.com/pricing" />
+<meta property="og:image" content="https://stockornot.com/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A StockOrNot card: the price, the score out of 100, and the case for and against." />
+<meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" href="/favicon.svg" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
 <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="/styles.css" />
@@ -110,7 +116,8 @@
     evening after the American close.</dd>
 
     <dt>Can I get a refund?</dt>
-    <dd>Yes. Email and it is returned, no argument, no retention script.</dd>
+    <dd>Yes. Write to <a href="mailto:hello@stockornot.com">hello@stockornot.com</a> and it is
+    returned, no argument, no retention script.</dd>
   </dl>
 
   <div class="notice-box" id="notLive">
@@ -122,10 +129,16 @@
 </main>
 
 <footer class="sitefoot">
+  <nav class="foot-nav" aria-label="Footer">
+    <a href="/stock">Companies</a>
+    <a href="/method">How the score works</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/privacy">Privacy</a>
+  </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
   <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
   <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
-  Read the actual filing before you buy anything. <a href="/method">How the score works</a>.</p>
+  Read the actual filing before you buy anything.</p>
 </footer>
 
 <script type="module" src="/pricing.js"></script>

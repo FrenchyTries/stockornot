@@ -2181,6 +2181,14 @@ function trimNum(v) {
   return v.toFixed(Math.max(2, Math.min(4, dp)));
 }
 
+/* The estimate beside an actual, in cents unless the two round to the same
+   cent, when "$0.80 vs $0.80, a miss" would read as a tie: then its real
+   precision says which way it went. */
+function estimateBeside(actual, estimate) {
+  return earn.eps(estimate) === earn.eps(actual) ? epsPrecise(estimate) : earn.eps(estimate);
+}
+function epsPrecise(v) { return (v < 0 ? "\u2212" : "") + "$" + trimNum(Math.abs(v)); }
+
 function buildAnalyst(deep) {
   var box = el("div", "");
   var a = deep && deep.analyst;
@@ -2248,8 +2256,7 @@ function buildAnalyst(deep) {
          percentage look like it did not follow from the two numbers beside it,
          so keep whatever precision the estimate actually has, up to four. */
       mark.appendChild(el("span", "",
-        "$" + (num(e.actual) ? e.actual.toFixed(2) : "—") +
-        " vs $" + (num(e.estimate) ? trimNum(e.estimate) : "—") + " expected" +
+        earn.eps(e.actual) + " vs " + (num(e.estimate) ? epsPrecise(e.estimate) : "—") + " expected" +
         (num(e.surprisePct) ? " (" + pct(e.surprisePct, 1) + ")" : "")));
       td.appendChild(mark);
       tr.appendChild(td);
@@ -2311,7 +2318,7 @@ function buildNextReport(s, deep) {
   /* to the cent the estimate can look like a tie ("$0.80 vs $0.80") when the
      quarter was a narrow miss, so show its real precision and say which */
   grid.appendChild(statRow("Last quarter", last && num(last.actual) ? earn.eps(last.actual) +
-    (num(last.estimate) ? " vs $" + trimNum(last.estimate) + (last.actual >= last.estimate ? ", a beat" : ", a miss") : "") : "—",
+    (num(last.estimate) ? " vs " + estimateBeside(last.actual, last.estimate) + (last.actual >= last.estimate ? ", a beat" : ", a miss") : "") : "—",
     "Reported EPS against what was expected, for the most recent quarter."));
   box.appendChild(grid);
 

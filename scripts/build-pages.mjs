@@ -56,8 +56,13 @@ function head(title, description, canonical, extra = "") {
 <meta property="og:title" content="${esc(title)}" />
 <meta property="og:description" content="${esc(description)}" />
 <meta property="og:url" content="${esc(canonical)}" />
-<meta name="twitter:card" content="summary" />
+<meta property="og:image" content="${esc(SITE)}/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A StockOrNot card: the price, the score out of 100, and the case for and against." />
+<meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" href="/favicon.svg" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="/styles.css" />
 ${extra}
@@ -82,10 +87,16 @@ ${extra}
 
 const foot = (updated) => `</main>
 <footer class="sitefoot">
+  <nav class="foot-nav" aria-label="Footer">
+    <a href="/stock">Companies</a>
+    <a href="/method">How the score works</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/privacy">Privacy</a>
+  </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
   <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
   <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
-  Read the actual filing before you buy anything. <a href="/method">How the score works</a>.</p>
+  Read the actual filing before you buy anything.</p>
   ${updated ? `<p>Data refreshed ${esc(dateShort(updated.slice(0, 10)))}.</p>` : ""}
 </footer>
 </body>
@@ -348,6 +359,8 @@ async function main() {
     { loc: `${SITE}/`, pri: "1.0", freq: "daily" },
     { loc: `${SITE}/stock`, pri: "0.9", freq: "daily" },
     { loc: `${SITE}/method`, pri: "0.8", freq: "monthly" },
+    { loc: `${SITE}/pricing`, pri: "0.6", freq: "monthly" },
+    { loc: `${SITE}/privacy`, pri: "0.3", freq: "yearly" },
     ...snap.stocks.map((s) => ({ loc: `${SITE}/stock/${slug(s.t)}`, pri: "0.7", freq: "daily" }))
   ];
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
