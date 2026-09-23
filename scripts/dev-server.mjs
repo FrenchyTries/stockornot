@@ -62,12 +62,18 @@ const server = http.createServer(async (req, res) => {
   if (p.split("/").some((seg) => seg.startsWith(".") || seg === "api" || seg === "node_modules")) {
     res.writeHead(404); return res.end();
   }
-  if (p.endsWith("/")) p += "index.html";
+  /* trailingSlash: false — Vercel redirects /stock/ to /stock */
+  if (p.length > 1 && p.endsWith("/")) {
+    res.writeHead(308, { Location: p.replace(/\/+$/, "") + url.search });
+    return res.end();
+  }
+  if (p === "/") p = "/index.html";
   const file = path.join(ROOT, path.normalize(p));
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
 
   if (await serveFile(res, file)) return;
-  if (!path.extname(file) && await serveFile(res, file + ".html")) return;   /* cleanUrls */
+  if (!path.extname(file) && await serveFile(res, file + ".html")) return;               /* cleanUrls */
+  if (!path.extname(file) && await serveFile(res, path.join(file, "index.html"))) return; /* directory index */
   res.writeHead(404, { "Content-Type": "text/plain" });
   res.end("Not found");
 });

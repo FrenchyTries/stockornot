@@ -136,29 +136,43 @@ revenue. Three ways to hear about it:
 
 A static site can't fetch this itself — SEC blocks cross-origin requests for
 filings and XBRL, and an API key in client-side JavaScript is a public API key.
-So the work happens in a **GitHub Action** that runs every weekday morning:
+So the work happens in a **GitHub Action** that runs every weekday evening,
+after the close (22:20 UTC):
 
 ```
-.github/workflows/refresh.yml  →  scripts/refresh.mjs
+.github/workflows/refresh.yml  →  scripts/refresh.mjs  →  scripts/audit.mjs  →  scripts/build-pages.mjs
 ```
 
 Which does:
 
-1. **Finnhub** — `/quote` and `/stock/metric` per company, plus one bulk
-   `/calendar/earnings` call for upcoming report dates. Rate-limited to stay
-   inside the free tier's 60 calls/minute.
-2. **SEC XBRL `frames`** — one request per concept returns that figure for *every*
-   filer at once, so ~20 requests cover the balance sheet and cash flow for all 500.
-3. **SEC EDGAR submissions** — the latest 10-K and 10-Q per company: accession
+1. **Finnhub** — `/quote` and `/stock/metric` per company, plus a bulk
+   `/calendar/earnings` call for upcoming report dates, and a per-company call
+   whenever the bulk answer is missing or more than ~100 days out. Rate-limited
+   to stay inside the free tier's 60 calls/minute. A ticker that stops quoting
+   is looked up by CIK in the SEC's ticker list, so a renamed company is found
+   under its new symbol.
+2. **SEC EDGAR submissions** — the latest 10-K and 10-Q per company: accession
    number, filing date, period, direct link.
-4. **The 10-K itself** — downloaded and parsed for Item 1 (Business) and the
-   Item 1A risk-factor headings. Cached under `data/filings/<TICKER>.json` and
-   keyed by accession number, so a filing is only ever downloaded once. After the
-   first run this is a couple of documents a day, not five hundred.
+3. **SEC companyfacts** — each company's own XBRL facts, read by
+   `scripts/fundamentals.mjs` on the company's own fiscal calendar (a June
+   year-end is FY2026 when the company says so), with balance sheets dated at
+   the fiscal year end and share counts on the latest 10-K's split basis.
+   Cached in `data/fundamentals/` per 10-K accession, so a company is fetched
+   once a year. The SEC's calendar-year `frames` are kept only as a fallback.
+4. **The 10-K itself** — downloaded and parsed by `scripts/tenk.mjs` for Item 1
+   (Business) and the Item 1A risk-factor headings. Cached under
+   `data/filings/<TICKER>.json` and keyed by accession number, so a filing is
+   only downloaded once; after a parser change, 150 cached filings a night are
+   re-read.
+5. **Closing prices** — each night's close is appended to
+   `data/detail/<TICKER>.json`, which is what the price chart draws.
+   `scripts/backfill-closes.mjs` rebuilt the earlier sessions from this
+   repository's own history.
 
-Output lands in `data/snapshot.json` (market data, ~1MB) and
-`data/filings/*.json` (10-K prose, lazy-loaded per card). The Action commits
-both back to the repo; GitHub Pages serves them as static files.
+Output lands in `data/snapshot.json` (market data, ~1MB), `data/detail/*.json`
+(history, chart, analysts) and `data/filings/*.json` (10-K prose, lazy-loaded per
+card). `scripts/audit.mjs` checks the result before anything is committed, and
+refuses to publish a snapshot that is worse than yesterday's.
 
 ### Setting it up on your own fork
 
@@ -191,6 +205,12 @@ BROKER_SECRET=$(openssl rand -hex 32) node scripts/dev-server.mjs
 functions under `api/`, so the brokerage connection works locally. Pass any of the
 environment variables above the same way. `python3 -m http.server 8080` still
 works for the deck alone, but the cart will say placing orders needs the live site.
+
+The pipeline's parsers have fixture tests that need no network:
+
+```bash
+node --test tests/*.test.mjs
+```
 
 The page needs `data/snapshot.json` to show anything; if it's missing you get a
 setup screen instead. To build one yourself:

@@ -11,6 +11,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { sessionDate } from "./dates.mjs";
 import {
   num, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
   FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext,
@@ -66,7 +67,7 @@ ${extra}
     <span>Stock<b>OrNot</b></span>
   </a>
   <div class="topbar-actions">
-    <a class="ghost-btn" href="/stock/"><span>All companies</span></a>
+    <a class="ghost-btn" href="/stock"><span>All companies</span></a>
     <a class="ghost-btn accent has-items" href="/"><span>Open the deck</span></a>
   </div>
 </header>
@@ -92,9 +93,12 @@ function statTable(rows) {
     .join("")}</tbody></table>`;
 }
 
-function historyTable(history) {
-  if (!history || !history.revenue) return "";
-  const years = Object.keys(history.revenue).map(Number).sort((a, b) => b - a).slice(0, 5);
+function historyTable(history, restated = false) {
+  if (!history || !Object.values(history).some((r) => r && typeof r === "object")) return "";
+  /* every year any row has, not just revenue's: a company whose revenue
+     tag changed would otherwise lose its latest years from the table */
+  const years = [...new Set(Object.values(history).filter((r) => r && typeof r === "object")
+    .flatMap((r) => Object.keys(r)))].map(Number).sort((a, b) => b - a).slice(0, 5);
   if (!years.length) return "";
 
   const rows = [
@@ -118,17 +122,17 @@ function historyTable(history) {
   for (const [k, label] of [["grossProfit", "Gross margin"], ["opIncome", "Operating margin"], ["netIncome", "Net margin"]]) {
     if (!history[k]) continue;
     derived += `<tr class="is-derived"><th scope="row">${esc(label)}</th>${years.map((y) => {
-      const v = history[k][y], r = history.revenue[y];
+      const v = history[k][y], r = history.revenue ? history.revenue[y] : null;
       return `<td>${esc(num(v) && num(r) && r !== 0 ? ((v / r) * 100).toFixed(1) + "%" : "—")}</td>`;
     }).join("")}</tr>`;
   }
-  const adjShares = splitAdjustShares(history.shares).shares;
+  const adjShares = splitAdjustShares(history.shares, { restated }).shares;
   if (adjShares) {
     derived += `<tr><th scope="row">Diluted shares</th>${years
       .map((y) => `<td>${esc(num(adjShares[y]) ? money(adjShares[y], false) : "—")}</td>`).join("")}</tr>`;
   }
 
-  const note = shareCountNote(history.shares);
+  const note = shareCountNote(history.shares, { restated });
 
   return `<div class="table-scroll"><table class="fin-table">
 <thead><tr><th></th>${years.map((y) => `<th>FY${y}</th>`).join("")}</tr></thead>
@@ -142,7 +146,7 @@ function historyTable(history) {
    the whole snapshot in view. Set once in main(). */
 let CTX = null;
 
-function companyPage(s, filing, deep, siblings, updated) {
+function companyPage(s, filing, deep, siblings, updated, session) {
   const res = scoreStock(s, CTX);
   const label = scoreLabel(res.overall);
   const pc = prosAndCons(s, CTX);
@@ -172,7 +176,7 @@ function companyPage(s, filing, deep, siblings, updated) {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
-      { "@type": "ListItem", position: 1, name: "All companies", item: `${SITE}/stock/` },
+      { "@type": "ListItem", position: 1, name: "All companies", item: `${SITE}/stock` },
       { "@type": "ListItem", position: 2, name: `${s.n} (${s.t})`, item: url }
     ]
   };
@@ -203,7 +207,7 @@ function companyPage(s, filing, deep, siblings, updated) {
         : "Nothing in these numbers stands out as a concern. That is not the same as no risk: read the risk factors below."}</p>`;
 
   return head(title + " | StockOrNot", description, url, extra) + `
-<nav class="crumbs"><a href="/stock/">All companies</a> <span>/</span> <span>${esc(s.t)}</span></nav>
+<nav class="crumbs"><a href="/stock">All companies</a> <span>/</span> <span>${esc(s.t)}</span></nav>
 
 <h1>${esc(s.n)} <span class="h1-ticker">(${esc(s.t)})</span></h1>
 <p class="doc-sub">${esc(s.s)} · ${esc(cap(s.mc))} market cap${s.cik ? ` · SEC CIK ${esc(s.cik)}` : ""}</p>
@@ -212,7 +216,7 @@ function companyPage(s, filing, deep, siblings, updated) {
   <div class="hero-price">
     <span class="hero-num">${esc(price(s.price))}</span>
     <span class="delta ${dir}"><span class="arrow">${arrow}</span><span>${esc(pct(s.change, 2))} on the day</span></span>
-    <span class="hero-asof">as of ${esc(dateShort((updated || "").slice(0, 10)))}</span>
+    <span class="hero-asof">close of ${esc(dateShort(session || (updated || "").slice(0, 10)))}</span>
   </div>
   <div class="hero-score">
     <span class="hero-score-num">${num(res.overall) ? res.overall : "—"}</span>
@@ -254,9 +258,9 @@ ${statTable([
   ["1-year return", pct(s.r52)]
 ])}
 
-${deep && deep.history && deep.history.revenue ? `<h2>Five years of financials, as filed</h2>
+${deep && deep.history && Object.keys(deep.history).length ? `<h2>Five years of financials, as filed</h2>
 <p class="block-note">Pulled from ${esc(s.n)}'s XBRL filings on SEC EDGAR. Italic rows are derived from the rows above.</p>
-${historyTable(deep.history)}` : ""}
+${historyTable(deep.history, !!deep.sharesRestated)}` : ""}
 
 ${filing && filing.business ? `<h2>What ${esc(s.n)} says it does</h2>
 <p class="doc-quote">${esc(filing.business)}</p>` : ""}
@@ -312,7 +316,7 @@ function indexPage(stocks, updated) {
     `All ${stocks.length} companies in the S&P 500, each with its valuation, margins, balance sheet ` +
     `as filed, next earnings date and the risk factors from its own 10-K.`;
 
-  return head(title, description, `${SITE}/stock/`) + `
+  return head(title, description, `${SITE}/stock`) + `
 <h1>Every company in the S&amp;P 500</h1>
 <p class="doc-sub">${stocks.length} companies, grouped by sector. Each page carries the valuation,
 five years of financials as filed, the next earnings date and the risk factors from the company's own 10-K.</p>
@@ -326,6 +330,8 @@ ${body}
 async function main() {
   const snap = await readJSON(path.join(DATA, "snapshot.json"));
   CTX = buildScoreContext(snap?.stocks || []);
+  /* the trading session the prices belong to, not the UTC day the run ended */
+  const session = snap?.session || (snap?.updated ? sessionDate(snap.updated) : null);
   if (!snap?.stocks?.length) {
     console.error("No snapshot to build from. Run scripts/refresh.mjs first.");
     process.exit(1);
@@ -333,8 +339,12 @@ async function main() {
 
   await fs.mkdir(OUTDIR, { recursive: true });
 
-  /* clear out pages for companies that have left the index */
+  /* Clear out pages for companies that have left the index. A company that
+     merely failed to quote tonight is still in the index: its page stays up
+     (yesterday's version) rather than 404ing for anyone who follows a link. */
+  const universe = await readJSON(path.join(DATA, "sp500.json"));
   const keep = new Set(snap.stocks.map((s) => slug(s.t) + ".html"));
+  for (const c of universe?.companies || []) keep.add(slug(c.t) + ".html");
   keep.add("index.html");
   for (const f of await fs.readdir(OUTDIR).catch(() => [])) {
     if (f.endsWith(".html") && !keep.has(f)) await fs.unlink(path.join(OUTDIR, f));
@@ -354,7 +364,11 @@ async function main() {
       .sort((a, b) => (b.mc || 0) - (a.mc || 0))
       .slice(0, 12);
 
-    const html = companyPage(s, filing?.detail || null, deep, siblings, snap.updated);
+    /* Only the reading of the 10-K this page links to; after a new filing
+       that could not be read, the cache may still hold last year's text. */
+    const k = s.sec && s.sec.tenK;
+    const current = filing && k && (!k.accession || !filing.accession || filing.accession === k.accession);
+    const html = companyPage(s, current ? filing.detail || null : null, deep, siblings, snap.updated, session);
     await fs.writeFile(path.join(OUTDIR, slug(s.t) + ".html"), html);
     written++;
   }
@@ -365,7 +379,7 @@ async function main() {
   const today = (snap.updated || new Date().toISOString()).slice(0, 10);
   const urls = [
     { loc: `${SITE}/`, pri: "1.0", freq: "daily" },
-    { loc: `${SITE}/stock/`, pri: "0.9", freq: "daily" },
+    { loc: `${SITE}/stock`, pri: "0.9", freq: "daily" },
     { loc: `${SITE}/method`, pri: "0.8", freq: "monthly" },
     ...snap.stocks.map((s) => ({ loc: `${SITE}/stock/${slug(s.t)}`, pri: "0.7", freq: "daily" }))
   ];
