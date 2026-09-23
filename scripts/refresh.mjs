@@ -276,9 +276,14 @@ async function priceHistory(ticker) {
 /* ----------------------------------------------------- what the street thinks */
 
 async function analystView(ticker) {
-  const [recs, surprises] = await Promise.all([
+  /* Insider sentiment rides the same rotation: it is monthly data too, and one
+     more call on a tenth of the index a night costs a few seconds. */
+  const since = new Date(Date.now() - 200 * 864e5).toISOString().slice(0, 10);
+  const until = new Date().toISOString().slice(0, 10);
+  const [recs, surprises, insiderRes] = await Promise.all([
     finnhub(`/stock/recommendation?symbol=${encodeURIComponent(ticker)}`),
-    finnhub(`/stock/earnings?symbol=${encodeURIComponent(ticker)}`)
+    finnhub(`/stock/earnings?symbol=${encodeURIComponent(ticker)}`),
+    finnhub(`/stock/insider-sentiment?symbol=${encodeURIComponent(ticker)}&from=${since}&to=${until}`)
   ]);
 
   const trend = Array.isArray(recs)
@@ -298,7 +303,18 @@ async function analystView(ticker) {
       })).filter((e) => e.actual !== null)
     : [];
 
-  return (trend.length || earnings.length) ? { trend, earnings } : null;
+  /* Newest month first, at most six. MSPR runs -100 (all selling) to +100. */
+  const months = Array.isArray(insiderRes?.data)
+    ? insiderRes.data
+        .filter((r) => numOrNull(r.mspr) !== null)
+        .map((r) => ({ ym: `${r.year}-${String(r.month).padStart(2, "0")}`, mspr: +r.mspr.toFixed(2), change: numOrNull(r.change) }))
+        .sort((a, b) => (a.ym < b.ym ? 1 : -1))
+        .slice(0, 6)
+    : [];
+
+  return (trend.length || earnings.length)
+    ? { trend, earnings, insider: months.length ? { months } : null }
+    : null;
 }
 
 /* ------------------------------------------------------------ EDGAR filings */
@@ -477,7 +493,14 @@ async function main() {
     if (!row?.date || row.date < todayStr) return;
     const held = earnings.get(row.symbol);
     if (held && held.date <= row.date) return;
-    earnings.set(row.symbol, { date: row.date, epsEst: numOrNull(row.epsEstimate), hour: row.hour || null });
+    earnings.set(row.symbol, {
+      date: row.date,
+      epsEst: numOrNull(row.epsEstimate),
+      revEst: numOrNull(row.revenueEstimate),
+      hour: row.hour || null,
+      /* the fiscal quarter being reported, e.g. Q3 2026 — not the calendar one */
+      q: numOrNull(row.quarter), fy: numOrNull(row.year)
+    });
   };
 
   for (const e of cal?.earningsCalendar || []) remember(e);
@@ -653,6 +676,18 @@ async function main() {
       r13:  pickMetric(m, "13WeekPriceReturnDaily"),
       r26:  pickMetric(m, "26WeekPriceReturnDaily"),
       r52:  pickMetric(m, "52WeekPriceReturnDaily"),
+
+      /* second-look figures: shown on the card, not used by the score */
+      pef:      pickMetric(m, "forwardPE", "peForward", "forwardPeTTM"),
+      pfcf:     pickMetric(m, "pfcfShareTTM", "pfcfShareAnnual"),
+      evEbitda: pickMetric(m, "evEbitdaTTM", "evEbitdaAnnual", "currentEv/ebitdaTTM"),
+      qr:       pickMetric(m, "quickRatioQuarterly", "quickRatioAnnual"),
+      ic:       pickMetric(m, "netInterestCoverageTTM", "netInterestCoverageAnnual"),
+      eg5:      pickMetric(m, "epsGrowth5Y"),
+      dg5:      pickMetric(m, "dividendGrowthRate5Y"),
+      ytd:      pickMetric(m, "yearToDatePriceReturnDaily"),
+      rs52:     pickMetric(m, "priceRelativeToS&P50052Week"),
+      vol:      pickMetric(m, "10DayAverageTradingVolume", "3MonthAverageTradingVolume"),
 
       earnings: earnings.get(c.t) || null,
 

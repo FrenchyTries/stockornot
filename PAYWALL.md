@@ -1,5 +1,9 @@
 # The paywall, and the part of it that does not exist yet
 
+> **Switched off for development.** `DEV_UNLIMITED = true` in `lib/tier.mjs`
+> treats every visitor as a member: unlimited companies, unlimited cart. Flip it
+> back to `false` to restore the tiers below. Nothing else needs to change.
+
 The tiers are built. The enforcement is not. This file is the honest account of
 the gap, so nobody ships a payment button on top of a gate that does not hold.
 

@@ -20,6 +20,9 @@ import {
 } from "./lib/analysis.mjs";
 import * as auth from "./lib/auth.mjs";
 import * as tier from "./lib/tier.mjs";
+import * as insight from "./lib/insight.mjs";
+import * as broker from "./lib/broker.mjs";
+import * as earn from "./lib/earnings.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
@@ -47,7 +50,10 @@ var state = {
   tier:    "anon",        /* anon | free | member, resolved after auth */
   viewed:  null,          /* distinct companies opened, counted against the allowance */
   authPending: false,     /* true while we are still finding out */
-  busy:    false
+  busy:    false,
+  sectors: null,          /* per-sector sorted metrics, built once per snapshot */
+  broker:  null,          /* last /api/broker status; null until asked */
+  orderType: "market"     /* market (dollars) | limit (whole shares) */
 };
 
 var seenSet = new Set(state.seen);
@@ -105,6 +111,7 @@ function loadSnapshot() {
       state.all = snap.stocks;
       state.updated = snap.updated;
       state.all.forEach(function (s) { state.byTicker[s.t] = s; });
+      state.sectors = insight.buildSectorStats(state.all);
       return snap;
     });
 }
@@ -232,7 +239,7 @@ function showWall() {
       [
         { label: "See what membership includes", onClick: function () { location.href = "/pricing"; } },
         { label: "Keep my cart and stop here", kind: "link",
-          onClick: function () { renderCart(); openDialog($("#dlgCart")); } }
+          onClick: openCart }
       ]
     );
   }
@@ -323,10 +330,98 @@ function factorBars(res) {
 function statRow(label, value, hint) {
   var d = el("div", "stat");
   d.appendChild(el("dt", "", label));
-  var dd = el("dd", "", value);
-  if (hint) dd.title = hint;
-  d.appendChild(dd);
+  d.appendChild(el("dd", "", value));
+  if (hint) d.title = hint;
   return d;
+}
+
+function streetExpects(e) {
+  var parts = [];
+  if (num(e.epsEst)) parts.push(earn.eps(e.epsEst) + " EPS");
+  if (num(e.revEst)) parts.push(earn.money(e.revEst) + " revenue");
+  return parts.length ? " · street expects " + parts.join(" on ") : "";
+}
+
+/* The numbers in labelled groups. Each figure carries a one-line explanation
+   as its tooltip, because "PEG 0.84" means nothing to someone who has not
+   met a PEG before. */
+function numberGrids(s) {
+  var out = [];
+  insight.numberGroups(s).forEach(function (g) {
+    out.push(el("h4", "sub-h stat-group-h", g.title));
+    var grid = el("dl", "c-stats");
+    g.rows.forEach(function (r) { grid.appendChild(statRow(r[0], r[1], r[2])); });
+    out.push(grid);
+  });
+  return out;
+}
+
+/* Where the company sits among the rest of its sector, metric by metric. The
+   dot runs from the weak end on the left to the strong end on the right, and
+   the words say the same thing so nothing rests on the dot alone. */
+function sectorBlock(s, limit) {
+  var view = insight.sectorView(s, state.sectors);
+  if (!view || !view.rows.length) return null;
+  var box = el("div", "vs-list");
+  view.rows.slice(0, limit || view.rows.length).forEach(function (r) {
+    var row = el("div", "vs-row");
+    row.title = r.label + " " + r.value + ": " + r.text + " of the " + r.peers + " companies in the sector that report it. Median " + r.median + ".";
+    var left = el("div", "vs-l");
+    left.appendChild(el("span", "vs-label", r.label));
+    left.appendChild(el("span", "vs-med", "median " + r.median));
+    row.appendChild(left);
+    var meter = el("div", "vs-meter");
+    meter.setAttribute("aria-hidden", "true");
+    var dot = el("span", "vs-dot");
+    dot.style.left = r.share + "%";
+    meter.appendChild(dot);
+    row.appendChild(meter);
+    var right = el("div", "vs-r");
+    right.appendChild(el("span", "vs-val", r.value));
+    right.appendChild(el("span", "vs-rank", r.text));
+    row.appendChild(right);
+    box.appendChild(row);
+  });
+  return { node: box, view: view };
+}
+
+/* Ratings, the beat record and insider activity in three lines. Returns false
+   when there is nothing to say, so the card can drop the block entirely. */
+function fillStreet(box, deep) {
+  var a = deep && deep.analyst;
+  var c = insight.consensus(a);
+  var b = insight.beatRecord(a);
+  var ins = insight.insiderSummary(a && a.insider);
+  if (!c && !b && !ins) return false;
+
+  if (c) {
+    var bar = el("div", "rec-bar street-bar");
+    [["buy", c.buy, "rec-b", "Buy"], ["hold", c.hold, "rec-h", "Hold"], ["sell", c.sell, "rec-s", "Sell"]]
+      .forEach(function (p) {
+        if (!p[1]) return;
+        var seg = el("span", "rec-seg " + p[2]);
+        seg.style.width = (p[1] / c.total * 100) + "%";
+        seg.title = p[3] + ": " + p[1];
+        if (p[1] / c.total > 0.12) seg.textContent = Math.round(p[1] / c.total * 100) + "%";
+        bar.appendChild(seg);
+      });
+    box.appendChild(bar);
+    var line = c.buyPct + "% rate it a buy, " + c.holdPct + "% hold, " + c.sellPct + "% sell · " +
+      c.total + " analysts";
+    if (num(c.shift) && c.shift !== 0) line += " · buys " + (c.shift > 0 ? "up " : "down ") + Math.abs(c.shift) + " pts on the month";
+    box.appendChild(el("p", "street-line", line));
+  }
+  if (b) {
+    box.appendChild(el("p", "street-line",
+      "Beat the EPS estimate in " + b.beats + " of the last " + b.of + " quarters" +
+      (num(b.avgSurprise) ? ", by " + pct(b.avgSurprise, 1) + " on average." : ".")));
+  }
+  if (ins) {
+    box.appendChild(el("p", "street-line",
+      "Insiders: " + ins.word + " over the last " + ins.months + " months" +
+      " (sentiment " + (ins.mspr > 0 ? "+" : "") + ins.mspr.toFixed(0) + " on a −100 to +100 scale)."));
+  }
+  return true;
 }
 
 function makeCard(s, depth) {
@@ -400,8 +495,9 @@ function makeCard(s, depth) {
     eb.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>' +
       '<span><b>Next earnings ' + when + '</b> on ' + dateShort(e.date) +
-      (e.hour ? ' (' + (e.hour === "bmo" ? "before the open" : e.hour === "amc" ? "after the close" : e.hour) + ')' : '') +
-      (num(e.epsEst) ? ' · street expects ' + (e.epsEst < 0 ? "-" : "") + "$" + Math.abs(e.epsEst).toFixed(2) + ' EPS' : '') +
+      (earn.quarterLabel(e) ? ' for ' + earn.quarterLabel(e) : '') +
+      (e.hour ? ' (' + (earn.whenWord(e.hour) || e.hour) + ')' : '') +
+      streetExpects(e) +
       '</span>';
   } else {
     eb.classList.add("is-muted");
@@ -450,29 +546,33 @@ function makeCard(s, depth) {
   pcWrap.appendChild(column("con", "Against it", pc.cons, "−"));
   body.appendChild(pcWrap);
 
+  /* ---------- what the street says, from the deep file ---------- */
+  var street = el("section", "c-block c-street");
+  street.appendChild(el("h3", "block-h", "What the street says"));
+  var streetSlot = el("div", "");
+  streetSlot.appendChild(el("p", "block-note", "Loading…"));
+  street.appendChild(streetSlot);
+  body.appendChild(street);
+  loadDeep(s.t).then(function (deep) {
+    if (!card.isConnected) return;
+    streetSlot.innerHTML = "";
+    if (!fillStreet(streetSlot, deep)) street.remove();
+  });
+
   /* ---------- the numbers ---------- */
   var sec1 = el("section", "c-block");
   sec1.appendChild(el("h3", "block-h", "The numbers"));
-  var grid = el("dl", "c-stats");
-  [
-    ["P/E",           num(s.pe) && s.pe > 0 ? x(s.pe) : "n/a"],
-    ["Price / book",  num(s.pb) && s.pb > 0 ? x(s.pb, 2) : "n/a"],
-    ["Price / sales", num(s.ps) && s.ps > 0 ? x(s.ps, 1) : "n/a"],
-    ["Rev. growth",   pct(s.rg)],
-    ["EPS growth",    pct(s.eg)],
-    ["Gross margin",  pctPlain(s.gm, 0)],
-    ["Op. margin",    pctPlain(s.om, 0)],
-    ["Net margin",    pctPlain(s.nm, 0)],
-    ["ROE",           pctPlain(s.roe, 0)],
-    ["Debt/equity",   num(s.de) ? x(s.de, 2) : "n/a"],
-    ["Current ratio", num(s.cr) ? s.cr.toFixed(2) : "n/a"],
-    ["Div. yield",    num(s.dy) && s.dy > 0 ? pctPlain(s.dy, 2) : "none"],
-    ["Beta",          num(s.beta) ? s.beta.toFixed(2) : "n/a"],
-    ["3mo return",    pct(s.r13)],
-    ["1yr return",    pct(s.r52)]
-  ].forEach(function (p) { grid.appendChild(statRow(p[0], p[1])); });
-  sec1.appendChild(grid);
+  numberGrids(s).forEach(function (n) { sec1.appendChild(n); });
   body.appendChild(sec1);
+
+  /* ---------- against its sector ---------- */
+  var vs = sectorBlock(s, 6);
+  if (vs) {
+    var secV = el("section", "c-block");
+    secV.appendChild(el("h3", "block-h", "Against " + vs.view.sector + " (" + vs.view.count + ")"));
+    secV.appendChild(vs.node);
+    body.appendChild(secV);
+  }
 
   /* ---------- from the annual report ---------- */
   var f = s.fin || {};
@@ -731,6 +831,7 @@ function adoptAccountCart() {
     state.cart = merged;
     save(LS.cart, state.cart);
     renderCartCount();
+    renderEarnNotice();
     if ($("#dlgCart").open) renderCart();
     if (changed || remote.length !== merged.length) return auth.pushCart(merged);
   }).then(function () { setSyncNote("saved"); });
@@ -752,7 +853,7 @@ function addToCart(s) {
         { label: state.tier === "anon" ? "Create a free account" : "See membership",
           onClick: function () { state.tier === "anon" ? openAuth() : (location.href = "/pricing"); } },
         { label: "Empty a slot instead", kind: "link",
-          onClick: function () { renderCart(); openDialog($("#dlgCart")); } }
+          onClick: openCart }
       ]
     );
     return;
@@ -765,6 +866,7 @@ function addToCart(s) {
   });
   persistCart();
   renderCartCount();
+  renderEarnNotice();
   flashCart();
 }
 
@@ -787,6 +889,7 @@ function renderCart() {
   $("#cartFoot").hidden = state.cart.length === 0;
 
   var moves = [];
+  var held = heldBySymbol();
 
   state.cart.forEach(function (item, idx) {
     var live = state.byTicker[item.t];
@@ -821,15 +924,52 @@ function renderCart() {
     rm.addEventListener("click", function () {
       state.cart.splice(idx, 1);
       persistCart();
-      renderCart(); renderCartCount();
+      renderCart(); renderCartCount(); renderEarnNotice();
     });
     head.appendChild(rm);
     row.appendChild(head);
 
+    var e = live && live.earnings;
+    var d = e && e.date ? earn.daysUntil(e.date) : null;
     var meta = el("p", "ci-meta");
     meta.textContent = "Added " + dateShort(item.addedAt.slice(0, 10)) + " at " + price(item.priceAtAdd) +
-      (live && live.earnings && live.earnings.date ? " · reports " + dateShort(live.earnings.date) : "");
+      (e && e.date ? " · reports " + dateShort(e.date) + (d !== null && d >= 0 && d <= earn.ALERT_DAYS ? " (" + (d === 0 ? "today" : d === 1 ? "tomorrow" : "in " + d + " days") + ")" : "") : "");
+    if (d !== null && d >= 0 && d <= earn.ALERT_DAYS) meta.classList.add("is-soon");
     row.appendChild(meta);
+
+    /* ---- how much to put in ---- */
+    var amtRow = el("div", "ci-amount");
+    var lab = el("label", "ci-amt-label", "Amount");
+    var inputId = "amt-" + item.t.replace(/[^A-Za-z0-9]/g, "_");
+    lab.htmlFor = inputId;
+    amtRow.appendChild(lab);
+    var wrapIn = el("span", "money-in");
+    wrapIn.appendChild(el("span", "", "$"));
+    var amt = el("input", "");
+    amt.id = inputId;
+    amt.type = "number"; amt.inputMode = "decimal"; amt.min = "0"; amt.step = "any";
+    amt.placeholder = "0";
+    amt.value = num(item.amount) && item.amount > 0 ? String(item.amount) : "";
+    wrapIn.appendChild(amt);
+    amtRow.appendChild(wrapIn);
+    var est = el("span", "ci-est", "");
+    amtRow.appendChild(est);
+    var h = held[item.t];
+    if (h) amtRow.appendChild(el("span", "ci-held", "You hold " + fmtQty(h.qty) + " sh (" + usd(h.value) + ")"));
+    row.appendChild(amtRow);
+
+    function showEst() {
+      var v = Number(item.amount);
+      est.textContent = v > 0 && now ? "≈ " + fmtQty(v / now) + " sh at " + price(now) : "";
+    }
+    showEst();
+    amt.addEventListener("input", function () {
+      var v = parseFloat(amt.value);
+      item.amount = isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
+      showEst();
+      renderOrderBar();
+      persistCart();
+    });
 
     var note = el("textarea", "ci-note");
     note.rows = 2;
@@ -853,17 +993,30 @@ function renderCart() {
     }
   }
   $("#cartSummary").textContent = summary;
+  renderBrokerPanel();
+  renderOrderBar();
+}
+
+function openCart() {
+  renderCart();
+  openDialog($("#dlgCart"));
+  refreshBroker().then(function (b) { if (b && b.connected) loadPortfolio(); });
+}
+
+function fmtQty(q) {
+  if (!num(q)) return "—";
+  return q >= 100 ? q.toFixed(0) : q >= 1 ? q.toFixed(2).replace(/\.?0+$/, "") : q.toFixed(4).replace(/0+$/, "");
 }
 
 function exportCsv() {
-  var rows = [["ticker", "company", "sector", "added", "price_at_add", "price_now", "change_pct", "note"]];
+  var rows = [["ticker", "company", "sector", "added", "price_at_add", "price_now", "change_pct", "planned_amount", "note"]];
   state.cart.forEach(function (i) {
     var live = state.byTicker[i.t];
     var now = live && num(live.price) ? live.price : "";
     var chg = now !== "" && num(i.priceAtAdd) && i.priceAtAdd > 0
       ? (((now - i.priceAtAdd) / i.priceAtAdd) * 100).toFixed(2) : "";
     rows.push([i.t, i.n, i.sector || "", i.addedAt.slice(0, 10),
-               num(i.priceAtAdd) ? i.priceAtAdd : "", now, chg, i.note || ""]);
+               num(i.priceAtAdd) ? i.priceAtAdd : "", now, chg, num(i.amount) ? i.amount : "", i.note || ""]);
   });
   var csv = rows.map(function (r) {
     return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(",");
@@ -880,6 +1033,593 @@ function exportCsv() {
 }
 
 
+
+/* ========================================================= BROKERAGE =====
+   The cart becomes an order ticket. Each company carries a dollar amount;
+   once a brokerage is connected those amounts can be reviewed and sent as
+   orders. Everything goes through /api/broker on this site, which holds the
+   credentials where this script cannot reach them (see lib/broker.mjs).
+   ======================================================================== */
+
+var portfolio = null;         /* { positions, orders } once fetched */
+var brokerLoading = null;
+
+function refreshBroker() {
+  if (brokerLoading) return brokerLoading;
+  brokerLoading = broker.status().then(function (r) {
+    brokerLoading = null;
+    if (r.unavailable) state.broker = { unavailable: true };
+    else if (!r.ok) state.broker = { error: r.error || "Could not check the brokerage." };
+    else state.broker = r.data;
+    if (!state.broker.connected) portfolio = null;
+    renderBrokerPanel();
+    renderOrderBar();
+    return state.broker;
+  });
+  return brokerLoading;
+}
+
+function loadPortfolio() {
+  if (!state.broker || !state.broker.connected) return Promise.resolve(null);
+  return broker.portfolio().then(function (r) {
+    portfolio = r.ok ? r.data : null;
+    if ($("#dlgCart").open) renderCart();
+    if ($("#dlgBroker").open) renderAccount();
+    return portfolio;
+  });
+}
+
+function heldBySymbol() {
+  var out = {};
+  ((portfolio && portfolio.positions) || []).forEach(function (p) { out[p.symbol] = p; });
+  return out;
+}
+
+var envName = function (env) { return env === "live" ? "Live" : "Paper"; };
+
+/* Money that is about to change hands is shown to the cent, never as "$2K". */
+function usd(v) {
+  if (!num(v)) return "—";
+  var a = Math.abs(v);
+  return (v < 0 ? "-$" : "$") + a.toLocaleString("en-US", {
+    minimumFractionDigits: Math.round(a * 100) % 100 ? 2 : 0, maximumFractionDigits: 2
+  });
+}
+
+function renderBrokerPanel() {
+  var box = $("#brokerPanel");
+  if (!box) return;
+  box.innerHTML = "";
+  var b = state.broker;
+  box.className = "broker-panel";
+
+  if (!b) { box.appendChild(el("p", "bp-line muted", "Checking for a brokerage connection…")); return; }
+  if (b.unavailable) {
+    box.appendChild(el("p", "bp-line muted", "Placing orders needs the live site, which runs a small server function. This copy is static files only."));
+    return;
+  }
+  if (b.error) { box.appendChild(el("p", "bp-line muted", b.error)); return; }
+  if (!b.configured) {
+    box.appendChild(el("p", "bp-line muted", "Brokerage connections are not switched on for this site yet. The server needs BROKER_SECRET set (see README)."));
+    return;
+  }
+
+  var line = el("div", "bp-row");
+  var icon = el("span", "bp-dot" + (b.connected ? " is-on" : ""));
+  icon.setAttribute("aria-hidden", "true");
+  line.appendChild(icon);
+  var txt = el("div", "bp-text");
+  if (b.connected) {
+    box.classList.add("is-connected", b.env === "live" ? "is-live" : "is-paper");
+    var t = el("b", "", b.broker + " · " + envName(b.env));
+    txt.appendChild(t);
+    var a = b.account;
+    txt.appendChild(el("span", "", a
+      ? usd(a.buyingPower) + " available to buy" + (a.tradingBlocked ? " · trading blocked on this account" : "")
+      : (b.accountError || "Account details unavailable right now.")));
+  } else {
+    txt.appendChild(el("b", "", "No brokerage connected"));
+    txt.appendChild(el("span", "", "Connect one to turn this cart into orders."));
+  }
+  line.appendChild(txt);
+  var btn = el("button", b.connected ? "ghost-btn" : "primary-btn", b.connected ? "Account" : "Connect");
+  btn.type = "button";
+  btn.addEventListener("click", openBroker);
+  line.appendChild(btn);
+  box.appendChild(line);
+}
+
+function plannedTotal() {
+  return state.cart.reduce(function (sum, i) { return sum + (num(i.amount) && i.amount > 0 ? i.amount : 0); }, 0);
+}
+
+function renderOrderBar() {
+  var bar = $("#orderBar");
+  if (!bar) return;
+  bar.hidden = state.cart.length === 0;
+  var total = plannedTotal();
+  $("#obTotal").textContent = usd(total);
+  var b = state.broker;
+  var bp = b && b.connected && b.account ? b.account.buyingPower : null;
+  var bpEl = $("#obBp");
+  bpEl.textContent = num(bp) ? "of " + usd(bp) + " available" : "";
+  bpEl.classList.toggle("is-over", num(bp) && total > bp);
+
+  var btn = $("#btnReview");
+  if (b && b.connected) {
+    btn.textContent = "Review orders";
+    btn.disabled = !(total > 0);
+  } else if (b && b.configured) {
+    btn.textContent = "Connect to place orders";
+    btn.disabled = false;
+  } else {
+    btn.textContent = "Review orders";
+    btn.disabled = true;
+  }
+}
+
+function splitEvenly(total) {
+  if (!(total > 0) || !state.cart.length) return;
+  var each = Math.floor((total / state.cart.length) * 100) / 100;
+  state.cart.forEach(function (i) { i.amount = each; });
+  persistCart();
+  renderCart();
+}
+
+/* ---------------------------------------------------------- the account */
+
+function brokerError(msg) {
+  var box = $("#brokerError");
+  box.hidden = !msg;
+  box.textContent = msg || "";
+}
+
+function openBroker() {
+  brokerError("");
+  renderAccount();
+  openDialog($("#dlgBroker"));
+  refreshBroker().then(function () {
+    renderAccount();
+    if (state.broker && state.broker.connected) loadPortfolio();
+  });
+}
+
+function renderAccount() {
+  var b = state.broker || {};
+  var connected = !!b.connected;
+  $("#brokerConnect").hidden = connected || !b.configured;
+  $("#brokerAccount").hidden = !connected;
+  var un = $("#brokerUnavailable");
+  un.hidden = !(b.unavailable || (b.configured === false));
+  un.textContent = b.unavailable
+    ? "Placing orders needs the live site, which runs a small server function. This copy is static files only."
+    : "Brokerage connections are not switched on for this site yet. Set BROKER_SECRET on the server (see the README).";
+  $("#brokerEnvNote").textContent = connected ? b.broker + " · " + envName(b.env) + (b.via === "oauth" ? " · via sign-in" : " · via API keys") : "";
+  if (b.lost) brokerError("The saved connection stopped working (" + b.lost + ") and has been removed. Connect again.");
+  if (b.error) brokerError(b.error);
+
+  if (!connected) {
+    var oauth = $("#brokerOauth");
+    oauth.hidden = !b.oauth;
+    $("#brokerOr").hidden = !b.oauth;
+    var liveOpt = $("#envLiveOpt");
+    var liveInput = $("input[value=live]", liveOpt);
+    liveInput.disabled = !b.liveAllowed;
+    liveOpt.classList.toggle("is-disabled", !b.liveAllowed);
+    liveOpt.title = b.liveAllowed ? "" : "Live trading is switched off while the site is in development.";
+    if (!b.liveAllowed) $("input[value=paper]", $("#brokerEnv")).checked = true;
+    oauth.href = broker.oauthUrl(pickedEnv());
+    return;
+  }
+
+  var a = b.account;
+  var grid = $("#acctGrid");
+  grid.innerHTML = "";
+  if (a) {
+    var dayMove = num(a.equity) && num(a.lastEquity) && a.lastEquity > 0 ? ((a.equity - a.lastEquity) / a.lastEquity) * 100 : null;
+    [
+      ["Account", (a.number || "—") + (a.status && a.status !== "ACTIVE" ? " · " + a.status.toLowerCase() : "")],
+      ["Value", usd(a.equity) + (dayMove !== null ? "  (" + pct(dayMove, 2) + " today)" : "")],
+      ["Cash", usd(a.cash)],
+      ["Available to buy", usd(a.buyingPower)]
+    ].forEach(function (p) { grid.appendChild(statRow(p[0], p[1])); });
+    var c = a.clock;
+    $("#acctClock").textContent = c
+      ? (c.isOpen ? "The market is open. It closes " + clockTime(c.nextClose) + "."
+                  : "The market is closed. It opens " + clockTime(c.nextOpen) + "; market orders placed now wait until then.")
+      : "";
+  } else {
+    $("#acctClock").textContent = b.accountError || "";
+  }
+
+  var posBox = $("#acctPositions");
+  var ordBox = $("#acctOrders");
+  if (!portfolio) {
+    posBox.innerHTML = '<p class="block-note">Loading…</p>';
+    ordBox.innerHTML = '<p class="block-note">Loading…</p>';
+    return;
+  }
+  posBox.innerHTML = "";
+  if (!portfolio.positions.length) posBox.appendChild(el("p", "block-note", "Nothing held yet."));
+  else posBox.appendChild(positionsTable(portfolio.positions));
+  ordBox.innerHTML = "";
+  if (!portfolio.orders.length) ordBox.appendChild(el("p", "block-note", "No orders yet."));
+  else ordBox.appendChild(ordersTable(portfolio.orders));
+}
+
+function pickedEnv() {
+  var r = $("input[name=brokerEnv]:checked");
+  return r ? r.value : "paper";
+}
+
+function clockTime(iso) {
+  if (!iso) return "soon";
+  var d = new Date(iso);
+  if (isNaN(d)) return "soon";
+  return d.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+}
+
+function positionsTable(rows) {
+  var t = el("table", "fin-table acct-table");
+  var hr = el("tr");
+  ["", "Shares", "Avg cost", "Price", "Value", "Gain"].forEach(function (h) { hr.appendChild(el("th", "", h)); });
+  var thead = el("thead"); thead.appendChild(hr); t.appendChild(thead);
+  var tb = el("tbody");
+  rows.forEach(function (p) {
+    var tr = el("tr");
+    var th = el("th", "", p.symbol); th.scope = "row";
+    tr.appendChild(th);
+    [fmtQty(p.qty), price(p.avgPrice), price(p.price), usd(p.value)].forEach(function (v) { tr.appendChild(el("td", "", v)); });
+    var td = el("td", "");
+    if (num(p.plPct)) {
+      var dir = p.plPct > 0.05 ? "up" : p.plPct < -0.05 ? "down" : "flat";
+      var m = el("span", "delta small " + dir);
+      m.appendChild(el("span", "arrow", dir === "up" ? "▲" : dir === "down" ? "▼" : "–"));
+      m.appendChild(el("span", "", pct(p.plPct, 1)));
+      td.appendChild(m);
+    } else td.textContent = "—";
+    tr.appendChild(td);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  var sc = el("div", "table-scroll"); sc.appendChild(t);
+  return sc;
+}
+
+var OPEN_STATUS = { "new": 1, "accepted": 1, "pending_new": 1, "partially_filled": 1, "held": 1, "accepted_for_bidding": 1 };
+
+function ordersTable(rows) {
+  var t = el("table", "fin-table acct-table");
+  var hr = el("tr");
+  ["", "Order", "Status", "Placed", ""].forEach(function (h) { hr.appendChild(el("th", "", h)); });
+  var thead = el("thead"); thead.appendChild(hr); t.appendChild(thead);
+  var tb = el("tbody");
+  rows.forEach(function (o) {
+    var tr = el("tr");
+    var th = el("th", "", o.symbol); th.scope = "row";
+    tr.appendChild(th);
+    var what = o.side + " " + (num(o.notional) ? usd(o.notional) : fmtQty(o.qty) + " sh") +
+      (o.type === "limit" && num(o.limitPrice) ? " @ " + price(o.limitPrice) : "");
+    tr.appendChild(el("td", "", what));
+    var st = (o.status || "").replace(/_/g, " ");
+    if (o.status === "filled" && num(o.filledAvg)) st += " @ " + price(o.filledAvg);
+    tr.appendChild(el("td", "ord-status is-" + (o.status || ""), st));
+    tr.appendChild(el("td", "", o.submittedAt ? relTime(o.submittedAt) : ""));
+    var tdc = el("td", "");
+    if (OPEN_STATUS[o.status]) {
+      var cb = el("button", "link-btn danger", "Cancel");
+      cb.type = "button";
+      cb.addEventListener("click", function () {
+        cb.disabled = true;
+        broker.cancel(o.id).then(function (r) {
+          if (!r.ok) { cb.disabled = false; brokerError(r.error); return; }
+          loadPortfolio();
+        });
+      });
+      tdc.appendChild(cb);
+    }
+    tr.appendChild(tdc);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  var sc = el("div", "table-scroll"); sc.appendChild(t);
+  return sc;
+}
+
+/* ----------------------------------------------------------- the review */
+
+var review = null;            /* { rows: [{ item, plan, limitInput, result }], placed } */
+
+function orderError(msg) {
+  var box = $("#orderError");
+  box.hidden = !msg;
+  box.textContent = msg || "";
+}
+
+function openReview() {
+  var b = state.broker;
+  if (!b || !b.connected) { openBroker(); return; }
+  orderError("");
+  review = {
+    placed: false,
+    rows: state.cart.filter(function (i) { return num(i.amount) && i.amount > 0; })
+      .map(function (i) { return { item: i, limit: null, clientId: broker.clientId(i.t), result: null }; })
+  };
+  $("#ordersEnv").textContent = b.broker + " · " + envName(b.env);
+  $("#orderLiveConfirm").hidden = b.env !== "live";
+  $("#orderLiveCheck").checked = false;
+  setOrderType(state.orderType);
+  openDialog($("#dlgOrders"));
+}
+
+function setOrderType(type) {
+  state.orderType = type === "limit" ? "limit" : "market";
+  Array.prototype.forEach.call($("#orderType").children, function (c) {
+    var on = c.getAttribute("data-type") === state.orderType;
+    c.classList.toggle("is-on", on);
+    c.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  var clock = state.broker && state.broker.account && state.broker.account.clock;
+  var closed = clock && !clock.isOpen ? " The market is closed; orders wait for the open " + clockTime(clock.nextOpen) + "." : "";
+  $("#orderTypeNote").textContent = (state.orderType === "market"
+    ? "Buys the dollar amount at whatever the price is when the order fills, fractions of a share included. Prices below are last night's close, so the share count is an estimate."
+    : "Buys whole shares only, and only at or below the limit. Starts at last night's close; change any limit before placing.") + closed;
+  renderReview();
+}
+
+function planFor(row) {
+  var live = state.byTicker[row.item.t];
+  return broker.planOrder(row.item, {
+    type: state.orderType,
+    limitPrice: row.limit,
+    price: live && live.price
+  });
+}
+
+function renderReview() {
+  var list = $("#orderList");
+  list.innerHTML = "";
+  var total = 0, ready = 0;
+
+  if (!review || !review.rows.length) {
+    list.appendChild(el("p", "empty-note", "Nothing to place. Put a dollar amount against at least one company in the cart."));
+  }
+
+  (review ? review.rows : []).forEach(function (row) {
+    var plan = planFor(row);
+    row.plan = plan;
+    var live = state.byTicker[row.item.t];
+    var r = el("div", "order-row" + (row.result ? (row.result.ok ? " is-ok" : " is-bad") : ""));
+
+    var idb = el("div", "or-id");
+    idb.appendChild(el("b", "", row.item.t));
+    idb.appendChild(el("span", "", row.item.n || ""));
+    r.appendChild(idb);
+
+    var what = el("div", "or-what");
+    if (plan && plan.error) {
+      what.appendChild(el("span", "or-err", plan.error));
+    } else if (plan && plan.type === "market") {
+      what.appendChild(el("span", "", "Buy " + usd(plan.notional)));
+      if (num(plan.estShares)) what.appendChild(el("span", "or-sub", "≈ " + fmtQty(plan.estShares) + " sh at " + price(live && live.price)));
+      total += plan.cost; ready++;
+    } else if (plan) {
+      what.appendChild(el("span", "", "Buy " + plan.qty + " sh"));
+      var limWrap = el("label", "or-lim");
+      limWrap.appendChild(el("span", "", "limit $"));
+      var lim = el("input", "");
+      lim.type = "number"; lim.step = "0.01"; lim.min = "0.01"; lim.inputMode = "decimal";
+      lim.value = String(plan.limitPrice);
+      lim.setAttribute("aria-label", "Limit price for " + row.item.t);
+      lim.addEventListener("change", function () {
+        var v = parseFloat(lim.value);
+        row.limit = isFinite(v) && v > 0 ? v : null;
+        renderReview();
+      });
+      limWrap.appendChild(lim);
+      what.appendChild(limWrap);
+      what.appendChild(el("span", "or-sub", "up to " + usd(plan.cost)));
+      total += plan.cost; ready++;
+    }
+    r.appendChild(what);
+
+    if (row.result) {
+      var res = el("div", "or-result");
+      if (row.result.ok) {
+        var o = row.result.order || {};
+        res.appendChild(el("span", "delta small up", "✓ " + (o.status || "sent").replace(/_/g, " ")));
+      } else {
+        res.appendChild(el("span", "delta small down", "✗ " + row.result.error));
+      }
+      r.appendChild(res);
+    }
+    list.appendChild(r);
+  });
+
+  $("#orderTotal").textContent = usd(total);
+  var btn = $("#btnPlace");
+  var b = state.broker || {};
+  var needsConfirm = b.env === "live" && !$("#orderLiveCheck").checked;
+  btn.disabled = !ready || !!(review && review.placed) || needsConfirm;
+  btn.textContent = review && review.placed ? "Sent" : "Place " + ready + (ready === 1 ? " order" : " orders");
+  var bp = b.account && b.account.buyingPower;
+  if (!(review && review.placed)) orderError(num(bp) && total > bp ? "That is more than the " + usd(bp) + " this account has available. Some orders will be refused." : "");
+}
+
+function placeOrders() {
+  if (!review || review.placed) return;
+  var rows = review.rows.filter(function (r) { return r.plan && !r.plan.error; });
+  if (!rows.length) return;
+  var btn = $("#btnPlace");
+  btn.disabled = true;
+  btn.textContent = "Placing…";
+  orderError("");
+  var payload = rows.map(function (r) {
+    return {
+      symbol: r.plan.symbol, side: "buy", type: r.plan.type, clientId: r.clientId,
+      notional: r.plan.notional, qty: r.plan.qty, limitPrice: r.plan.limitPrice, tif: r.plan.tif
+    };
+  });
+  broker.place(payload).then(function (res) {
+    if (!res.ok) {
+      btn.disabled = false;
+      btn.textContent = "Try again";
+      orderError(res.error);
+      return;
+    }
+    review.placed = true;
+    var bySym = {};
+    res.data.results.forEach(function (x) { bySym[x.symbol] = x; });
+    rows.forEach(function (r) { r.result = bySym[r.plan.symbol] || { ok: false, error: "No answer for this one." }; });
+    var okCount = res.data.results.filter(function (x) { return x.ok; }).length;
+    renderReview();
+    orderError(okCount === rows.length ? "" : (rows.length - okCount) + " of " + rows.length + " were refused. The reasons are beside each one.");
+    btn.textContent = okCount + " of " + rows.length + " sent";
+    refreshBroker().then(loadPortfolio);
+  });
+}
+
+/* ========================================================== EARNINGS =====
+   A week's warning before anything in the cart reports, with what the street
+   expects it to hit. Three ways to hear about it: this banner whenever the
+   site is open, a calendar file whose reminders fire on any device, and an
+   email from the nightly job for anyone signed in who asks for one.
+   ======================================================================== */
+
+var NOTICE_KEY = "ts.earnNoticeHidden";
+
+function renderEarnNotice() {
+  var box = $("#earnNotice");
+  if (!box || !state.all.length) return;
+  var soon = earn.upcoming(state.cart, state.byTicker, { days: earn.ALERT_DAYS });
+  var sig = soon.map(function (u) { return u.t + u.date; }).join(",");
+  var hidden = false;
+  try { hidden = localStorage.getItem(NOTICE_KEY) === sig; } catch (e) {}
+  if (!soon.length || hidden) { box.hidden = true; return; }
+  var first = soon[0];
+  var when = first.days === 0 ? "today" : first.days === 1 ? "tomorrow" : "in " + first.days + " days";
+  $("#earnNoticeText").textContent = first.t + " reports " + when +
+    (num(first.epsEst) ? ", expected " + earn.eps(first.epsEst) + " a share" : "") +
+    (soon.length > 1 ? " · " + (soon.length - 1) + " more in your cart this week" : "");
+  box.hidden = false;
+  box.dataset.sig = sig;
+}
+
+function openEarnings() {
+  var list = $("#earnList");
+  list.innerHTML = "";
+  var month = earn.upcoming(state.cart, state.byTicker, { days: 45 });
+  var undated = state.cart.filter(function (i) {
+    var s = state.byTicker[i.t];
+    return !(s && s.earnings && s.earnings.date && earn.daysUntil(s.earnings.date) >= 0);
+  });
+
+  $("#earnNote").textContent = state.cart.length
+    ? month.length + " of " + state.cart.length + " in your cart report in the next 45 days"
+    : "";
+
+  if (!state.cart.length) {
+    list.appendChild(el("p", "empty-note", "Add companies to your cart and their report dates show up here."));
+  } else if (!month.length) {
+    list.appendChild(el("p", "empty-note", "Nothing in your cart reports in the next 45 days."));
+  }
+
+  var groups = [
+    { title: "This week", rows: month.filter(function (u) { return u.days <= earn.ALERT_DAYS; }) },
+    { title: "Later", rows: month.filter(function (u) { return u.days > earn.ALERT_DAYS; }) }
+  ];
+  groups.forEach(function (g) {
+    if (!g.rows.length) return;
+    list.appendChild(el("h3", "block-h", g.title));
+    g.rows.forEach(function (u) {
+      var row = el("div", "earn-row" + (u.days <= earn.ALERT_DAYS ? " is-soon" : ""));
+      var when = el("div", "er-when");
+      when.appendChild(el("b", "", dateShort(u.date)));
+      when.appendChild(el("span", "", u.days === 0 ? "today" : u.days === 1 ? "tomorrow" : "in " + u.days + " days"));
+      if (earn.whenWord(u.hour)) when.appendChild(el("span", "", earn.whenWord(u.hour)));
+      row.appendChild(when);
+
+      var body = el("div", "er-body");
+      var h = el("p", "er-head");
+      var tb = el("button", "link-btn er-ticker", u.t);
+      tb.type = "button";
+      tb.addEventListener("click", function () { closeDialog($("#dlgEarnings")); openDetail(state.byTicker[u.t]); });
+      h.appendChild(tb);
+      h.appendChild(el("span", "", " " + (u.n || "") + (earn.quarterLabel(u) ? " · " + earn.quarterLabel(u) : "")));
+      body.appendChild(h);
+      body.appendChild(el("p", "er-expect", earn.expectation(u)));
+      var trackP = el("p", "er-track", "");
+      body.appendChild(trackP);
+      loadDeep(u.t).then(function (deep) { trackP.textContent = earn.track(deep && deep.analyst); });
+      row.appendChild(body);
+      list.appendChild(row);
+    });
+  });
+
+  if (undated.length) {
+    list.appendChild(el("p", "block-note", "No date announced yet for " + undated.map(function (i) { return i.t; }).join(", ") +
+      ". They appear here as soon as the company sets one."));
+  }
+
+  renderEmailToggle();
+  openDialog($("#dlgEarnings"));
+}
+
+function renderEmailToggle() {
+  var box = $("#earnEmail");
+  var note = $("#earnEmailNote");
+  if (!auth.isConfigured()) {
+    box.disabled = true;
+    note.textContent = "Email alerts need accounts, which are not set up on this copy of the site.";
+    return;
+  }
+  if (!state.user) {
+    box.checked = false;
+    box.disabled = true;
+    note.innerHTML = "";
+    note.appendChild(document.createTextNode("Sign in so there is an address to send it to. "));
+    var go = el("button", "link-btn", "Sign in");
+    go.type = "button";
+    go.addEventListener("click", function () { closeDialog($("#dlgEarnings")); openAuth(); });
+    note.appendChild(go);
+    return;
+  }
+  box.disabled = true;
+  note.textContent = "Checking…";
+  auth.fetchAlertPrefs().then(function (r) {
+    if (!r.ok) {
+      note.textContent = r.error;
+      return;
+    }
+    box.disabled = false;
+    box.checked = !!(r.data && r.data.email);
+    note.textContent = box.checked
+      ? "On. Emails go to " + (state.user.email || "your account address") + ", one per company, the first evening it is seven days out."
+      : "Off.";
+  });
+}
+
+function downloadIcs(rows, filename) {
+  if (!rows.length) return;
+  var ics = earn.toIcs(rows, { site: location.origin });
+  var url = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "stockornot-earnings.ics";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+}
+
+function cartIcs() {
+  var rows = earn.upcoming(state.cart, state.byTicker, { days: 400 });
+  if (!rows.length) {
+    $("#earnEmailNote").textContent = "None of the companies in your cart has a report date yet.";
+    return;
+  }
+  downloadIcs(rows, "stockornot-earnings.ics");
+}
 
 /* ====================================================== DETAIL SHEET =====
    Everything that doesn't fit on the card: a five-year price chart, the
@@ -1208,7 +1948,148 @@ function buildAnalyst(deep) {
     t.appendChild(tb);
     box.appendChild(t);
   }
+
+  var months = (a && a.insider && a.insider.months) || [];
+  if (months.length) {
+    var ins = insight.insiderSummary(a.insider);
+    box.appendChild(el("h4", "sub-h", "Are insiders buying or selling?"));
+    box.appendChild(el("p", "block-note first",
+      (ins.word === "mixed" ? "No clear direction" : ins.word.charAt(0).toUpperCase() + ins.word.slice(1)) +
+      " over " + ins.months + " months. Sentiment runs from −100, every insider trade a sale, to +100, every one a purchase. " +
+      "Executives sell for many reasons; buying with their own money has only one."));
+    var it = el("table", "rv-table");
+    var itb = el("tbody");
+    months.forEach(function (m) {
+      var tr = el("tr");
+      var th = el("th", "", m.ym); th.scope = "row";
+      tr.appendChild(th);
+      var dir = m.mspr > 5 ? "up" : m.mspr < -5 ? "down" : "flat";
+      var td = el("td", "");
+      var mark = el("span", "delta small " + dir);
+      mark.appendChild(el("span", "arrow", dir === "up" ? "▲" : dir === "down" ? "▼" : "–"));
+      mark.appendChild(el("span", "", (m.mspr > 0 ? "+" : "") + m.mspr.toFixed(0) +
+        (num(m.change) && m.change !== 0 ? " · " + (m.change > 0 ? "+" : "-") + money(Math.abs(m.change), false) + " shares" : "")));
+      td.appendChild(mark);
+      tr.appendChild(td);
+      itb.appendChild(tr);
+    });
+    it.appendChild(itb);
+    box.appendChild(it);
+  }
   return box;
+}
+
+/* ---------------------------------------------------------- next report */
+
+function buildNextReport(s, deep) {
+  var e = s.earnings;
+  if (!e || !e.date) return null;
+  var box = el("div", "next-report");
+  var d = earn.daysUntil(e.date);
+  var head = el("p", "nr-head");
+  head.appendChild(el("b", "", dateShort(e.date)));
+  head.appendChild(el("span", "", " · " + (d === 0 ? "today" : d === 1 ? "tomorrow" : d > 1 ? "in " + d + " days" : "just reported") +
+    (earn.whenWord(e.hour) ? ", " + earn.whenWord(e.hour) : "") +
+    (earn.quarterLabel(e) ? " · " + earn.quarterLabel(e) + " results" : "")));
+  box.appendChild(head);
+
+  var grid = el("dl", "c-stats");
+  grid.appendChild(statRow("EPS expected", earn.eps(e.epsEst), "Consensus earnings per share for the quarter being reported."));
+  if (num(e.revEst)) grid.appendChild(statRow("Revenue expected", earn.money(e.revEst), "Consensus revenue for the quarter being reported."));
+  var last = ((deep && deep.analyst && deep.analyst.earnings) || [])[0];
+  grid.appendChild(statRow("Last quarter", last && num(last.actual) ? earn.eps(last.actual) +
+    (num(last.estimate) ? " vs " + earn.eps(last.estimate) : "") : "—", "Reported EPS against what was expected, for the most recent quarter."));
+  box.appendChild(grid);
+
+  var trackLine = earn.track(deep && deep.analyst);
+  if (trackLine) box.appendChild(el("p", "block-note", trackLine));
+
+  var cal = el("button", "link-btn", "Add this date to my calendar, with a reminder a week before");
+  cal.type = "button";
+  cal.addEventListener("click", function () {
+    downloadIcs([{ t: s.t, n: s.n, date: e.date, hour: e.hour, epsEst: e.epsEst, revEst: e.revEst, q: e.q, fy: e.fy }],
+      "stockornot-" + s.t.toLowerCase() + "-earnings.ics");
+  });
+  box.appendChild(cal);
+  return box;
+}
+
+/* ---------------------------------------------------------------- peers */
+
+function buildPeers(s, peers) {
+  var wrap = el("div", "");
+  wrap.appendChild(el("h4", "sub-h", "Closest in size"));
+  var t = el("table", "fin-table peer-table");
+  var thead = el("thead");
+  var hr = el("tr");
+  ["", "Mkt cap", "P/E", "Rev. growth", "Net margin", "1yr"].forEach(function (h) { hr.appendChild(el("th", "", h)); });
+  thead.appendChild(hr);
+  t.appendChild(thead);
+  var tb = el("tbody");
+  [s].concat(peers).forEach(function (p) {
+    var tr = el("tr", p.t === s.t ? "is-self" : "");
+    var th = el("th", "");
+    th.scope = "row";
+    if (p.t === s.t) th.appendChild(el("b", "", p.t));
+    else {
+      var b = el("button", "link-btn", p.t);
+      b.type = "button";
+      b.title = p.n;
+      b.addEventListener("click", function () { openDetail(p); });
+      th.appendChild(b);
+    }
+    tr.appendChild(th);
+    [cap(p.mc), num(p.pe) && p.pe > 0 ? x(p.pe) : "n/a", pct(p.rg), pctPlain(p.nm, 0), pct(p.r52)]
+      .forEach(function (v) { tr.appendChild(el("td", "", v)); });
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  var scroll = el("div", "table-scroll");
+  scroll.appendChild(t);
+  wrap.appendChild(scroll);
+  return wrap;
+}
+
+/* ----------------------------------------------------------------- news */
+
+var newsCache = {};
+
+function loadNews(ticker) {
+  if (newsCache[ticker]) return newsCache[ticker];
+  newsCache[ticker] = fetch("/api/news?t=" + encodeURIComponent(ticker))
+    .then(function (r) {
+      if (r.status === 404) return { unavailable: true };
+      return r.json().then(function (j) { return r.ok ? j : { error: (j && j.error) || "No news right now." }; });
+    })
+    .catch(function () { return { unavailable: true }; })
+    .then(function (res) {
+      if (res.error || res.unavailable) delete newsCache[ticker];   /* try again next time */
+      return res;
+    });
+  return newsCache[ticker];
+}
+
+function fillNews(box, res) {
+  if (!res || res.unavailable) {
+    box.appendChild(el("p", "block-note first", "Headlines load on the live site; this copy has no server behind it."));
+    return;
+  }
+  if (res.error) { box.appendChild(el("p", "block-note first", res.error)); return; }
+  if (!res.items || !res.items.length) {
+    box.appendChild(el("p", "block-note first", "Nothing in the last ten days."));
+    return;
+  }
+  var ul = el("ul", "news-list");
+  res.items.forEach(function (n) {
+    var li = el("li", "");
+    var a = el("a", "news-h", n.headline);
+    a.href = n.url; a.target = "_blank"; a.rel = "noopener nofollow";
+    li.appendChild(a);
+    li.appendChild(el("span", "news-meta", [n.source, n.at ? relTime(n.at) : ""].filter(Boolean).join(" · ")));
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+  box.appendChild(el("p", "block-note", "Headlines from Finnhub. Read past the headline before acting on one."));
 }
 
 /* ------------------------------------------------------- the sheet itself */
@@ -1261,6 +2142,9 @@ function openDetail(s) {
     scoreBox.appendChild(factorBars(scoreRes));
     body.appendChild(section("Fundamentals score", scoreBox));
 
+    var nextBox = buildNextReport(s, deep);
+    if (nextBox) body.appendChild(section("Next report", nextBox));
+
     /* --- price chart with a range toggle --- */
     var chartBox = el("div", "");
     var ranges = el("div", "range-toggle");
@@ -1279,10 +2163,41 @@ function openDetail(s) {
     chartSlot.appendChild(buildChart(deep && deep.chart, 0));
     chartBox.appendChild(ranges);
     chartBox.appendChild(chartSlot);
+    var cs = insight.chartStats(deep && deep.chart);
+    if (cs) {
+      var csGrid = el("dl", "c-stats");
+      csGrid.appendChild(statRow("vs 200-day avg", pct(cs.vsMa200, 1), "Last close against the average of the last forty weekly closes. Above zero means the trend is up."));
+      csGrid.appendChild(statRow("Worst fall", pct(cs.maxDrawdown, 0), "The biggest drop from a high to a later low over the chart window" + (cs.maxDrawdownAt ? ", bottoming " + dateShort(cs.maxDrawdownAt) : "") + "."));
+      csGrid.appendChild(statRow("Volatility", pctPlain(cs.volatility, 0) + "/yr", "How widely weekly returns swing, scaled to a year. The S&P 500 usually runs 15–20%."));
+      chartBox.appendChild(csGrid);
+    }
     body.appendChild(section("Price", chartBox));
 
     body.appendChild(section("The books, five years deep", buildHistory(deep)));
+
+    var vsFull = sectorBlock(s);
+    var peers = insight.nearestPeers(s, state.sectors, 5);
+    if (vsFull || peers.length) {
+      var vsBox = el("div", "");
+      if (vsFull) {
+        vsBox.appendChild(el("p", "block-note first", "Against the " + vsFull.view.count + " " + vsFull.view.sector +
+          " companies in the index. The score uses the same thresholds for every company; this is the same figure set beside businesses that actually compete."));
+        vsBox.appendChild(vsFull.node);
+      }
+      if (peers.length) vsBox.appendChild(buildPeers(s, peers));
+      body.appendChild(section("Against its sector", vsBox));
+    }
+
     body.appendChild(section("What analysts say", buildAnalyst(deep)));
+
+    var newsBox = el("div", "");
+    newsBox.appendChild(el("p", "block-note first", "Loading headlines…"));
+    body.appendChild(section("In the news", newsBox));
+    loadNews(s.t).then(function (res) {
+      if (detailTicker !== s.t) return;
+      newsBox.innerHTML = "";
+      fillNews(newsBox, res);
+    });
 
     /* --- the filing in full --- */
     var fbox = el("div", "");
@@ -1363,7 +2278,7 @@ function repoUrl() {
 
 function wire() {
 
-  $("#btnCart").addEventListener("click", function () { renderCart(); openDialog($("#dlgCart")); });
+  $("#btnCart").addEventListener("click", openCart);
 
   Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (b) {
     b.addEventListener("click", function () { closeDialog(b.closest("dialog")); });
@@ -1377,7 +2292,68 @@ function wire() {
     if (!state.cart.length) return;
     state.cart = [];
     persistCart();
-    renderCart(); renderCartCount();
+    renderCart(); renderCartCount(); renderEarnNotice();
+  });
+
+  /* ---- orders ---- */
+  $("#obSplit").addEventListener("submit", function (e) {
+    e.preventDefault();
+    splitEvenly(parseFloat($("#obSplitAmt").value));
+  });
+  $("#btnReview").addEventListener("click", function () {
+    if (state.broker && state.broker.connected) openReview(); else openBroker();
+  });
+  $("#orderType").addEventListener("click", function (e) {
+    var chip = e.target.closest("[data-type]");
+    if (chip && !(review && review.placed)) setOrderType(chip.getAttribute("data-type"));
+  });
+  $("#orderLiveCheck").addEventListener("change", renderReview);
+  $("#btnPlace").addEventListener("click", placeOrders);
+  $("#dlgOrders").addEventListener("close", function () { if ($("#dlgCart").open) renderCart(); });
+
+  /* ---- brokerage ---- */
+  $("#brokerEnv").addEventListener("change", function () { $("#brokerOauth").href = broker.oauthUrl(pickedEnv()); });
+  $("#brokerKeys").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var btn = $("#brokerKeysGo");
+    btn.disabled = true; btn.textContent = "Checking with Alpaca…";
+    brokerError("");
+    broker.connect($("#brokerKeyId").value.trim(), $("#brokerSecret").value.trim(), pickedEnv()).then(function (r) {
+      btn.disabled = false; btn.textContent = "Connect";
+      if (!r.ok) { brokerError(r.error); return; }
+      $("#brokerKeyId").value = ""; $("#brokerSecret").value = "";
+      state.broker = r.data;
+      renderAccount(); renderBrokerPanel(); renderOrderBar();
+      loadPortfolio();
+    });
+  });
+  $("#brokerDisconnect").addEventListener("click", function () {
+    broker.disconnect().then(function (r) {
+      if (r.ok) state.broker = r.data;
+      portfolio = null;
+      renderAccount(); renderBrokerPanel(); renderOrderBar();
+      if ($("#dlgCart").open) renderCart();
+    });
+  });
+  $("#brokerRefresh").addEventListener("click", function () { refreshBroker().then(loadPortfolio); });
+
+  /* ---- earnings ---- */
+  $("#btnEarnings").addEventListener("click", openEarnings);
+  $("#earnNoticeOpen").addEventListener("click", openEarnings);
+  $("#earnNoticeClose").addEventListener("click", function () {
+    try { localStorage.setItem(NOTICE_KEY, $("#earnNotice").dataset.sig || ""); } catch (e) {}
+    $("#earnNotice").hidden = true;
+  });
+  $("#btnIcs").addEventListener("click", cartIcs);
+  $("#earnEmail").addEventListener("change", function () {
+    var box = $("#earnEmail");
+    var want = box.checked;
+    box.disabled = true;
+    auth.saveAlertPrefs({ email: want, days_before: earn.ALERT_DAYS }).then(function (r) {
+      box.disabled = false;
+      if (!r.ok) { box.checked = !want; $("#earnEmailNote").textContent = r.error; return; }
+      renderEmailToggle();
+    });
   });
 
 
@@ -1580,7 +2556,27 @@ function init() {
       }
 
       renderDeck();
+      renderEarnNotice();
+      brokerReturn();
     });
+}
+
+/* The last leg of "Connect with Alpaca" lands here with ?broker=<outcome>. */
+function brokerReturn() {
+  var params = new URLSearchParams(location.search);
+  var outcome = params.get("broker");
+  if (!outcome) return;
+  params.delete("broker");
+  try { history.replaceState({}, document.title, location.pathname + (params.toString() ? "?" + params : "")); } catch (e) {}
+  var said = {
+    connected: "",
+    declined: "The connection was cancelled on Alpaca's side. Nothing was changed.",
+    expired: "That sign-in took too long or was opened in another browser. Start it again from here.",
+    failed: "Alpaca did not complete the connection. Try again, or paste API keys instead.",
+    unavailable: "Connecting with an Alpaca sign-in is not set up on this site. Paste API keys instead."
+  };
+  openBroker();
+  if (said[outcome]) brokerError(said[outcome]);
 }
 
 init();

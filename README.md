@@ -39,6 +39,21 @@ the raw number is in the table below it.
 | **The numbers** | P/E, P/B, P/S, revenue and EPS growth, three margin lines, ROE, debt/equity, current ratio, yield, beta, 3-month and 1-year returns |
 | **Last full year, as filed** | Revenue, net income, operating cash flow, capex, free cash flow, cash, long-term debt, equity — straight from XBRL |
 | **Straight from the 10-K** | The company's own description of what it does, the risk factors it lists, and links to the filing itself |
+| **What the street says** | Share of analysts rating it buy / hold / sell and how that moved on the month, how often it has beaten the EPS estimate, and whether insiders are net buying or selling |
+| **Against its sector** | P/E, price/sales, FCF yield, revenue growth, net margin, ROE, debt and 1-year return set beside the sector median, with where it ranks ("cheaper than 63%") |
+
+"The numbers" is grouped into valuation, growth, profitability, balance sheet,
+dividend and price, and now includes PEG, free-cash-flow yield, ROA, net cash or
+net debt, payout ratio, five-year revenue growth and the six-month return. Hover
+any figure for a one-line explanation. Forward P/E, price/FCF, EV/EBITDA, quick
+ratio, interest cover, five-year EPS and dividend growth, year-to-date, return
+against the S&P 500 and average volume appear once the nightly refresh has
+collected them.
+
+Tapping a card opens the full record, which adds the **next report** (EPS and
+revenue expected, last quarter's result, the beat record, a calendar button),
+trend and drawdown under the price chart, the **closest peers** by size,
+month-by-month **insider sentiment**, and the last ten days of **headlines**.
 
 Scroll the card to read it all. Drag it sideways, use <kbd>←</kbd> / <kbd>→</kbd>,
 or hit the buttons. <kbd>↑</kbd> / <kbd>↓</kbd> scroll.
@@ -49,7 +64,71 @@ Swiping right stores the ticker, the price at the moment you added it, and a not
 field. The cart shows what each pick has done since — so it doubles as a record
 of what you were thinking and when. Export to CSV whenever.
 
-Everything is in `localStorage`. No account, no backend, nothing leaves the browser.
+Each company in the cart also takes a **dollar amount**, or type one total into
+*Split evenly*. With a brokerage connected, **Review orders** turns those amounts
+into orders: market orders in dollars (fractional shares) or limit orders in whole
+shares, checked against the account's buying power, confirmed, then placed.
+
+The cart lives in `localStorage`, and follows you between devices if you sign in.
+
+> **While StockOrNot is in development there are no limits.** `DEV_UNLIMITED` in
+> `lib/tier.mjs` gives every visitor unlimited companies and cart slots. Set it to
+> `false` to bring the tiers in [PAYWALL.md](PAYWALL.md) back.
+
+---
+
+## Connecting a brokerage
+
+[Alpaca](https://alpaca.markets) is the brokerage wired up so far. It is built to
+be driven by software, supports dollar-amount orders, and has a free **paper**
+account that trades with pretend money. Paper is the default and the only mode
+allowed until you say otherwise.
+
+The page never talks to the brokerage directly. It calls `/api/broker` on this
+site (a Vercel serverless function), which keeps the credentials sealed with
+AES-GCM in an **HttpOnly cookie** in your own browser: nothing is stored on the
+server, the page's scripts cannot read the keys back, and *Disconnect* deletes
+them. Orders carry a unique client ID, so a double-tap cannot buy twice.
+
+Set these in **Vercel → Project → Settings → Environment Variables**:
+
+| Variable | Needed for | |
+|---|---|---|
+| `BROKER_SECRET` | everything | 32+ random characters, e.g. `openssl rand -hex 32`. Encrypts the cookie. Changing it disconnects everyone. |
+| `ALPACA_CLIENT_ID`, `ALPACA_CLIENT_SECRET` | "Connect with Alpaca" | Register an OAuth app with Alpaca and set its redirect URI to `https://<your site>/api/broker-oauth`. Without these, people paste API keys instead. |
+| `BROKER_ALLOW_LIVE` | real money | Leave unset during development. `1` allows live accounts. |
+| `BROKER_MAX_ORDER_USD` | real money | Per-order cap on live accounts. Defaults to 5000. |
+| `FINNHUB_TOKEN` | headlines | The same key the Action uses. Powers `/api/news`, cached at the edge for 30 minutes per ticker. |
+
+To try it: open a paper account at alpaca.markets, create API keys on the paper
+dashboard, then in the cart choose *Connect* and paste them.
+
+Another brokerage means another file shaped like `api/_lib/alpaca.mjs`.
+
+---
+
+## Earnings alerts
+
+Anything in your cart that reports within **seven days** gets a heads-up with
+what the street expects it to hit: EPS and, once the refresh has collected it,
+revenue. Three ways to hear about it:
+
+1. **On the site.** A banner under the top bar whenever something in the cart is
+   inside the window, and *Cart → Earnings dates* for the next 45 days with each
+   company's beat record.
+2. **In your calendar.** *Add to my calendar* downloads an `.ics` file with every
+   report date, set to remind you at 9am a week before and 9am the day before.
+   Apple Calendar and Outlook keep those reminders. Google Calendar applies its
+   own defaults instead.
+3. **By email.** Signed-in users can switch on *Email me seven days before…*. The
+   nightly Action runs `scripts/earnings-alerts.mjs` after publishing the data,
+   and sends each company once per report date. To enable it:
+   - run the new tables at the end of `supabase/schema.sql` in the Supabase SQL editor
+   - add repository secrets `SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` ([resend.com](https://resend.com))
+   - optionally set a repository variable `ALERT_FROM`, e.g. `StockOrNot <alerts@stockornot.com>`, on a domain Resend has verified
+
+   Until those exist the step logs that it skipped and the Action stays green.
+   `DRY_RUN=1 node scripts/earnings-alerts.mjs` prints what would be sent.
 
 ---
 
@@ -104,9 +183,14 @@ companies) and `skip_filings` (set to `1` to skip 10-K downloads).
 ```bash
 git clone https://github.com/respectking/stockornot.git
 cd stockornot
-python3 -m http.server 8080
+BROKER_SECRET=$(openssl rand -hex 32) node scripts/dev-server.mjs
 # open http://localhost:8080
 ```
+
+`scripts/dev-server.mjs` serves the static files the way Vercel does and runs the
+functions under `api/`, so the brokerage connection works locally. Pass any of the
+environment variables above the same way. `python3 -m http.server 8080` still
+works for the deck alone, but the cart will say placing orders needs the live site.
 
 The page needs `data/snapshot.json` to show anything; if it's missing you get a
 setup screen instead. To build one yourself:
@@ -162,7 +246,8 @@ well as colour, so nothing depends on colour alone. `prefers-reduced-motion` and
 8px of movement, so dragging sideways swipes and dragging vertically scrolls the
 card.
 
-No framework, no build step. Three files and some JSON.
+No framework, no build step. Three files, some JSON, and three small serverless
+functions under `api/` for the parts that need a secret: the brokerage and the news.
 
 ## Licence
 

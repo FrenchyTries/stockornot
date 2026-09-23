@@ -43,6 +43,15 @@
   </div>
 </header>
 
+<div class="notice" id="earnNotice" hidden>
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+  <span id="earnNoticeText"></span>
+  <button type="button" class="link-btn" id="earnNoticeOpen">See what is expected</button>
+  <button type="button" class="icon-btn small" id="earnNoticeClose" aria-label="Hide until something else is due">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+</div>
+
 <main>
   <section class="stage" id="deck" aria-label="Company deck">
     <div class="deck-wrap">
@@ -106,6 +115,8 @@
     </header>
 
     <div class="sheet-body">
+      <section class="broker-panel" id="brokerPanel" aria-live="polite"></section>
+
       <p class="empty-note" id="cartEmpty" hidden>
         Nothing in here yet. Swipe right on a company and it lands in this list at the
         price you saw, so you can come back and see what it did next.
@@ -113,7 +124,25 @@
 
       <div class="cart-list" id="cartList"></div>
 
+      <div class="order-bar" id="orderBar" hidden>
+        <div class="ob-total">
+          <span class="ob-label">Planned</span>
+          <b id="obTotal">$0</b>
+          <span class="ob-bp" id="obBp"></span>
+        </div>
+        <form class="ob-split" id="obSplit">
+          <label for="obSplitAmt">Split</label>
+          <span class="money-in"><span aria-hidden="true">$</span><input id="obSplitAmt" type="number" inputmode="decimal" min="1" step="1" placeholder="1000"></span>
+          <button type="submit" class="ghost-btn">evenly</button>
+        </form>
+        <button type="button" class="primary-btn" id="btnReview" disabled>Review orders</button>
+      </div>
+
       <div class="sheet-foot" id="cartFoot" hidden>
+        <button type="button" class="ghost-btn" id="btnEarnings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+          <span>Earnings dates</span>
+        </button>
         <button type="button" class="ghost-btn" id="btnExport">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>
           <span>Export CSV</span>
@@ -180,6 +209,140 @@
   </div>
 </dialog>
 
+<!-- ============================ BROKERAGE ============================ -->
+<dialog class="sheet wide" id="dlgBroker" aria-labelledby="brokerTitle">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="brokerTitle">Brokerage</h2>
+      <span class="head-note" id="brokerEnvNote"></span>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+
+    <div class="sheet-body">
+      <!-- not connected -->
+      <div id="brokerConnect" hidden>
+        <p class="auth-blurb">
+          Connect an <b>Alpaca</b> account and the cart can place its orders there. Start with a
+          paper account: it is free, behaves like the real thing and trades with pretend money.
+        </p>
+
+        <fieldset class="env-pick" id="brokerEnv">
+          <legend class="auth-label">Account</legend>
+          <label class="env-opt"><input type="radio" name="brokerEnv" value="paper" checked>
+            <span><b>Paper</b> pretend money, for trying it out</span></label>
+          <label class="env-opt" id="envLiveOpt"><input type="radio" name="brokerEnv" value="live">
+            <span><b>Live</b> real money, real orders</span></label>
+        </fieldset>
+
+        <a class="primary-btn wide oauth-btn" id="brokerOauth" href="#" hidden>Connect with Alpaca</a>
+        <p class="auth-or" id="brokerOr" hidden><span>or paste API keys</span></p>
+
+        <form class="auth-step" id="brokerKeys" autocomplete="off">
+          <label class="auth-label" for="brokerKeyId">API key ID</label>
+          <input class="auth-input mono" id="brokerKeyId" name="keyId" required spellcheck="false" autocapitalize="off" placeholder="PK…">
+          <label class="auth-label" for="brokerSecret">Secret key</label>
+          <input class="auth-input mono" id="brokerSecret" name="secret" type="password" required spellcheck="false" autocapitalize="off">
+          <button type="submit" class="primary-btn wide" id="brokerKeysGo">Connect</button>
+          <p class="auth-fine">
+            Make keys at <a href="https://app.alpaca.markets/paper/dashboard/overview" target="_blank" rel="noopener">app.alpaca.markets</a>
+            under <i>API Keys</i>. They are checked with Alpaca, then kept encrypted in a cookie this
+            page's scripts cannot read. They are never stored on our server, and disconnecting deletes them.
+          </p>
+        </form>
+      </div>
+
+      <!-- connected -->
+      <div id="brokerAccount" hidden>
+        <dl class="c-stats acct-grid" id="acctGrid"></dl>
+        <p class="block-note" id="acctClock"></p>
+
+        <h3 class="block-h acct-h">Holdings</h3>
+        <div id="acctPositions"><p class="block-note">Loading…</p></div>
+
+        <h3 class="block-h acct-h">Recent orders</h3>
+        <div id="acctOrders"><p class="block-note">Loading…</p></div>
+
+        <div class="sheet-foot">
+          <button type="button" class="ghost-btn" id="brokerRefresh">Refresh</button>
+          <button type="button" class="link-btn danger" id="brokerDisconnect">Disconnect</button>
+        </div>
+      </div>
+
+      <!-- no functions on this host -->
+      <p class="auth-blurb" id="brokerUnavailable" hidden></p>
+
+      <p class="auth-error" id="brokerError" role="alert" hidden></p>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================ ORDER REVIEW ============================ -->
+<dialog class="sheet wide" id="dlgOrders" aria-labelledby="ordersTitle">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="ordersTitle">Review orders</h2>
+      <span class="head-note" id="ordersEnv"></span>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <div class="range-toggle" role="radiogroup" aria-label="Order type" id="orderType">
+        <button type="button" class="chip is-on" data-type="market" role="radio" aria-checked="true">Market, in dollars</button>
+        <button type="button" class="chip" data-type="limit" role="radio" aria-checked="false">Limit, whole shares</button>
+      </div>
+      <p class="block-note" id="orderTypeNote"></p>
+
+      <div class="order-list" id="orderList"></div>
+
+      <label class="switch confirm-live" id="orderLiveConfirm" hidden>
+        <input type="checkbox" id="orderLiveCheck">
+        <span>I understand these are <b>real orders with real money</b>.</span>
+      </label>
+
+      <div class="sheet-foot">
+        <span class="ob-total"><span class="ob-label">Total</span> <b id="orderTotal">$0</b></span>
+        <button type="button" class="primary-btn" id="btnPlace">Place orders</button>
+      </div>
+      <p class="block-note">Not investment advice. Orders go to your brokerage exactly as listed and cannot be recalled once filled.</p>
+      <p class="auth-error" id="orderError" role="alert" hidden></p>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================ EARNINGS ============================ -->
+<dialog class="sheet wide" id="dlgEarnings" aria-labelledby="earnTitle">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="earnTitle">Reporting soon</h2>
+      <span class="head-note" id="earnNote"></span>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <div class="earn-list" id="earnList"></div>
+
+      <section class="earn-alerts">
+        <h3 class="block-h">Get told a week before</h3>
+        <label class="switch" id="earnEmailRow">
+          <input type="checkbox" id="earnEmail">
+          <span id="earnEmailLabel">Email me seven days before anything in my cart reports, with what the street expects.</span>
+        </label>
+        <p class="block-note" id="earnEmailNote"></p>
+        <div class="earn-cal">
+          <button type="button" class="ghost-btn" id="btnIcs">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>
+            <span>Add to my calendar</span>
+          </button>
+          <span class="block-note">A calendar file with every report date in your cart, set to remind you a week ahead and the morning before.</span>
+        </div>
+      </section>
+    </div>
+  </div>
+</dialog>
 
 <footer class="sitefoot">
   <p>
