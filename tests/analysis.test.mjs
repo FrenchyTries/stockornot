@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pct, pctPlain, inputs, rankAmong, scoreStock, prosAndCons, buildScoreContext } from "../lib/analysis.mjs";
-import { beatRecord, insiderSummary, numberGroups, buildSectorStats, sectorView, nearestPeers } from "../lib/insight.mjs";
+import { pct, pctPlain, inputs, rankAmong, scoreStock, prosAndCons, buildScoreContext, rangeSummary } from "../lib/analysis.mjs";
+import { beatRecord, insiderSummary, financialChecks, historyChecks, buildSectorStats, sectorView, nearestPeers } from "../lib/insight.mjs";
 
 test("values that round to zero print as zero", () => {
   assert.equal(pct(-0.04), "0.0%");
@@ -47,10 +47,54 @@ test("thin equity drops price-to-book, ROE and debt-to-equity everywhere", () =>
   assert.equal(k.deOk, false);
   const pc = prosAndCons(s);
   assert.ok(!pc.pros.concat(pc.cons).some((p) => /book value|shareholder equity|× equity/.test(p)), pc.pros.concat(pc.cons).join(" | "));
-  const rows = numberGroups(s).flatMap((g) => g.rows);
-  for (const label of ["Price / book", "ROE", "Debt / equity"]) {
-    assert.match(rows.find((r) => r[0] === label)[1], /^n\/m/, label);
-  }
+  const checks = financialChecks(s, scoreStock(s));
+  const labels = checks.flatMap((g) => g.rows.map((r) => r[0]));
+  for (const label of ["Price / book", "ROE", "Debt / equity"]) assert.ok(!labels.includes(label), label);
+  /* with no long-term debt in the filings, the thin equity itself is the warning */
+  const noDebt = base({ pb: 40, roe: 150, de: 30, fin: { ...base().fin, equity: 3e8, debt: null } });
+  assert.match(financialChecks(noDebt, scoreStock(noDebt)).find((g) => g.id === "balance").answer.text, /^Stretched/);
+});
+
+test("the 52-week range is said as distance from the high and the low", () => {
+  const r = rangeSummary({ price: 486.4, lo: 349.2, hi: 553.72 });
+  assert.equal(r.text, "12% below its 52-week high and 39% above its low.");
+  assert.equal(r.zone, "Mid-range");
+  assert.equal(rangeSummary({ price: 553.5, lo: 349.2, hi: 553.72 }).zone, "At its 52-week high");
+  assert.equal(rangeSummary({ price: 380, lo: 349.2, hi: 553.72 }).zone, "Near the low");
+  assert.equal(rangeSummary({ price: 10, lo: 349.2, hi: 553.72 }), null);
+  assert.doesNotMatch(prosAndCons(base({ r52: -45, r13: -25, price: 41 })).cons.join(" "), /of the way up/);
+});
+
+test("the financials are five questions, each answered from its own figures", () => {
+  const s = base({ nm: 12, fin: { ...base().fin, revenuePrev: 4.5e9, netIncomePrev: 4e8 } });
+  const checks = financialChecks(s, scoreStock(s));
+  assert.deepEqual(checks.map((g) => g.id), ["growth", "cash", "margins", "balance", "value"]);
+  const by = Object.fromEntries(checks.map((g) => [g.id, g]));
+  assert.equal(by.growth.answer.text, "Slowly");                /* +6% */
+  assert.equal(by.cash.answer.text, "Yes");                     /* 8% of revenue */
+  assert.equal(by.margins.answer.text, "Yes, improving");       /* 8.9% → 12% */
+  assert.equal(by.balance.answer.text, "Yes, the debt is manageable");   /* 2.5 years */
+  for (const g of checks) assert.ok(g.question.endsWith("?"), g.id);
+});
+
+test("a bank's cash flow and debt are not judged, and its revenue jump is not used", () => {
+  const bank = base({ s: "Financials", rg: 110, rg5: 7 });
+  const by = Object.fromEntries(financialChecks(bank, scoreStock(bank)).map((g) => [g.id, g]));
+  assert.equal(by.growth.answer.text, "Slowly");               /* judged on the 7% five-year figure */
+  assert.equal(by.cash.answer.tone, "none");
+  assert.equal(by.balance.answer.tone, "none");
+});
+
+test("the five-year table groups the filings under the checks", () => {
+  const h = { revenue: { 2025: 110, 2024: 100 }, ocf: { 2025: 30, 2024: 20 }, capex: { 2025: 10, 2024: 5 },
+    netIncome: { 2025: 11, 2024: 8 }, cash: { 2025: 50 }, debt: { 2025: 20 }, shares: { 2025: 1, 2024: 2 } };
+  const hc = historyChecks(h);
+  assert.deepEqual(hc.groups.map((g) => g.title), ["Revenue growth", "Free cash flow", "Profit margins", "Debt vs. cash"]);
+  const rows = Object.fromEntries(hc.groups.flatMap((g) => g.rows).map((r) => [r.label, r.cells]));
+  assert.deepEqual(rows["Change on the year"], ["+10%", "—"]);
+  assert.deepEqual(rows["Free cash flow"], ["$20", "$15"]);
+  assert.deepEqual(rows["Net cash (debt)"], ["$30", "—"]);
+  assert.ok(!rows["Diluted shares"]);
 });
 
 test("equity is worked out from assets and liabilities when it was not tagged", () => {
