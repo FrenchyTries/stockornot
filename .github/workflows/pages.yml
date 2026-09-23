@@ -8,10 +8,17 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    # Everything the page builder reads. Whole folders rather than file by
+    # file: a run with nothing to change commits nothing, while a missed file
+    # leaves every company page stale until the next data refresh. (The
+    # refresh's own data commits are pushed with GITHUB_TOKEN, which does not
+    # start workflows, so data/** cannot loop.)
     paths:
       - "scripts/build-pages.mjs"
-      - "lib/analysis.mjs"
-      - "data/snapshot.json"
+      - "scripts/dates.mjs"
+      - "lib/**"
+      - "data/**"
+      - ".github/workflows/pages.yml"
 
 permissions:
   contents: write
