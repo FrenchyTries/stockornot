@@ -247,16 +247,17 @@ footer a { color: var(--ink-2); }
     </thead>
     <tbody>
       <tr><td>Profitability</td><td>Margins, return on equity or assets, and how much profit arrives as cash</td><td class="num">0.24</td></tr>
-      <tr><td>Value</td><td>What you pay for the earnings, sales, book value and free cash flow</td><td class="num">0.22</td></tr>
-      <tr><td>Growth</td><td>Revenue and earnings this year, and revenue over five years</td><td class="num">0.22</td></tr>
+      <tr><td>Value</td><td>What you pay for the earnings (trailing and forward), sales, book value and free cash flow</td><td class="num">0.22</td></tr>
+      <tr><td>Growth</td><td>Revenue and earnings this year, and revenue and earnings over five years</td><td class="num">0.22</td></tr>
       <tr><td>Momentum</td><td>How the price has behaved lately</td><td class="num">0.18</td></tr>
-      <tr><td>Stability</td><td>How violently it moves, what it owes, and what it pays you</td><td class="num">0.14</td></tr>
+      <tr><td>Stability</td><td>How violently it moves, what it owes, how easily it covers its interest, and what it pays you</td><td class="num">0.14</td></tr>
     </tbody>
   </table>
 
   <p class="note">Where a company has not reported the figures a factor needs, that factor is dropped
   and the remaining weights are rescaled. A factor resting on only one or two figures is pulled part of
-  the way back toward the middle, so thin evidence cannot produce an extreme reading.</p>
+  the way back toward the middle, after the sector half described below is blended in, so thin evidence
+  cannot produce an extreme reading.</p>
 
   <h2>How a factor becomes a number</h2>
 
@@ -270,10 +271,12 @@ footer a { color: var(--ink-2); }
     <tbody><tr><th>Score</th><td class="num">92</td><td class="num">84</td><td class="num">70</td><td class="num">52</td><td class="num">34</td><td class="num">16</td><td class="num">8</td></tr></tbody>
   </table>
 
-  <p>Price-to-book, price-to-sales and free-cash-flow yield are mapped the same way and averaged in,
-  with earnings counted twice because it is the figure most people are actually pricing. Growth reads
-  this year's revenue and earnings per share and the five-year revenue trend, with the five-year figure
-  counted twice because a single year is noisy. The other three factors work identically.</p>
+  <p>Forward P/E, price-to-book, price-to-sales and free-cash-flow yield are mapped the same way and
+  averaged in, with trailing earnings counted twice because it is the figure most people are actually
+  pricing. Growth reads this year's revenue and earnings per share and the five-year revenue and
+  earnings trends, with five-year revenue counted twice because a single year is noisy. Stability reads
+  beta, the width of the 52-week range, dividend yield, the debt and interest cover. Profitability and
+  momentum work the same way.</p>
 
   <h2>Against its own sector</h2>
 
@@ -289,20 +292,29 @@ footer a { color: var(--ink-2); }
   <ul class="limits">
     <li><b>Negative equity.</b> Companies that have bought back more stock than they have equity, often
     with borrowed money, report returns on equity of several hundred percent. That is arithmetic, not
-    excellence. When equity is negative or a sliver of assets, return on equity and price-to-book are
-    left out, return on assets stands in, and the company is flagged.</li>
+    excellence. When equity is negative or a sliver of assets, return on equity, price-to-book and
+    debt-to-equity are left out wherever they appear (the score, the pros and cons, the sector ranks and
+    the figures on the card), return on assets stands in, and the company is flagged.</li>
 
     <li><b>Losses.</b> A company losing money has no P/E. Earlier versions skipped the figure, which
     left the value factor to be judged on sales alone and made losses look cheap. A loss now counts as
-    expensive on earnings.</li>
+    expensive on earnings. &ldquo;Losing money&rdquo; means over the last twelve months; the last annual
+    filing decides only when there is no recent figure. When the provider's P/E says the company made
+    money and its margin says it did not, the P/E is not counted in its favour.</li>
 
     <li><b>Debt.</b> The data provider's debt-to-equity figure is occasionally near zero for companies
     with billions of long-term debt in their own filings. Leverage is now read from the filings as
     the years of operating cash flow it would take to repay the debt.</li>
 
-    <li><b>Banks.</b> A bank borrows by design, so its debt and cash flow are not scored. Its one-year
-    revenue in the provider's data can swing 60&ndash;180% with interest rates; when that is wildly out
-    of line with the five-year trend, only the five-year figure is used.</li>
+    <li><b>Financials.</b> A bank, insurer or broker borrows by design, so for every company in the
+    Financials sector debt and cash flow are not scored. The sector label cannot tell a bank from a
+    payment network or an exchange, so those are treated the same way. A bank's one-year revenue in the
+    provider's data can swing 60&ndash;180% with interest rates; when that is wildly out of line with
+    the five-year trend, only the five-year figure is used, and the one-year figure is left out of the
+    sector ranks too.</li>
+
+    <li><b>Share classes.</b> Alphabet, Fox and News Corp each trade under two tickers with the same
+    filings. Each company is counted once in its sector, and is never its own closest peer.</li>
   </ul>
 
   <p>The five results are multiplied by their weights and summed. Above 70 the card says
@@ -316,8 +328,11 @@ footer a { color: var(--ink-2); }
   EDGAR, along with the business description and risk factors quoted from its latest 10-K.</p>
 
   <p>The whole set rebuilds each weekday evening after the American close, so prices are that session's
-  close rather than live. Every card shows how old its data is. Nothing is fetched while you browse:
-  the site is static files, and your cart is yours.</p>
+  close rather than live. Every card shows how old its data is. The cards themselves are static files.
+  Headlines in the full record are fetched when you open it, through this site's own server, and
+  placing orders goes through it to your brokerage. Your cart lives in your browser; if you sign in, it
+  is also stored with your account, notes included, so it can follow you between devices and the
+  nightly job can email you before anything in it reports.</p>
 
   <h2>What it cannot know</h2>
 
@@ -347,8 +362,8 @@ footer a { color: var(--ink-2); }
     <li><b>Nothing here has been backtested.</b> The weights and thresholds are reasoned, not fitted.
     No claim is made, or should be inferred, that a high score has ever preceded a good return.</li>
 
-    <li><b>Parsing fails sometimes.</b> Several hundred filings are read automatically every day. When
-    a figure looks impossible, it probably is. Each card links to the filing it came from, and that
+    <li><b>Parsing fails sometimes.</b> Every company's filings are checked each night and new ones
+    are read automatically as they appear. When a figure looks impossible, it probably is. Each card links to the filing it came from, and that
     filing is the authority, not this page.</li>
   </ul>
 

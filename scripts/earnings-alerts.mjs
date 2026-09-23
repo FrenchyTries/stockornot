@@ -110,7 +110,7 @@ function compose(due, details, days) {
   const subject = due.length === 1
     ? `${due[0].t} reports ${due[0].days <= 1 ? (due[0].days === 0 ? "today" : "tomorrow") : "in " + due[0].days + " days"}` +
       (due[0].epsEst !== null ? `: street expects ${eps(due[0].epsEst)} a share` : "")
-    : `${due.length} companies in your cart report ${days <= 7 ? "this week" : "in the next " + days + " days"}`;
+    : `${due.length} companies in your cart report ${days <= 7 ? "in the next week" : "in the next " + days + " days"}`;
 
   const rows = due.map((u) => {
     const when = [dateLong(u.date), whenWord(u.hour)].filter(Boolean).join(", ");

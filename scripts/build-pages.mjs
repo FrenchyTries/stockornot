@@ -14,7 +14,7 @@ import path from "node:path";
 import { sessionDate } from "./dates.mjs";
 import {
   num, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
-  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext,
+  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext, inputs,
   splitAdjustShares, shareCountNote
 } from "../lib/analysis.mjs";
 
@@ -150,14 +150,19 @@ function companyPage(s, filing, deep, siblings, updated, session) {
   const res = scoreStock(s, CTX);
   const label = scoreLabel(res.overall);
   const pc = prosAndCons(s, CTX);
+  const k = inputs(s);
   const pos = rangePos(s);
   const url = `${SITE}/stock/${slug(s.t)}`;
+  /* the same "not meaningful" rules the score and the app use */
+  const nmEq = k.negEquity ? "n/m (negative equity)" : "n/m (equity a sliver of assets)";
 
   const title = `${s.n} (${s.t}): financials, earnings date and 10-K summary`;
   const description =
     `${s.n} (${s.t}) at ${price(s.price)}, ${cap(s.mc)} market cap. ` +
     (num(s.pe) && s.pe > 0 ? `${x(s.pe)} earnings, ` : "") +
-    (num(s.rg) ? `revenue ${pct(s.rg)} year over year, ` : "") +
+    /* a bank's one-year "revenue" jump is an interest-income artefact the
+       score throws away; never advertise it in a search result */
+    (num(k.rg) ? `revenue ${pct(s.rg)} year over year, ` : num(s.rg5) && k.rgSuspect ? `revenue ${pct(s.rg5)} a year over five years, ` : "") +
     `plus the balance sheet as filed and what the 10-K lists as risks.`;
 
   const jsonld = {
@@ -233,22 +238,25 @@ ${list(pc.pros, "pro")}
 ${list(pc.cons, "con")}
 
 <h2>What the score is made of</h2>
-<p class="block-note">Each factor is a curve over reported figures, blended by weight. It describes the
-last filing and the current price. It is not a forecast.</p>
+<p class="block-note">Each factor is half a curve over reported figures and half a rank among the
+other ${esc(s.s)} companies (momentum is judged against fixed thresholds only), and the five are
+blended by weight. It describes the last filing and the current price. It is not a forecast.</p>
 <table class="doc-table factor-table"><tbody>${factorRows}</tbody></table>
+${res.notes.length ? `<ul class="score-notes">${res.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
 
 <h2>Key numbers</h2>
 ${statTable([
   ["Price / earnings", num(s.pe) && s.pe > 0 ? x(s.pe) : "n/a"],
-  ["Price / book", num(s.pb) && s.pb > 0 ? x(s.pb, 2) : "n/a"],
+  ["Price / book", k.pbOk ? x(s.pb, 2) : num(s.pb) && s.pb > 0 && (k.negEquity || k.thinEquity) ? nmEq : "n/a"],
   ["Price / sales", num(s.ps) && s.ps > 0 ? x(s.ps, 1) : "n/a"],
-  ["Revenue growth (YoY)", pct(s.rg)],
+  ["Revenue growth (YoY)", k.rgSuspect ? `${pct(s.rg)} (not used: out of line with the five-year ${pct(s.rg5)} a year)` : pct(s.rg)],
   ["EPS growth (YoY)", pct(s.eg)],
   ["Gross margin", pctPlain(s.gm, 0)],
   ["Operating margin", pctPlain(s.om, 0)],
   ["Net margin", pctPlain(s.nm, 0)],
-  ["Return on equity", pctPlain(s.roe, 0)],
-  ["Debt / equity", num(s.de) ? x(s.de, 2) : "n/a"],
+  k.roeOk || !num(s.roe) ? ["Return on equity", pctPlain(s.roe, 0)]
+    : ["Return on assets", `${pctPlain(s.roa, 1)} (ROE not meaningful: ${k.negEquity ? "negative equity" : "equity a sliver of assets"})`],
+  ["Debt / equity", num(s.de) && (k.negEquity || k.thinEquity) ? nmEq : num(s.de) ? x(s.de, 2) : "n/a"],
   ["Current ratio", num(s.cr) ? s.cr.toFixed(2) : "n/a"],
   ["Dividend yield", num(s.dy) && s.dy > 0 ? pctPlain(s.dy, 2) : "none"],
   ["Beta", num(s.beta) ? s.beta.toFixed(2) : "n/a"],
