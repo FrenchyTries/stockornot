@@ -219,7 +219,7 @@ footer a { color: var(--ink-2); }
     </a>
     <span class="section">Method</span>
   </header>
-  <p class="dateline">How the score is built &middot; Updated August 2026</p>
+  <p class="dateline">How the score is built &middot; Updated September 2026</p>
 
   <h1>A number, and everything it doesn't know</h1>
 
@@ -246,17 +246,17 @@ footer a { color: var(--ink-2); }
       <tr><th>Factor</th><th>What it reads</th><th class="num">Weight</th></tr>
     </thead>
     <tbody>
-      <tr><td>Profitability</td><td>How much revenue becomes profit</td><td class="num">0.24</td></tr>
-      <tr><td>Value</td><td>What you pay for the earnings and assets</td><td class="num">0.22</td></tr>
-      <tr><td>Growth</td><td>How fast revenue and earnings are moving</td><td class="num">0.22</td></tr>
+      <tr><td>Profitability</td><td>Margins, return on equity or assets, and how much profit arrives as cash</td><td class="num">0.24</td></tr>
+      <tr><td>Value</td><td>What you pay for the earnings, sales, book value and free cash flow</td><td class="num">0.22</td></tr>
+      <tr><td>Growth</td><td>Revenue and earnings this year, and revenue over five years</td><td class="num">0.22</td></tr>
       <tr><td>Momentum</td><td>How the price has behaved lately</td><td class="num">0.18</td></tr>
-      <tr><td>Stability</td><td>How violently it moves, and what it pays you</td><td class="num">0.14</td></tr>
+      <tr><td>Stability</td><td>How violently it moves, what it owes, and what it pays you</td><td class="num">0.14</td></tr>
     </tbody>
   </table>
 
   <p class="note">Where a company has not reported the figures a factor needs, that factor is dropped
-  and the remaining weights are rescaled. A score built from three factors is shown the same way as one
-  built from five, which is a real weakness and is listed again below.</p>
+  and the remaining weights are rescaled. A factor resting on only one or two figures is pulled part of
+  the way back toward the middle, so thin evidence cannot produce an extreme reading.</p>
 
   <h2>How a factor becomes a number</h2>
 
@@ -270,10 +270,40 @@ footer a { color: var(--ink-2); }
     <tbody><tr><th>Score</th><td class="num">92</td><td class="num">84</td><td class="num">70</td><td class="num">52</td><td class="num">34</td><td class="num">16</td><td class="num">8</td></tr></tbody>
   </table>
 
-  <p>Price-to-book and price-to-sales are mapped the same way and averaged in, with earnings counted
-  twice because it is the figure most people are actually pricing. Growth reads year-over-year revenue,
-  earnings per share, and the five-year revenue trend, with revenue weighted double because it is far
-  less noisy than EPS. The other three factors work identically.</p>
+  <p>Price-to-book, price-to-sales and free-cash-flow yield are mapped the same way and averaged in,
+  with earnings counted twice because it is the figure most people are actually pricing. Growth reads
+  this year's revenue and earnings per share and the five-year revenue trend, with the five-year figure
+  counted twice because a single year is noisy. The other three factors work identically.</p>
+
+  <h2>Against its own sector</h2>
+
+  <p>Fixed thresholds treat a supermarket's 3% margin and a software company's 30% as the same kind
+  of number. So every factor except momentum is read twice: once against the fixed curves above, and
+  once as a rank among the other companies in the same sector. The two are averaged. The fixed half
+  keeps a whole sector from looking cheap just because all of it is; the sector half stops a grocer
+  being marked down for a grocer's margins. Momentum stays absolute, because a sector falling together
+  is not a reason to prefer the one falling slowest.</p>
+
+  <h2>Numbers that lie, and what is done about them</h2>
+
+  <ul class="limits">
+    <li><b>Negative equity.</b> Companies that have bought back more stock than they have equity, often
+    with borrowed money, report returns on equity of several hundred percent. That is arithmetic, not
+    excellence. When equity is negative or a sliver of assets, return on equity and price-to-book are
+    left out, return on assets stands in, and the company is flagged.</li>
+
+    <li><b>Losses.</b> A company losing money has no P/E. Earlier versions skipped the figure, which
+    left the value factor to be judged on sales alone and made losses look cheap. A loss now counts as
+    expensive on earnings.</li>
+
+    <li><b>Debt.</b> The data provider's debt-to-equity figure is occasionally near zero for companies
+    with billions of long-term debt in their own filings. Leverage is now read from the filings as
+    the years of operating cash flow it would take to repay the debt.</li>
+
+    <li><b>Banks.</b> A bank borrows by design, so its debt and cash flow are not scored. Its one-year
+    revenue in the provider's data can swing 60&ndash;180% with interest rates; when that is wildly out
+    of line with the five-year trend, only the five-year figure is used.</li>
+  </ul>
 
   <p>The five results are multiplied by their weights and summed. Above 70 the card says
   <strong>screens strongly</strong>; below 33, <strong>screens badly</strong>. The bands in between are
@@ -295,12 +325,9 @@ footer a { color: var(--ink-2); }
   and it is more useful to name them than to imply they don't exist.</p>
 
   <ul class="limits">
-    <li><b>It compares a bank to a grocer.</b> The thresholds are absolute. A supermarket running a 3%
-    net margin is doing fine for a supermarket, and this score marks it down anyway. Until the factors
-    are scored against sector peers rather than fixed numbers, treat cross-industry comparisons as
-    close to meaningless. The card does now set the key figures beside the median for the company's
-    own sector, with where it ranks, so you can make that comparison yourself; the score itself
-    still uses the fixed thresholds.</li>
+    <li><b>Sectors are broad.</b> The sector half of each factor compares within eleven sectors, and
+    a sector is a wide net: a railroad and an airline are both Industrials. Comparisons inside a sector
+    are fairer than across the market, not perfect.</li>
 
     <li><b>It reads the last filing, not the business.</b> A pending acquisition, a patent cliff, a
     regulatory inquiry, a founder leaving, a product nobody wants yet: none of that is in the numbers
@@ -310,9 +337,9 @@ footer a { color: var(--ink-2); }
     Write-downs, one-off gains, capitalised costs and unusual fiscal years all distort ratios the score
     treats as comparable.</li>
 
-    <li><b>Missing data is silently forgiven.</b> When a figure is absent the factor is dropped and the
-    rest are rescaled, so a company with thin disclosure can score well on partial evidence. Banks and
-    insurers are the usual case, because their filings do not fit the tags this pipeline reads.</li>
+    <li><b>Missing data is only partly penalised.</b> When a figure is absent it is dropped rather than
+    guessed, and a factor resting on one or two figures is pulled toward the middle, but a company with
+    thin disclosure can still score on partial evidence. Banks and insurers are the usual case.</li>
 
     <li><b>Momentum is the past tense.</b> It records what the price has already done. It carries no
     information about what happens next, and in a downturn it is actively misleading.</li>
@@ -331,8 +358,14 @@ footer a { color: var(--ink-2); }
   It is a reading of public filings, presented so you can disagree with it.</blockquote>
 
   <p>The pros and cons on each card are plain thresholds, and each one names the figure that triggered
-  it, so you can decide the rule is wrong and still keep the fact underneath. That is the intended use:
-  the score gets you to a shortlist, and then you read the 10-K.</p>
+  it, so you can decide the rule is wrong and still keep the fact underneath. The thresholds for a
+  worry are set as close to the thresholds for a strength as the figures allow, figures in the bottom
+  sixth of the sector count against, and any factor the score marks down is always explained on the
+  &ldquo;against&rdquo; side. Every company also gets its weakest point named, even when nothing
+  crosses a line. A short list of cons is not a clean bill of health: the risks that matter most are
+  often in the 10-K rather than in the numbers.</p>
+
+  <p>That is the intended use: the score gets you to a shortlist, and then you read the 10-K.</p>
 
   <a class="backlink" href="/">Back to the deck</a>
 
