@@ -17,6 +17,7 @@ import {
   FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext, inputs
 } from "../lib/analysis.mjs";
 import { financialChecks, historyChecks } from "../lib/insight.mjs";
+import { CHECK_ICONS } from "../lib/icons.mjs";
 
 const ROOT   = path.resolve(import.meta.dirname, "..");
 const DATA   = path.join(ROOT, "data");
@@ -50,25 +51,30 @@ function head(title, description, canonical, extra = "") {
 <meta name="description" content="${esc(description)}" />
 <link rel="canonical" href="${esc(canonical)}" />
 <meta name="color-scheme" content="dark" />
-<meta name="theme-color" content="#0d0d0d" />
+<meta name="theme-color" content="#0b0c0e" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="${esc(title)}" />
 <meta property="og:description" content="${esc(description)}" />
 <meta property="og:url" content="${esc(canonical)}" />
 <meta name="twitter:card" content="summary" />
 <link rel="icon" href="/favicon.svg" />
+<link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="/styles.css" />
 ${extra}
 </head>
 <body class="docpage">
 <header class="topbar">
   <a class="brand" href="/">
-    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#151514"/><path d="M20 66 L40 44 L56 58 L80 30" stroke="#3987e5" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="24" fill="#4c8dff"/><path d="M22 64 L41 45 L56 57 L78 33" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <span>Stock<b>OrNot</b></span>
   </a>
+  <nav class="topnav" aria-label="Site">
+    <a href="/stock" aria-current="page">Companies</a>
+    <a href="/method">How the score works</a>
+    <a href="/pricing">Pricing</a>
+  </nav>
   <div class="topbar-actions">
-    <a class="ghost-btn" href="/stock"><span>All companies</span></a>
-    <a class="ghost-btn accent has-items" href="/"><span>Open the deck</span></a>
+    <a class="primary-btn" href="/">Open the deck</a>
   </div>
 </header>
 <main class="doc">`;
@@ -76,13 +82,11 @@ ${extra}
 
 const foot = (updated) => `</main>
 <footer class="sitefoot">
-  <p><b>Not investment advice.</b> Every figure here comes from Finnhub or the company's own
-  SEC filings and may be stale, mis-parsed or wrong. Read the actual filing before you buy anything.
-  <a href="/method">How the score works</a>.</p>
-  <p class="muted">${updated ? "Data refreshed " + esc(dateShort(updated.slice(0, 10))) + ". " : ""}Market data by
-    <a href="https://finnhub.io" rel="noopener">Finnhub</a> · filings from
-    <a href="https://www.sec.gov/edgar" rel="noopener">SEC EDGAR</a> ·
-    <a href="/">StockOrNot</a></p>
+  <p><b>Not investment advice.</b> Every figure here comes from
+  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
+  <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
+  Read the actual filing before you buy anything. <a href="/method">How the score works</a>.</p>
+  ${updated ? `<p>Data refreshed ${esc(dateShort(updated.slice(0, 10)))}.</p>` : ""}
 </footer>
 </body>
 </html>`;
@@ -98,7 +102,7 @@ function historyTable(history) {
   const hc = historyChecks(history);
   if (!hc) return "";
   const body = hc.groups.map((g) =>
-    `<tr class="fin-group"><th scope="colgroup" colspan="${hc.years.length + 1}"><span aria-hidden="true">${g.icon}</span> ${esc(g.title)}</th></tr>` +
+    `<tr class="fin-group"><th scope="colgroup" colspan="${hc.years.length + 1}"><span class="check-icon" aria-hidden="true">${CHECK_ICONS[g.icon] || ""}</span>${esc(g.title)}</th></tr>` +
     g.rows.map((r) => `<tr${r.derived ? ' class="is-derived"' : ""}><th scope="row">${esc(r.label)}</th>${r.cells.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")
   ).join("");
   return `<div class="table-scroll"><table class="fin-table">
@@ -109,7 +113,7 @@ function historyTable(history) {
 /* The financials as five questions, each answered, with the figures behind it. */
 function checksHtml(s, res) {
   return financialChecks(s, res).map((g) => `<section class="doc-check">
-<h3><span aria-hidden="true">${g.icon}</span> ${esc(g.title)}</h3>
+<h3><span class="check-icon" aria-hidden="true">${CHECK_ICONS[g.icon] || ""}</span>${esc(g.title)}</h3>
 <p class="doc-q">${esc(g.question)}${g.answer ? ` <b class="check-a is-${g.answer.tone}">${esc(g.answer.text)}</b>` : ""}</p>
 ${g.rows.length ? statTable(g.rows.map((r) => [r[0], r[1]])) : ""}
 </section>`).join("\n");

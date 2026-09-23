@@ -1,235 +1,49 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>How the score works | StockOrNot</title>
 <meta name="description" content="Every factor behind the StockOrNot score, the thresholds it uses, where the numbers come from, and the things it cannot know. Written plainly, including the parts that do not flatter it." />
 <link rel="canonical" href="https://stockornot.com/method" />
-<meta name="color-scheme" content="light" />
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#0b0c0e" />
 <meta property="og:type" content="article" />
 <meta property="og:title" content="How the StockOrNot score works" />
 <meta property="og:description" content="The five factors, their weights, the actual thresholds, and an honest list of what the number cannot see." />
 <meta property="og:url" content="https://stockornot.com/method" />
 <link rel="icon" href="/favicon.svg" />
 
-<style>
-/* ==========================================================================
-   The deck is dark because it is an interface: one card, full screen, four
-   seconds a decision. This page is not an interface, it is a document, and
-   documents have been solved for four hundred years. Paper, serif, one
-   column, a measure you can actually track a line across.
-
-   No webfonts. The site has no build step and no external dependencies, and
-   a methodology page that waits on a font CDN to become readable would be a
-   poor advertisement for the care it is claiming.
-   ========================================================================== */
-
-:root {
-  --paper:   #f7f5f0;
-  --ink:     #16150f;
-  --ink-2:   #4a483f;
-  --ink-3:   #78756a;
-  --rule:    #d4d0c4;
-  --rule-2:  #16150f;
-  --accent:  #1a4f8a;
-  --flag:    #a4271c;
-  --measure: 34rem;
-}
-
-*, *::before, *::after { box-sizing: border-box; }
-
-html { -webkit-text-size-adjust: 100%; }
-
-body {
-  margin: 0;
-  background: var(--paper);
-  color: var(--ink);
-  font: 400 19px/1.62 Georgia, "Iowan Old Style", "Times New Roman", serif;
-  padding: 0 22px 96px;
-  text-rendering: optimizeLegibility;
-}
-
-.wrap { max-width: var(--measure); margin: 0 auto; }
-
-/* ------------------------------------------------------------- masthead */
-
-.masthead {
-  display: flex; align-items: center; gap: 10px;
-  padding: 26px 0 12px;
-  border-bottom: 2px solid var(--rule-2);
-}
-.masthead a { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
-.masthead svg { width: 26px; height: 26px; }
-.masthead .name { font-size: 21px; letter-spacing: -0.015em; }
-.masthead .name b { font-weight: 700; }
-.masthead .section {
-  margin-left: auto;
-  font: 600 11px/1 ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: .22em; text-transform: uppercase; color: var(--ink-3);
-}
-
-.dateline {
-  margin: 9px 0 0;
-  font: 400 11.5px/1 ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3);
-}
-
-/* --------------------------------------------------------------- header */
-
-h1 {
-  margin: 30px 0 0;
-  font-size: clamp(34px, 8vw, 46px);
-  line-height: 1.08;
-  font-weight: 700;
-  letter-spacing: -0.022em;
-}
-
-.standfirst {
-  margin: 16px 0 0;
-  font-size: 21px;
-  line-height: 1.5;
-  color: var(--ink-2);
-}
-
-.rule { border: 0; border-top: 1px solid var(--rule); margin: 34px 0; }
-
-/* ----------------------------------------------------------------- body */
-
-h2 {
-  margin: 44px 0 0;
-  font-size: 12px;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  font-weight: 700;
-  letter-spacing: .2em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  padding-bottom: 7px;
-  border-bottom: 1px solid var(--rule);
-}
-
-h3 {
-  margin: 30px 0 0;
-  font-size: 21px;
-  font-weight: 700;
-  letter-spacing: -0.012em;
-}
-
-p { margin: 15px 0 0; }
-
-.lede::first-letter {
-  float: left;
-  font-size: 66px;
-  line-height: .78;
-  font-weight: 700;
-  padding: 6px 9px 0 0;
-}
-
-a { color: var(--accent); text-underline-offset: 2px; }
-
-strong { font-weight: 700; }
-
-blockquote {
-  margin: 26px 0 0;
-  padding: 2px 0 2px 20px;
-  border-left: 3px solid var(--rule-2);
-  font-size: 20px;
-  line-height: 1.45;
-}
-
-/* --------------------------------------------------------------- tables */
-
-table {
-  width: 100%;
-  margin: 20px 0 0;
-  border-collapse: collapse;
-  font: 400 15.5px/1.4 ui-sans-serif, system-ui, sans-serif;
-  font-variant-numeric: tabular-nums;
-}
-caption {
-  caption-side: top;
-  text-align: left;
-  padding-bottom: 9px;
-  font: 600 11px/1.4 ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3);
-}
-th, td { text-align: left; padding: 9px 10px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
-thead th { border-bottom: 1.5px solid var(--rule-2); font-weight: 700; font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase; }
-td.num, th.num { text-align: right; padding-right: 0; white-space: nowrap; }
-tbody tr:last-child td { border-bottom: 0; }
-
-.note {
-  margin: 12px 0 0;
-  font: 400 14px/1.5 ui-sans-serif, system-ui, sans-serif;
-  color: var(--ink-3);
-}
-
-/* ------------------------------------------------------------ the limits */
-
-.limits { margin: 20px 0 0; padding: 0; list-style: none; }
-.limits li {
-  padding: 15px 0 15px 26px;
-  border-bottom: 1px solid var(--rule);
-  position: relative;
-}
-.limits li:last-child { border-bottom: 0; }
-.limits li::before {
-  content: "—";
-  position: absolute; left: 0; top: 15px;
-  color: var(--flag); font-weight: 700;
-}
-.limits b { display: block; }
-
-/* ---------------------------------------------------------------- close */
-
-.backlink {
-  display: inline-block;
-  margin-top: 34px;
-  font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: .16em; text-transform: uppercase;
-  color: var(--ink);
-  text-decoration: none;
-  border-bottom: 2px solid var(--rule-2);
-  padding-bottom: 5px;
-}
-
-footer {
-  margin-top: 54px;
-  padding-top: 18px;
-  border-top: 2px solid var(--rule-2);
-  font: 400 14px/1.55 ui-sans-serif, system-ui, sans-serif;
-  color: var(--ink-3);
-}
-footer a { color: var(--ink-2); }
-
-@media (max-width: 480px) {
-  body { font-size: 18px; padding-inline: 18px; }
-  .standfirst { font-size: 19px; }
-}
-</style>
+<link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="stylesheet" href="/styles.css" />
 </head>
 
-<body>
-<div class="wrap">
+<body class="docpage">
+<header class="topbar">
+  <a class="brand" href="/">
+    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="24" fill="#4c8dff"/><path d="M22 64 L41 45 L56 57 L78 33" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Stock<b>OrNot</b></span>
+  </a>
+  <nav class="topnav" aria-label="Site">
+    <a href="/stock">Companies</a>
+    <a href="/method" aria-current="page">How the score works</a>
+    <a href="/pricing">Pricing</a>
+  </nav>
+  <div class="topbar-actions">
+    <a class="primary-btn" href="/">Open the deck</a>
+  </div>
+</header>
+<main class="doc">
 
-  <header class="masthead">
-    <a href="/">
-      <svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#16150f"/><path d="M20 66 L40 44 L56 58 L80 30" stroke="#f7f5f0" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span class="name">Stock<b>OrNot</b></span>
-    </a>
-    <span class="section">Method</span>
-  </header>
-  <p class="dateline">How the score is built &middot; Updated September 2026</p>
+  <p class="eyebrow">How the score is built · Updated September 2026</p>
 
   <h1>A number, and everything it doesn't know</h1>
 
-  <p class="standfirst">Every company in the deck carries a score out of 100. Here is exactly how it
+  <p class="doc-standfirst">Every company in the deck carries a score out of 100. Here is exactly how it
   is calculated, what data feeds it, and the list of things it cannot see. The last part is longer
   than you might expect.</p>
 
-  <hr class="rule">
-
-  <p class="lede">The score is a weighted blend of five factors, each read from figures the company
+  <p>The score is a weighted blend of five factors, each read from figures the company
   filed with the SEC or from its current market price. It is arithmetic, not judgement. Nothing about
   it is predictive, and no part of it has been tuned against how these stocks subsequently performed.
   It is a screen: a way of asking whether the reported numbers look cheap, whether they are growing,
@@ -384,13 +198,13 @@ footer a { color: var(--ink-2); }
 
   <a class="backlink" href="/">Back to the deck</a>
 
-  <footer>
-    <p>Market data by <a href="https://finnhub.io" rel="noopener">Finnhub</a>. Filings from
-    <a href="https://www.sec.gov/edgar" rel="noopener">SEC EDGAR</a>. Figures may be stale,
-    mis-parsed or wrong &mdash; read the actual filing before you buy anything.
-    <a href="/stock">Browse every company</a>.</p>
-  </footer>
+</main>
 
-</div>
+<footer class="sitefoot">
+  <p><b>Not investment advice.</b> Every figure here comes from
+  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
+  <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
+  Read the actual filing before you buy anything.</p>
+</footer>
 </body>
 </html>

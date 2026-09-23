@@ -40,7 +40,7 @@ const TYPES = {
   ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml",
   ".png": "image/png", ".txt": "text/plain; charset=utf-8", ".xml": "application/xml",
-  ".ics": "text/calendar; charset=utf-8"
+  ".ics": "text/calendar; charset=utf-8", ".woff2": "font/woff2"
 };
 
 async function serveFile(res, file) {
