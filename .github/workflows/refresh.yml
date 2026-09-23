@@ -79,3 +79,17 @@ jobs:
             git commit -m "Data refresh $(date -u +'%Y-%m-%d')"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
+
+      # A week's warning before anything in a signed-in cart reports. Runs after
+      # the publish so a mail outage can never hold the data back, and skips
+      # itself cleanly until SUPABASE_SERVICE_ROLE_KEY and RESEND_API_KEY exist.
+      # Limited test runs never email anyone.
+      - name: Email earnings alerts
+        if: ${{ !github.event.inputs.limit }}
+        continue-on-error: true
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_FROM: ${{ vars.ALERT_FROM }}
+          SITE_ORIGIN: https://stockornot.com
+        run: node scripts/earnings-alerts.mjs
