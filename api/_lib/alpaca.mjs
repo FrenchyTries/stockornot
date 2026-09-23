@@ -27,7 +27,18 @@ export const OAUTH = {
 
 export const liveAllowed = () => process.env.BROKER_ALLOW_LIVE === "1";
 export const oauthConfigured = () => Boolean(process.env.ALPACA_CLIENT_ID && process.env.ALPACA_CLIENT_SECRET);
-export const maxLiveOrder = () => Number(process.env.BROKER_MAX_ORDER_USD) || 5000;
+/* The per-order cap on live trading. Unset means $5,000. Set to anything this
+   cannot read as a plain number of dollars ("abc", "-1") and the cap becomes
+   0, which refuses every live order: a typo in the setting must never widen
+   what the site will spend. "$2,000" and "2000" both read as 2000. */
+export function maxLiveOrder() {
+  const raw = process.env.BROKER_MAX_ORDER_USD;
+  if (raw === undefined || String(raw).trim() === "") return 5000;
+  const v = Number(String(raw).replace(/[$,\s]/g, ""));
+  if (isFinite(v) && v >= 0) return v;
+  console.warn("BROKER_MAX_ORDER_USD is not a number of dollars; refusing live orders until it is fixed.");
+  return 0;
+}
 
 function headers(conn) {
   const h = { Accept: "application/json" };
@@ -141,7 +152,8 @@ export function buildOrder(o, env) {
   if (!SYMBOL.test(symbol)) return { error: "Not a ticker this site knows." };
   const side = o.side === "sell" ? "sell" : o.side === "buy" ? "buy" : null;
   if (!side) return { error: "Side must be buy or sell." };
-  const type = o.type === "limit" ? "limit" : "market";
+  const type = o.type === "limit" || o.type === "market" ? o.type : null;
+  if (!type) return { error: "Order type must be market or limit." };
   const clientId = CLIENT_ID.test(String(o.clientId || "")) ? String(o.clientId) : undefined;
 
   const out = { symbol, side, type, client_order_id: clientId };
@@ -172,6 +184,7 @@ export function buildOrder(o, env) {
 
   if (env === "live") {
     const cap = maxLiveOrder();
+    if (!(cap > 0)) return { error: "Live orders are switched off on this site (BROKER_MAX_ORDER_USD is 0 or unreadable)." };
     if (cost === null) return { error: "Live orders must be sized in dollars or carry a limit price." };
     if (cost > cap) return { error: `Live orders are capped at $${cap.toLocaleString("en-US")} each on this site.` };
   } else if (cost !== null && cost > 10_000_000) {
@@ -180,8 +193,21 @@ export function buildOrder(o, env) {
   return { order: out };
 }
 
+/* Places one order. A client id the brokerage has already seen means this
+   exact order went through on an earlier try whose answer never arrived (a
+   dropped connection, a function timeout, a phone that slept). That is a
+   success, not a refusal, so fetch the order it already has and say so. */
 export async function placeOrder(conn, order) {
-  return shapeOrder(await call(conn, "POST", "/v2/orders", order));
+  try {
+    return shapeOrder(await call(conn, "POST", "/v2/orders", order));
+  } catch (err) {
+    if (err.status === 422 && order.client_order_id && /client_order_id/i.test(err.message)) {
+      const existing = await call(conn, "GET",
+        "/v2/orders:by_client_order_id?client_order_id=" + encodeURIComponent(order.client_order_id)).catch(() => null);
+      if (existing && existing.symbol === order.symbol) return { ...shapeOrder(existing), duplicate: true };
+    }
+    throw err;
+  }
 }
 
 export async function cancelOrder(conn, id) {

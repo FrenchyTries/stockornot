@@ -48,7 +48,10 @@ export function parseCookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || "").split(/;\s*/)) {
     const i = part.indexOf("=");
-    if (i > 0) out[part.slice(0, i)] = decodeURIComponent(part.slice(i + 1));
+    if (i <= 0) continue;
+    /* Every cookie on the domain arrives here, not only ours. One with a
+       stray "%" in it must not take the whole function down. */
+    try { out[part.slice(0, i)] = decodeURIComponent(part.slice(i + 1)); } catch { /* not ours */ }
   }
   return out;
 }

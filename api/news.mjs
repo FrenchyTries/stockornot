@@ -9,12 +9,24 @@
    ========================================================================== */
 
 import { send, query } from "./_lib/http.mjs";
+import universe from "../data/sp500.json" with { type: "json" };
 
-const TICKER = /^[A-Z][A-Z0-9.]{0,9}$/;
+/* Only the companies the site covers, and only one spelling of each request.
+   The key is shared with the nightly refresh, so every call that misses the
+   CDN cache spends from the same quota; "?t=ko", "?t=KO&x=1" and a ticker the
+   site never shows would each be a fresh miss. */
+const KNOWN = new Set(universe.companies.map((c) => c.t));
 
 export default async function handler(req, res) {
-  const t = String(query(req).get("t") || "").toUpperCase();
-  if (!TICKER.test(t)) return send(res, 400, { error: "Unknown ticker." });
+  const q = query(req);
+  const t = String(q.get("t") || "").toUpperCase();
+  if (!KNOWN.has(t)) return send(res, 404, { error: "Unknown ticker." }, { "Cache-Control": "public, max-age=3600, s-maxage=86400" });
+  if ([...q.keys()].some((k) => k !== "t") || q.getAll("t").length !== 1 || q.get("t") !== t) {
+    res.statusCode = 308;
+    res.setHeader("Location", "/api/news?t=" + encodeURIComponent(t));
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    return res.end();
+  }
 
   const token = process.env.FINNHUB_TOKEN;
   if (!token) return send(res, 503, { error: "News is not set up on this server (FINNHUB_TOKEN is missing)." });
@@ -24,7 +36,9 @@ export default async function handler(req, res) {
               `&from=${day(10 * 864e5)}&to=${day(0)}&token=${encodeURIComponent(token)}`;
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!r.ok) return send(res, 502, { error: "The news source did not answer." });
+    /* A short cache on failure too: when the quota is spent, a burst of
+       visitors should not each spend another call finding that out. */
+    if (!r.ok) return send(res, 502, { error: "The news source did not answer." }, { "Cache-Control": "public, s-maxage=120" });
     const rows = await r.json();
 
     /* Finnhub repeats a story once per wire that carries it. Keep the first. */

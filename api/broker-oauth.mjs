@@ -17,6 +17,15 @@ import { seal, unseal, secretConfigured } from "./_lib/seal.mjs";
 import * as alpaca from "./_lib/alpaca.mjs";
 
 const STATE = "son_broker_state";
+const MAX_AGE = 60 * 60 * 24 * 30;
+
+/* Constant-time, and safe on input of any shape: timingSafeEqual throws when
+   the two byte lengths differ, which a state of multibyte characters with the
+   right character count would otherwise trigger. */
+function sameState(given, held) {
+  const a = Buffer.from(String(given || "")), b = Buffer.from(String(held || ""));
+  return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 const back = (req, outcome) => origin(req) + "/?broker=" + encodeURIComponent(outcome);
 
@@ -32,10 +41,9 @@ export default async function handler(req, res) {
     const clear = clearCookie(STATE);
     if (q.has("error")) return redirect(res, back(req, "declined"), [clear]);
 
-    const given = q.get("state") || "";
-    const ok = held && typeof held.state === "string" && given.length === held.state.length &&
-      crypto.timingSafeEqual(Buffer.from(given), Buffer.from(held.state));
-    if (!ok) return redirect(res, back(req, "expired"), [clear]);
+    if (!held || typeof held.state !== "string" || !sameState(q.get("state"), held.state)) {
+      return redirect(res, back(req, "expired"), [clear]);
+    }
 
     try {
       const tok = await alpaca.exchangeCode({ code: q.get("code"), redirectUri });
@@ -43,7 +51,7 @@ export default async function handler(req, res) {
       await alpaca.account(conn);                 /* prove it works before keeping it */
       return redirect(res, back(req, "connected"), [
         clear,
-        cookie("son_broker", seal(conn), { maxAge: 60 * 60 * 24 * 30, sameSite: "Strict" })
+        cookie("son_broker", seal(conn, MAX_AGE), { maxAge: MAX_AGE, sameSite: "Strict" })
       ]);
     } catch {
       return redirect(res, back(req, "failed"), [clear]);
@@ -56,6 +64,6 @@ export default async function handler(req, res) {
   /* Lax, not Strict: the return trip is a top-level navigation from Alpaca's
      domain, and a Strict cookie would not be sent with it. */
   return redirect(res, alpaca.authorizeUrl({ redirectUri, state, env }), [
-    cookie(STATE, seal({ state, env }), { maxAge: 600, sameSite: "Lax" })
+    cookie(STATE, seal({ state, env }, 600), { maxAge: 600, sameSite: "Lax" })
   ]);
 }

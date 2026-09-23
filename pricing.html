@@ -207,13 +207,6 @@ footer a { color: var(--ink-2); }
 
 </div>
 
-<script type="module">
-  /* The button cannot take money yet, and pretending otherwise would collect
-     card details for a thing that does not exist. It says so plainly instead. */
-  const join = document.getElementById("join");
-  join.setAttribute("aria-disabled", "true");
-  join.textContent = "Opening soon";
-  join.addEventListener("click", (e) => { e.preventDefault(); location.href = "/"; });
-</script>
+<script type="module" src="/pricing.js"></script>
 </body>
 </html>

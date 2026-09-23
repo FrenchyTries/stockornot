@@ -19,7 +19,13 @@ create table if not exists public.carts (
 );
 
 comment on table public.carts is
-  'One row per person. items holds the whole cart: [{t, n, sector, addedAt, priceAtAdd, note, amount}]';
+  'One row per person. items holds the whole cart: [{t, n, sector, addedAt, updatedAt, priceAtAdd, note, amount, orderKey, lastOrder}], plus removal markers {t, deletedAt, updatedAt} that let other devices learn of a removal (see lib/cart.mjs)';
+
+-- A cart is a list, and a small one. Refusing anything else at the door keeps
+-- a malformed row from ever reaching the nightly alert job.
+alter table public.carts drop constraint if exists carts_items_is_list;
+alter table public.carts add constraint carts_items_is_list
+  check (jsonb_typeof(items) = 'array' and pg_column_size(items) < 262144);
 
 alter table public.carts enable row level security;
 

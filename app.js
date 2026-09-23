@@ -23,10 +23,11 @@ import * as tier from "./lib/tier.mjs";
 import * as insight from "./lib/insight.mjs";
 import * as broker from "./lib/broker.mjs";
 import * as earn from "./lib/earnings.mjs";
+import * as cartLib from "./lib/cart.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
-var LS = { cart: "ts.cart", seen: "ts.seen" };
+var LS = { cart: "ts.cart", seen: "ts.seen", owner: "ts.cartOwner" };
 
 function load(k, fb) {
   try { var raw = localStorage.getItem(k); return raw === null ? fb : JSON.parse(raw); }
@@ -36,11 +37,17 @@ function save(k, v) {
   try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {}
 }
 
+var storedCart = cartLib.split(load(LS.cart, []));
+
 var state = {
   all:     [],            /* every company from the snapshot          */
   deck:    [],            /* tickers queued for swiping               */
   cursor:  0,
-  cart:    load(LS.cart, []),
+  cart:    storedCart.live,   /* what the cart shows                   */
+  cartGone: storedCart.gone,  /* removals, kept so other copies learn of them */
+  /* whose cart this browser holds: an account id, "" after signing out,
+     null when it was saved before this was recorded */
+  cartOwner: load(LS.owner, null),
   seen:    load(LS.seen, []),
   showSeen: false,        /* set only by the end-of-deck prompt, never saved */
   byTicker: {},
@@ -92,6 +99,7 @@ function daysUntil(iso) {
 function relTime(iso) {
   if (!iso) return "never";
   var mins = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (mins < 1) return "just now";
   if (mins < 90) return mins + " min ago";
   var hrs = Math.round(mins / 60);
   if (hrs < 36) return hrs + "h ago";
@@ -436,6 +444,8 @@ function fillStreet(box, deep) {
   return true;
 }
 
+var CAL_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
+
 function makeCard(s, depth) {
   var card = el("article", "card");
   card.style.transform = stackTransform(depth);
@@ -504,13 +514,15 @@ function makeCard(s, depth) {
     var d = daysUntil(e.date);
     var when = d === null ? "" : d < 0 ? "just reported" : d === 0 ? "today" : d === 1 ? "tomorrow" : "in " + d + " days";
     if (d !== null && d >= 0 && d <= 14) eb.classList.add("is-soon");
-    eb.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>' +
-      '<span><b>Next earnings ' + when + '</b> on ' + dateShort(e.date) +
-      (earn.quarterLabel(e) ? ' for ' + earn.quarterLabel(e) : '') +
-      (e.hour ? ' (' + (earn.whenWord(e.hour) || e.hour) + ')' : '') +
-      streetExpects(e) +
-      '</span>';
+    /* Vendor fields go in as text, never as markup. */
+    eb.innerHTML = CAL_ICON;
+    var line = el("span", "");
+    line.appendChild(el("b", "", "Next earnings " + when));
+    line.appendChild(document.createTextNode(" on " + dateShort(e.date) +
+      (earn.quarterLabel(e) ? " for " + earn.quarterLabel(e) : "") +
+      (earn.whenWord(e.hour) ? " (" + earn.whenWord(e.hour) + ")" : "") +
+      streetExpects(e)));
+    eb.appendChild(line);
   } else {
     eb.classList.add("is-muted");
     eb.innerHTML =
@@ -764,6 +776,14 @@ function attachDrag(entry) {
   card.addEventListener("pointercancel", release);
 }
 
+/* Folds in what other tabs have marked before writing, so two tabs swiping
+   at once both keep their history. */
+function markSeen(t) {
+  load(LS.seen, []).forEach(function (x) { if (!seenSet.has(x)) { seenSet.add(x); state.seen.push(x); } });
+  if (!seenSet.has(t)) { seenSet.add(t); state.seen.push(t); }
+  save(LS.seen, state.seen);
+}
+
 function commit(action) {
   if (state.busy) return;
   var entry = cards[0];
@@ -773,11 +793,7 @@ function commit(action) {
   var s = state.byTicker[entry.ticker];
   if (action === "add") addToCart(s);
 
-  if (!seenSet.has(entry.ticker)) {
-    seenSet.add(entry.ticker);
-    state.seen.push(entry.ticker);
-    save(LS.seen, state.seen);
-  }
+  markSeen(entry.ticker);
 
   var dirSign = action === "add" ? 1 : -1;
   var card = entry.node;
@@ -805,48 +821,204 @@ function commit(action) {
 /* ============================================================== CART ===== */
 
 /* Local first, always. The browser copy is written synchronously so the cart
-   survives a refresh whether or not anyone is signed in; the server copy is
-   debounced behind it, because the notes field fires on every keystroke and a
-   round trip per character would be absurd. A failed push is not an error the
-   user needs to see — the local copy is still correct and the next write
-   retries. */
-var pushTimer = null;
+   survives a refresh whether or not anyone is signed in. Every write first
+   folds in whatever another tab saved meanwhile (lib/cart.mjs merges by last
+   write per company, removals included), so two open tabs cannot erase each
+   other's changes.
+
+   The account copy follows behind, debounced because the notes field fires on
+   every keystroke. Each sync reads the account's cart, merges, and writes back
+   only if something differs, so a device that was offline, or a second device
+   editing at the same time, loses nothing. Nothing is ever written to an
+   account whose cart could not first be read, and nothing is written to an
+   account this browser's cart does not belong to (see ensureCartOwner). */
+
+function cartRecords() { return state.cart.concat(state.cartGone); }
+
+function setCart(records) {
+  var parts = cartLib.split(records);
+  state.cart = parts.live;
+  state.cartGone = parts.gone;
+}
+
+function cartItem(t) {
+  return state.cart.filter(function (i) { return i.t === t; })[0] || null;
+}
+
+function touch(item) {
+  item.updatedAt = new Date().toISOString();
+  return item;
+}
+
+function removeFromCart(t) {
+  if (!cartItem(t)) return;
+  state.cart = state.cart.filter(function (i) { return i.t !== t; });
+  state.cartGone = state.cartGone.filter(function (g) { return g.t !== t; }).concat([cartLib.tombstone(t)]);
+}
+
+function setCartOwner(owner) {
+  state.cartOwner = owner;
+  save(LS.owner, owner);
+}
+
+/* Everything that shows the cart, redrawn after it changed from outside this
+   tab. The open cart is left alone while someone is typing in it; its
+   handlers look items up by ticker, so they keep working either way. */
+function cartChanged() {
+  renderCartCount();
+  renderEarnNotice();
+  renderOrderBar();
+  var dlg = $("#dlgCart");
+  if (dlg.open && !dlg.contains(document.activeElement && document.activeElement.matches("input, textarea") ? document.activeElement : null)) renderCart();
+}
 
 function persistCart() {
-  save(LS.cart, state.cart);
-  if (!state.user) return;
-  clearTimeout(pushTimer);
-  pushTimer = setTimeout(function () {
-    auth.pushCart(state.cart).then(function (ok) { setSyncNote(ok ? "saved" : "offline"); });
-  }, 800);
+  setCart(cartLib.mergeCarts(cartRecords(), load(LS.cart, [])));
+  save(LS.cart, cartRecords());
+  scheduleSync();
+}
+
+/* Another tab saved. Its copy is merged in, never written back from here, so
+   two tabs cannot ping-pong. A different owner means the other tab signed in
+   or out: its cart is this browser's cart now, as it stands. */
+function onStorage(ev) {
+  if (ev.key === LS.cart || ev.key === LS.owner) {
+    var owner = load(LS.owner, null);
+    var theirs = load(LS.cart, []);
+    if (owner !== state.cartOwner) { state.cartOwner = owner; setCart(theirs); }
+    else setCart(cartLib.mergeCarts(cartRecords(), theirs));
+    cartChanged();
+  } else if (ev.key === LS.seen) {
+    load(LS.seen, []).forEach(function (t) { if (!seenSet.has(t)) { seenSet.add(t); state.seen.push(t); } });
+  }
+}
+
+var sync = { timer: null, retryTimer: null, retries: 0, running: null, again: false };
+
+function scheduleSync() {
+  if (!state.user || state.cartOwner !== state.user.id) return;
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(syncCart, 800);
+}
+
+function syncCart() {
+  clearTimeout(sync.timer); sync.timer = null;
+  var user = state.user;
+  if (!user || state.cartOwner !== user.id) return Promise.resolve(false);
+  if (sync.running) { sync.again = true; return sync.running; }
+  setSyncNote("saving");
+  sync.running = auth.fetchCart().then(function (r) {
+    if (!r.ok || r.userId !== user.id || state.user !== user) return false;
+    var mine = cartRecords();
+    var merged = cartLib.mergeCarts(mine, r.items);
+    if (!cartLib.sameCart(merged, mine)) {
+      setCart(merged);
+      save(LS.cart, cartRecords());
+      cartChanged();
+    }
+    if (cartLib.sameCart(merged, r.items)) return true;
+    return auth.pushCart(merged, user.id);
+  }).then(function (ok) {
+    sync.running = null;
+    clearTimeout(sync.retryTimer);
+    if (ok) {
+      sync.retries = 0;
+      setSyncNote("saved");
+      if (sync.again) { sync.again = false; return syncCart(); }
+    } else if (state.user === user) {
+      /* retry on a widening timer, and at once when the connection returns */
+      setSyncNote("offline");
+      var wait = [5, 15, 45, 120][Math.min(sync.retries++, 3)] * 1000;
+      sync.retryTimer = setTimeout(syncCart, wait);
+    }
+    return ok;
+  });
+  return sync.running;
 }
 
 function setSyncNote(status) {
   var n = $("#cartSync");
   if (!n) return;
+  var owned = state.user && state.cartOwner === state.user.id;
   n.hidden = !state.user;
-  n.textContent = status === "offline"
-    ? "Not saved, will retry"
+  n.textContent = !owned
+    ? "Not linked to your account yet"
+    : status === "offline" ? "Not saved to your account yet, retrying"
     : status === "saving" ? "Saving…" : "Saved to your account";
-  n.classList.toggle("is-warn", status === "offline");
+  n.classList.toggle("is-warn", !owned || status === "offline");
 }
 
-/* Signing in pulls what the account already has and folds the browser's cart
-   into it, so arriving from a second device adds to the list rather than
-   replacing it. */
-function adoptAccountCart() {
-  return auth.fetchCart().then(function (remote) {
-    if (remote === null) return;
-    var merged = auth.mergeCarts(state.cart, remote);
-    var changed = merged.length !== state.cart.length ||
-      merged.some(function (m, i) { return !state.cart[i] || state.cart[i].t !== m.t; });
-    state.cart = merged;
-    save(LS.cart, state.cart);
-    renderCartCount();
-    renderEarnNotice();
-    if ($("#dlgCart").open) renderCart();
-    if (changed || remote.length !== merged.length) return auth.pushCart(merged);
-  }).then(function () { setSyncNote("saved"); });
+/* Whose cart is this? Signing in merges this browser's cart into the account
+   only when it is already that account's, or when the person says so. A cart
+   left by someone else (or by nobody, before signing in) is not folded into
+   an account without asking, and the question names the account, so a sign-in
+   link somebody else sent cannot quietly collect this browser's notes. */
+var ownerAsk = null;      /* a question put off while the tab was hidden */
+
+function ensureCartOwner(user, fresh) {
+  if (!user) return;
+  var stored = load(LS.owner, null);
+  if (stored !== state.cartOwner) { state.cartOwner = stored; setCart(load(LS.cart, [])); cartChanged(); }
+  if (state.cartOwner === user.id) { syncCart(); return; }
+  var legacy = state.cartOwner === null && !fresh;   /* saved while signed in, before owners were recorded */
+  if (!state.cart.length || legacy) {
+    setCartOwner(user.id);
+    syncCart();
+    return;
+  }
+  if (document.visibilityState === "hidden") { ownerAsk = { user: user, fresh: fresh }; return; }
+  ownerAsk = null;
+  var n = state.cart.length;
+  var body = $("#ownerBody");
+  body.textContent = "";
+  body.appendChild(document.createTextNode("You are signed in as "));
+  body.appendChild(el("b", "", user.email || "an account with no email"));
+  body.appendChild(document.createTextNode(". This browser's cart has " + n + (n === 1 ? " company" : " companies") +
+    ", with any notes and amounts, that " + (n === 1 ? "is" : "are") + " not saved to that account."));
+  var dlg = $("#dlgOwner");
+  $("#ownerAdd").onclick = function () {
+    closeDialog(dlg);
+    if (state.user !== user) return;
+    setCartOwner(user.id);
+    syncCart();
+  };
+  $("#ownerLeave").onclick = function () {
+    closeDialog(dlg);
+    if (state.user !== user) return;
+    setCart([]);
+    save(LS.cart, []);
+    setCartOwner(user.id);
+    cartChanged();
+    syncCart();
+  };
+  setSyncNote();
+  openDialog(dlg);
+}
+
+/* Signing out takes the cart with it: the notes are private, and whoever uses
+   this browser next should not see them or have them folded into their own
+   account. Anything not yet saved is saved first. */
+function signOutAndForget() {
+  var user = state.user;
+  /* a cart that never joined the account (the question was put off) is not
+     the account's to take away */
+  var owned = !!(user && state.cartOwner === user.id);
+  var flush = owned ? syncCart() : Promise.resolve(true);
+  return flush.then(function (ok) {
+    if (!ok && !window.confirm("Your latest cart changes have not reached your account yet (the connection failed). Sign out anyway and lose them?")) {
+      return Promise.reject("kept");
+    }
+    return auth.signOut();
+  }).then(function () {
+    clearTimeout(sync.timer); clearTimeout(sync.retryTimer);
+    if (owned) {
+      setCartOwner("");
+      setCart([]);
+      save(LS.cart, []);
+      cartChanged();
+    }
+    return true;
+  }, function () { return false; });
 }
 
 function addToCart(s) {
@@ -870,9 +1042,12 @@ function addToCart(s) {
     );
     return;
   }
+  var now = new Date().toISOString();
+  state.cartGone = state.cartGone.filter(function (g) { return g.t !== s.t; });
   state.cart.unshift({
     t: s.t, n: s.n, sector: s.s,
-    addedAt: new Date().toISOString(),
+    addedAt: now,
+    updatedAt: now,
     priceAtAdd: num(s.price) ? s.price : null,
     note: ""
   });
@@ -894,6 +1069,16 @@ function renderCartCount() {
   $("#btnCart").classList.toggle("has-items", state.cart.length > 0);
 }
 
+var NOTE_MAX = 600;
+
+/* What was last sent for this row, so a placed amount is not mistaken for
+   one still to place. */
+function lastOrderLine(o) {
+  if (!o || !o.at) return null;
+  var what = (o.type === "limit" ? "Limit order up to " : "Order for ") + usd(o.amount);
+  return what + " sent " + relTime(o.at) + " (" + envName(o.env) + ", " + String(o.status || "sent").replace(/_/g, " ") + ")";
+}
+
 function renderCart() {
   var list = $("#cartList");
   list.innerHTML = "";
@@ -903,7 +1088,8 @@ function renderCart() {
   var moves = [];
   var held = heldBySymbol();
 
-  state.cart.forEach(function (item, idx) {
+  state.cart.forEach(function (item) {
+    var t = item.t;
     var live = state.byTicker[item.t];
     var now = live && num(live.price) ? live.price : null;
     var move = now !== null && num(item.priceAtAdd) && item.priceAtAdd > 0
@@ -934,7 +1120,7 @@ function renderCart() {
     rm.setAttribute("aria-label", "Remove " + item.t + " from cart");
     rm.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     rm.addEventListener("click", function () {
-      state.cart.splice(idx, 1);
+      removeFromCart(t);
       persistCart();
       renderCart(); renderCartCount(); renderEarnNotice();
     });
@@ -969,15 +1155,23 @@ function renderCart() {
     var h = held[item.t];
     if (h) amtRow.appendChild(el("span", "ci-held", "You hold " + fmtQty(h.qty) + " sh (" + usd(h.value) + ")"));
     row.appendChild(amtRow);
+    var sent = lastOrderLine(item.lastOrder);
+    if (sent) row.appendChild(el("p", "ci-meta ci-sent", sent));
 
     function showEst() {
       var v = Number(item.amount);
       est.textContent = v > 0 && now ? "≈ " + fmtQty(v / now) + " sh at " + price(now) : "";
     }
     showEst();
+    /* Handlers find the item by ticker each time: a sync from another tab
+       or device can swap in a newer copy of it while this row is on screen. */
     amt.addEventListener("input", function () {
+      var it = cartItem(t);
+      if (!it) return;
       var v = parseFloat(amt.value);
-      item.amount = isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
+      it.amount = isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
+      item = it;
+      touch(it);
       showEst();
       renderOrderBar();
       persistCart();
@@ -985,10 +1179,14 @@ function renderCart() {
 
     var note = el("textarea", "ci-note");
     note.rows = 2;
+    note.maxLength = NOTE_MAX;
     note.placeholder = "What made you keep this one? Only you will see it.";
     note.value = item.note || "";
     note.addEventListener("input", function () {
-      item.note = note.value.slice(0, 600);
+      var it = cartItem(t);
+      if (!it) return;
+      it.note = note.value.slice(0, NOTE_MAX);
+      touch(it);
       persistCart();
     });
     row.appendChild(note);
@@ -1027,17 +1225,24 @@ function exportCsv() {
     var now = live && num(live.price) ? live.price : "";
     var chg = now !== "" && num(i.priceAtAdd) && i.priceAtAdd > 0
       ? (((now - i.priceAtAdd) / i.priceAtAdd) * 100).toFixed(2) : "";
-    rows.push([i.t, i.n, i.sector || "", i.addedAt.slice(0, 10),
-               num(i.priceAtAdd) ? i.priceAtAdd : "", now, chg, num(i.amount) ? i.amount : "", i.note || ""]);
+    rows.push([i.t, text(i.n), text(i.sector), String(i.addedAt || "").slice(0, 10),
+               num(i.priceAtAdd) ? i.priceAtAdd : "", now, chg, num(i.amount) ? i.amount : "", text(i.note)]);
   });
+  /* A text cell that starts with = + - @ is run as a formula by spreadsheet
+     apps; a leading apostrophe makes it plain text. Numbers are left alone. */
+  function text(v) {
+    v = String(v || "");
+    return /^[=+\-@\t\r]/.test(v) ? "'" + v : v;
+  }
   var csv = rows.map(function (r) {
     return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(",");
-  }).join("\n");
+  }).join("\r\n");
 
-  var url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  /* the byte-order mark tells Excel the file is UTF-8 */
+  var url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
   var a = document.createElement("a");
   a.href = url;
-  a.download = "tikstock-cart-" + new Date().toISOString().slice(0, 10) + ".csv";
+  a.download = "stockornot-cart-" + new Date().toISOString().slice(0, 10) + ".csv";
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1054,6 +1259,7 @@ function exportCsv() {
    ======================================================================== */
 
 var portfolio = null;         /* { positions, orders } once fetched */
+var portfolioError = "";      /* why the last fetch failed, shown in place of "Loading…" */
 var brokerLoading = null;
 
 function refreshBroker() {
@@ -1063,7 +1269,7 @@ function refreshBroker() {
     if (r.unavailable) state.broker = { unavailable: true };
     else if (!r.ok) state.broker = { error: r.error || "Could not check the brokerage." };
     else state.broker = r.data;
-    if (!state.broker.connected) portfolio = null;
+    if (!state.broker.connected) { portfolio = null; portfolioError = ""; }
     renderBrokerPanel();
     renderOrderBar();
     return state.broker;
@@ -1074,7 +1280,9 @@ function refreshBroker() {
 function loadPortfolio() {
   if (!state.broker || !state.broker.connected) return Promise.resolve(null);
   return broker.portfolio().then(function (r) {
-    portfolio = r.ok ? r.data : null;
+    /* A failed refresh keeps what was already on screen and says why. */
+    if (r.ok) { portfolio = r.data; portfolioError = ""; }
+    else portfolioError = r.error || "Could not load holdings and orders.";
     if ($("#dlgCart").open) renderCart();
     if ($("#dlgBroker").open) renderAccount();
     return portfolio;
@@ -1173,7 +1381,7 @@ function renderOrderBar() {
 function splitEvenly(total) {
   if (!(total > 0) || !state.cart.length) return;
   var each = Math.floor((total / state.cart.length) * 100) / 100;
-  state.cart.forEach(function (i) { i.amount = each; });
+  state.cart.forEach(function (i) { i.amount = each; touch(i); });
   persistCart();
   renderCart();
 }
@@ -1247,10 +1455,12 @@ function renderAccount() {
   var posBox = $("#acctPositions");
   var ordBox = $("#acctOrders");
   if (!portfolio) {
-    posBox.innerHTML = '<p class="block-note">Loading…</p>';
-    ordBox.innerHTML = '<p class="block-note">Loading…</p>';
+    var wait = portfolioError ? portfolioError + " Press Refresh to try again." : "Loading…";
+    posBox.innerHTML = ""; posBox.appendChild(el("p", "block-note", wait));
+    ordBox.innerHTML = ""; ordBox.appendChild(el("p", "block-note", wait));
     return;
   }
+  if (portfolioError) brokerError("Could not refresh holdings and orders: " + portfolioError.replace(/\.?$/, ".") + " Showing the last ones loaded.");
   posBox.innerHTML = "";
   if (!portfolio.positions.length) posBox.appendChild(el("p", "block-note", "Nothing held yet."));
   else posBox.appendChild(positionsTable(portfolio.positions));
@@ -1338,9 +1548,22 @@ function ordersTable(rows) {
   return sc;
 }
 
-/* ----------------------------------------------------------- the review */
+/* ----------------------------------------------------------- the review
 
-var review = null;            /* { rows: [{ item, plan, limitInput, result }], placed } */
+   Money leaves from here, so the rules are strict:
+   - Each cart row keeps one client id per planned order (item.orderKey). The
+     brokerage refuses an id it has seen, so pressing Place twice, reopening
+     the review, retrying after a lost answer, or placing the same row from a
+     second device cannot buy twice.
+   - While a batch is out nothing on the sheet can change, and what is sent is
+     the plan as it stood at the click, not whatever is on screen later.
+   - A row that went through has its amount cleared and remembers the order
+     (item.lastOrder), so the cart stops offering to buy it again.
+   ------------------------------------------------------------------------ */
+
+var review = null;   /* { env, rows: [{ t, limit, plan, sent, result }], sending, placed } */
+var BATCH = 50;      /* the server takes at most this many per request */
+var DEAD_ORDER = { rejected: 1, canceled: 1, expired: 1 };
 
 function orderError(msg) {
   var box = $("#orderError");
@@ -1351,20 +1574,38 @@ function orderError(msg) {
 function openReview() {
   var b = state.broker;
   if (!b || !b.connected) { openBroker(); return; }
+  /* a batch is still out: show it rather than start a second one */
+  if (review && review.sending) { openDialog($("#dlgOrders")); return; }
   orderError("");
-  review = {
+  var mine = review = {
+    env: b.env,
+    sending: false,
     placed: false,
     rows: state.cart.filter(function (i) { return num(i.amount) && i.amount > 0; })
-      .map(function (i) { return { item: i, limit: null, clientId: broker.clientId(i.t), result: null }; })
+      .map(function (i) { return { t: i.t, limit: null, plan: null, sent: null, result: null }; })
   };
-  $("#ordersEnv").textContent = b.broker + " · " + envName(b.env);
-  $("#orderLiveConfirm").hidden = b.env !== "live";
   $("#orderLiveCheck").checked = false;
+  showReviewEnv();
   setOrderType(state.orderType);
   openDialog($("#dlgOrders"));
+  /* The connection may have changed in another tab since this page last asked. */
+  refreshBroker().then(function (nb) {
+    if (review !== mine || mine.sending || mine.placed) return;
+    if (!nb || !nb.connected) { mine.message = "No brokerage is connected any more. Connect again from Account."; mine.env = null; }
+    else if (nb.env !== mine.env) { mine.env = nb.env; $("#orderLiveCheck").checked = false; }
+    showReviewEnv();
+    renderReview();
+  });
+}
+
+function showReviewEnv() {
+  var b = state.broker || {};
+  $("#ordersEnv").textContent = review && review.env ? b.broker + " · " + envName(review.env) : "";
+  $("#orderLiveConfirm").hidden = !(review && review.env === "live");
 }
 
 function setOrderType(type) {
+  if (review && (review.sending || review.placed)) return;
   state.orderType = type === "limit" ? "limit" : "market";
   Array.prototype.forEach.call($("#orderType").children, function (c) {
     var on = c.getAttribute("data-type") === state.orderType;
@@ -1380,58 +1621,76 @@ function setOrderType(type) {
 }
 
 function planFor(row) {
-  var live = state.byTicker[row.item.t];
-  return broker.planOrder(row.item, {
+  var item = cartItem(row.t);
+  if (!item) return { symbol: row.t, error: "No longer in the cart." };
+  var live = state.byTicker[row.t];
+  var b = state.broker || {};
+  return broker.planOrder(item, {
     type: state.orderType,
     limitPrice: row.limit,
-    price: live && live.price
+    price: live && live.price,
+    env: review && review.env,
+    maxLive: b.maxLiveOrder
   });
 }
 
 function renderReview() {
   var list = $("#orderList");
   list.innerHTML = "";
-  var total = 0, ready = 0;
+  var total = 0, ready = 0, noAnswer = null;
+  var locked = !!(review && (review.sending || review.placed));
 
   if (!review || !review.rows.length) {
     list.appendChild(el("p", "empty-note", "Nothing to place. Put a dollar amount against at least one company in the cart."));
   }
 
   (review ? review.rows : []).forEach(function (row) {
-    var plan = planFor(row);
-    row.plan = plan;
-    var live = state.byTicker[row.item.t];
+    var item = cartItem(row.t);
+    /* a row that has been sent shows what was sent, never a fresh plan */
+    var plan = row.sent || (locked ? row.plan : planFor(row));
+    if (!row.sent && !locked) row.plan = plan;
+    var live = state.byTicker[row.t];
     var r = el("div", "order-row" + (row.result ? (row.result.ok ? " is-ok" : " is-bad") : ""));
 
     var idb = el("div", "or-id");
-    idb.appendChild(el("b", "", row.item.t));
-    idb.appendChild(el("span", "", row.item.n || ""));
+    idb.appendChild(el("b", "", row.t));
+    idb.appendChild(el("span", "", (item && item.n) || (live && live.n) || ""));
     r.appendChild(idb);
 
     var what = el("div", "or-what");
-    if (plan && plan.error) {
-      what.appendChild(el("span", "or-err", plan.error));
-    } else if (plan && plan.type === "market") {
+    var isLimit = plan ? plan.type === "limit" : state.orderType === "limit";
+    if (plan && !plan.error && plan.type === "market") {
       what.appendChild(el("span", "", "Buy " + usd(plan.notional)));
       if (num(plan.estShares)) what.appendChild(el("span", "or-sub", "≈ " + fmtQty(plan.estShares) + " sh at " + price(live && live.price)));
-      total += plan.cost; ready++;
-    } else if (plan) {
+    } else if (plan && !plan.error) {
       what.appendChild(el("span", "", "Buy " + plan.qty + " sh"));
+    }
+    /* The limit field stays even when the limit is what is wrong, so a
+       mistyped price can be fixed without starting over. */
+    if (plan && isLimit) {
       var limWrap = el("label", "or-lim");
       limWrap.appendChild(el("span", "", "limit $"));
       var lim = el("input", "");
-      lim.type = "number"; lim.step = "0.01"; lim.min = "0.01"; lim.inputMode = "decimal";
-      lim.value = String(plan.limitPrice);
-      lim.setAttribute("aria-label", "Limit price for " + row.item.t);
+      lim.type = "number"; lim.step = "0.01"; lim.min = "0.0001"; lim.inputMode = "decimal";
+      var shown = num(plan.limitPrice) ? plan.limitPrice : row.limit !== null ? row.limit : live && live.price;
+      lim.value = num(shown) ? String(shown) : "";
+      lim.disabled = locked || !!row.sent;
+      lim.setAttribute("aria-label", "Limit price for " + row.t);
       lim.addEventListener("change", function () {
+        if (review && (review.sending || review.placed)) return;
         var v = parseFloat(lim.value);
         row.limit = isFinite(v) && v > 0 ? v : null;
         renderReview();
       });
       limWrap.appendChild(lim);
       what.appendChild(limWrap);
-      what.appendChild(el("span", "or-sub", "up to " + usd(plan.cost)));
-      total += plan.cost; ready++;
+      if (!plan.error) what.appendChild(el("span", "or-sub", "up to " + usd(plan.cost)));
+    }
+    if (plan && plan.error) what.appendChild(el("span", "or-err", plan.error));
+    if (plan && !plan.error && !(row.result && row.result.ok)) { total += plan.cost; ready++; }
+    if (!row.result && item && item.orderKey && item.orderKey.sentAt && !row.sent) {
+      noAnswer = noAnswer || item.orderKey.sentAt;
+      what.appendChild(el("span", "or-sub or-warn", "Sent " + relTime(item.orderKey.sentAt) + ", no answer yet"));
     }
     r.appendChild(what);
 
@@ -1439,7 +1698,7 @@ function renderReview() {
       var res = el("div", "or-result");
       if (row.result.ok) {
         var o = row.result.order || {};
-        res.appendChild(el("span", "delta small up", "✓ " + (o.status || "sent").replace(/_/g, " ")));
+        res.appendChild(el("span", "delta small up", "✓ " + (row.result.duplicate ? "already placed · " : "") + (o.status || "sent").replace(/_/g, " ")));
       } else {
         res.appendChild(el("span", "delta small down", "✗ " + row.result.error));
       }
@@ -1451,42 +1710,118 @@ function renderReview() {
   $("#orderTotal").textContent = usd(total);
   var btn = $("#btnPlace");
   var b = state.broker || {};
-  var needsConfirm = b.env === "live" && !$("#orderLiveCheck").checked;
-  btn.disabled = !ready || !!(review && review.placed) || needsConfirm;
-  btn.textContent = review && review.placed ? "Sent" : "Place " + ready + (ready === 1 ? " order" : " orders");
+  var needsConfirm = review && review.env === "live" && !$("#orderLiveCheck").checked;
+  $("#orderLiveCheck").disabled = locked;
+  Array.prototype.forEach.call($("#orderType").children, function (c) { c.disabled = locked; });
+  btn.disabled = !ready || locked || needsConfirm || !(review && review.env);
+  if (review && review.sending) btn.textContent = "Placing…";
+  else if (review && review.placed) btn.textContent = review.summary || "Sent";
+  else if (review && review.rows.some(function (x) { return x.result; })) btn.textContent = "Place the other " + ready;
+  else btn.textContent = "Place " + ready + (ready === 1 ? " order" : " orders");
+  /* the outcome of the last send, if there was one, otherwise a warning */
   var bp = b.account && b.account.buyingPower;
-  if (!(review && review.placed)) orderError(num(bp) && total > bp ? "That is more than the " + usd(bp) + " this account has available. Some orders will be refused." : "");
+  orderError(review && review.message ? review.message
+    : noAnswer ? "Rows marked \u201cno answer yet\u201d were sent " + relTime(noAnswer) + " but no reply came back. Placing them again as they are cannot buy twice: the brokerage refuses a repeat. If you change one, check Account \u2192 Recent orders first."
+    : !locked && num(bp) && total > bp ? "That is more than the " + usd(bp) + " this account has available. Some orders will be refused." : "");
+}
+
+/* The id to send for this row's plan: the one already kept for the same plan,
+   or a new one kept from now on. */
+function orderIdFor(item, plan) {
+  var sig = broker.planSignature(plan);
+  if (!item.orderKey || item.orderKey.sig !== sig) item.orderKey = { sig: sig, id: broker.clientId(item.t) };
+  item.orderKey.sentAt = new Date().toISOString();
+  touch(item);
+  return item.orderKey.id;
 }
 
 function placeOrders() {
-  if (!review || review.placed) return;
-  var rows = review.rows.filter(function (r) { return r.plan && !r.plan.error; });
+  var mine = review;
+  if (!mine || mine.sending || mine.placed || !mine.env) return;
+  if (mine.env === "live" && !$("#orderLiveCheck").checked) return;
+  var rows = mine.rows.filter(function (r) { return !(r.result && r.result.ok) && r.plan && !r.plan.error && cartItem(r.t); });
   if (!rows.length) return;
-  var btn = $("#btnPlace");
-  btn.disabled = true;
-  btn.textContent = "Placing…";
-  orderError("");
+
+  /* freeze exactly what is being sent */
   var payload = rows.map(function (r) {
+    var item = cartItem(r.t);
+    r.sent = r.plan;
+    r.result = null;
     return {
-      symbol: r.plan.symbol, side: "buy", type: r.plan.type, clientId: r.clientId,
-      notional: r.plan.notional, qty: r.plan.qty, limitPrice: r.plan.limitPrice, tif: r.plan.tif
+      symbol: r.sent.symbol, side: "buy", type: r.sent.type, clientId: orderIdFor(item, r.sent),
+      notional: r.sent.notional, qty: r.sent.qty, limitPrice: r.sent.limitPrice, tif: r.sent.tif
     };
   });
-  broker.place(payload).then(function (res) {
-    if (!res.ok) {
-      btn.disabled = false;
-      btn.textContent = "Try again";
-      orderError(res.error);
-      return;
-    }
-    review.placed = true;
+  persistCart();
+  mine.sending = true;
+  mine.message = "";
+  renderReview();
+
+  var chunks = [];
+  for (var i = 0; i < payload.length; i += BATCH) chunks.push(payload.slice(i, i + BATCH));
+  var answered = [];
+  var confirmLive = mine.env === "live" && $("#orderLiveCheck").checked;
+
+  function next(k) {
+    if (k >= chunks.length) return Promise.resolve(null);
+    return broker.place(chunks[k], mine.env, confirmLive).then(function (res) {
+      if (!res.ok) return res;
+      answered = answered.concat(res.data.results);
+      return next(k + 1);
+    });
+  }
+
+  next(0).then(function (failure) {
     var bySym = {};
-    res.data.results.forEach(function (x) { bySym[x.symbol] = x; });
-    rows.forEach(function (r) { r.result = bySym[r.plan.symbol] || { ok: false, error: "No answer for this one." }; });
-    var okCount = res.data.results.filter(function (x) { return x.ok; }).length;
-    renderReview();
-    orderError(okCount === rows.length ? "" : (rows.length - okCount) + " of " + rows.length + " were refused. The reasons are beside each one.");
-    btn.textContent = okCount + " of " + rows.length + " sent";
+    answered.forEach(function (x) { bySym[x.symbol] = x; });
+    var now = new Date().toISOString();
+    rows.forEach(function (r) {
+      var x = bySym[r.sent.symbol];
+      if (!x) { r.sent = null; return; }        /* never answered: may be retried as is */
+      var o = x.order || {};
+      if (x.ok && x.duplicate && DEAD_ORDER[o.status]) {
+        x = { ok: false, error: "An earlier attempt was " + o.status + ". Review again to send a fresh order." };
+      }
+      r.result = x;
+      var item = cartItem(r.t);
+      if (!item) return;
+      touch(item);
+      if (x.ok) {
+        item.lastOrder = { at: now, env: mine.env, amount: r.sent.cost, type: r.sent.type, status: o.status || "sent", id: o.id || null };
+        item.amount = null;
+        delete item.orderKey;
+      } else if (item.orderKey && DEAD_ORDER[(x.order || {}).status]) {
+        delete item.orderKey;
+      } else if (item.orderKey) {
+        delete item.orderKey.sentAt;              /* answered: refused, not lost */
+      }
+    });
+    persistCart();
+    mine.sending = false;
+
+    if (failure) {
+      if (failure.status === 409 && failure.error) {
+        /* the connection changed under this sheet: re-read it and ask again */
+        refreshBroker().then(function (nb) {
+          if (review !== mine) return;
+          mine.env = nb && nb.connected ? nb.env : null;
+          $("#orderLiveCheck").checked = false;
+          showReviewEnv();
+          renderReview();
+        });
+      }
+      mine.message = (answered.length ? answered.length + " were answered before this. " : "") + failure.error +
+        (failure.status === 409 ? "" : " Pressing Place again resends the same orders, which the brokerage will not duplicate.");
+    } else {
+      mine.placed = true;
+      var sentRows = rows.length;
+      var okCount = rows.filter(function (r) { return r.result && r.result.ok; }).length;
+      mine.summary = okCount + " of " + sentRows + " sent";
+      mine.message = okCount === sentRows ? "" : (sentRows - okCount) + " of " + sentRows + " were refused. The reasons are beside each one; their amounts stay in the cart.";
+    }
+    if (review === mine) renderReview();
+    renderOrderBar();
+    if ($("#dlgCart").open) renderCart();
     refreshBroker().then(loadPortfolio);
   });
 }
@@ -1765,7 +2100,9 @@ function buildChart(points, months) {
     dot.setAttribute("cx", px); dot.setAttribute("cy", py);
     cross.style.opacity = dot.style.opacity = 1;
     tip.hidden = false;
-    tip.innerHTML = "<b>" + price(pts[i][1]) + "</b><span>" + dateShort(pts[i][0]) + "</span>";
+    tip.textContent = "";
+    tip.appendChild(el("b", "", price(pts[i][1])));
+    tip.appendChild(el("span", "", dateShort(pts[i][0])));
     var leftPct = (px / CHART_W) * 100;
     tip.style.left = clamp(leftPct, 8, 92) + "%";
   }
@@ -2322,6 +2659,7 @@ function repoUrl() {
 function wire() {
 
   $("#btnCart").addEventListener("click", openCart);
+  window.addEventListener("storage", onStorage);
 
   Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (b) {
     b.addEventListener("click", function () { closeDialog(b.closest("dialog")); });
@@ -2331,9 +2669,22 @@ function wire() {
   });
 
   $("#btnExport").addEventListener("click", exportCsv);
+  /* Two taps: the cart holds notes and amounts nothing else keeps. */
+  var clearArmed = null;
   $("#btnClearCart").addEventListener("click", function () {
+    var btn = $("#btnClearCart");
     if (!state.cart.length) return;
-    state.cart = [];
+    if (!clearArmed) {
+      btn.textContent = "Tap again to remove all " + state.cart.length;
+      btn.classList.add("is-armed");
+      clearArmed = setTimeout(function () {
+        clearArmed = null; btn.textContent = "Empty the cart"; btn.classList.remove("is-armed");
+      }, 4000);
+      return;
+    }
+    clearTimeout(clearArmed); clearArmed = null;
+    btn.textContent = "Empty the cart"; btn.classList.remove("is-armed");
+    state.cart.map(function (i) { return i.t; }).forEach(removeFromCart);
     persistCart();
     renderCart(); renderCartCount(); renderEarnNotice();
   });
@@ -2348,7 +2699,7 @@ function wire() {
   });
   $("#orderType").addEventListener("click", function (e) {
     var chip = e.target.closest("[data-type]");
-    if (chip && !(review && review.placed)) setOrderType(chip.getAttribute("data-type"));
+    if (chip) setOrderType(chip.getAttribute("data-type"));
   });
   $("#orderLiveCheck").addEventListener("change", renderReview);
   $("#btnPlace").addEventListener("click", placeOrders);
@@ -2378,7 +2729,7 @@ function wire() {
       if ($("#dlgCart").open) renderCart();
     });
   });
-  $("#brokerRefresh").addEventListener("click", function () { refreshBroker().then(loadPortfolio); });
+  $("#brokerRefresh").addEventListener("click", function () { brokerError(""); refreshBroker().then(loadPortfolio); });
 
   /* ---- earnings ---- */
   $("#btnEarnings").addEventListener("click", openEarnings);
@@ -2400,19 +2751,36 @@ function wire() {
   });
 
 
-  $("#detailAdd").addEventListener("click", function () {
+  /* The sheet can be showing a company other than the top card (a peer link
+     leads there), so the buttons act on whatever the sheet shows. Only the
+     top card is swiped away; any other is added or passed on and taken out
+     of the rest of the deck. */
+  function detailAct(action) {
+    var t = detailTicker;
     closeDialog($("#dlgDetail"));
-    commit("add");
-  });
-  $("#detailSkip").addEventListener("click", function () {
-    closeDialog($("#dlgDetail"));
-    commit("pass");
-  });
+    if (!t) return;
+    if (cards[0] && cards[0].ticker === t) { commit(action); return; }
+    if (action === "add") addToCart(state.byTicker[t]);
+    markSeen(t);
+    var ahead = state.deck.slice(state.cursor + 1);
+    if (ahead.indexOf(t) >= 0) {
+      state.deck = state.deck.slice(0, state.cursor + 1).concat(ahead.filter(function (x) { return x !== t; }));
+      renderDeck();
+    }
+  }
+  $("#detailAdd").addEventListener("click", function () { detailAct("add"); });
+  $("#detailSkip").addEventListener("click", function () { detailAct("pass"); });
 
   document.addEventListener("keydown", function (ev) {
-    if (ev.target.matches("input, textarea")) return;
+    /* Shortcuts only when nothing else wants the key: not while typing, not
+       on a focused button or link (Enter should press that), and never with
+       a modifier (Ctrl+D is the browser's bookmark). */
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    var t = ev.target;
+    if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
     if (document.querySelector("dialog[open]")) return;
     if (ev.key === "Enter" || ev.key === "d") {
+      if (t.closest && t.closest("a, button, summary")) return;
       var top = cards[0];
       if (top) { ev.preventDefault(); openDetail(state.byTicker[top.ticker]); }
       return;
@@ -2494,6 +2862,10 @@ function wireAuth() {
   $("#btnAuth").addEventListener("click", openAuth);
 
   var pending = "";
+  /* a sign-in that happens on this page load (a link or a code), as opposed
+     to a session restored from storage */
+  var fresh = auth.isAuthCallback();
+  var linkError = auth.callbackError();
 
   $("#authEmailStep").addEventListener("submit", function (e) {
     e.preventDefault();
@@ -2517,6 +2889,7 @@ function wireAuth() {
     if (code.length !== 6) return authError("Paste the six-digit code, or just click the link in the email instead.");
     var btn = $("#authVerify");
     btn.disabled = true; btn.textContent = "Signing in…";
+    fresh = true;
     auth.verifyCode(pending, code).then(function (r) {
       btn.disabled = false; btn.textContent = "Sign in with the code";
       if (!r.ok) return authError(r.error);
@@ -2530,12 +2903,18 @@ function wireAuth() {
   });
 
   $("#authSignOut").addEventListener("click", function () {
-    auth.signOut().then(function () { closeDialog($("#dlgAuth")); });
+    var btn = $("#authSignOut");
+    btn.disabled = true; btn.textContent = "Saving and signing out…";
+    signOutAndForget().then(function (done) {
+      btn.disabled = false; btn.textContent = "Sign out";
+      if (done) closeDialog($("#dlgAuth"));
+    });
   });
 
   /* One place decides what being signed in means, so a session restored on
      page load and a fresh sign-in take exactly the same path. */
   auth.onAuthChange(function (user) {
+    var same = user && state.user && state.user.id === user.id;
     state.user = user;
     renderAuthButton();
     setSyncNote("saved");
@@ -2543,23 +2922,39 @@ function wireAuth() {
     refreshTier();
     if (user) {
       auth.tidyUrl();
-      adoptAccountCart();
+      /* token refreshes arrive here too; only a new person needs the check */
+      if (!same) ensureCartOwner(user, fresh);
       if ($("#dlgAuth").open) {
         $("#authWho").textContent = user.email || "your account";
         showAuthStep("authSignedIn");
       }
-    } else if ($("#dlgAuth").open) {
+    } else if ($("#dlgAuth").open && !$("#authSignedIn").hidden) {
+      /* only a dialog still saying "signed in" needs to change; resetting
+         any other step would wipe a message or a half-typed code */
       showAuthStep("authEmailStep");
     }
   });
 
   auth.currentUser().then(function (user) {
+    var same = user && state.user && state.user.id === user.id;
     state.authPending = false;
     state.user = user;
     refreshTier();
     renderAuthButton();
     auth.tidyUrl();
-    if (user) adoptAccountCart();
+    if (user && !same) ensureCartOwner(user, fresh);
+    if (!user && linkError) {
+      openAuth();
+      showAuthStep("authEmailStep");
+      authError(linkError);
+    }
+  });
+
+  window.addEventListener("online", function () { if (state.user) syncCart(); });
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && ownerAsk && state.user === ownerAsk.user) ensureCartOwner(ownerAsk.user, ownerAsk.fresh);
+    /* leaving the page: send anything still waiting on the debounce */
+    if (document.visibilityState === "hidden" && sync.timer) syncCart();
   });
 }
 
