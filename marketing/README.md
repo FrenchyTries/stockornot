@@ -1,5 +1,11 @@
 # Marketing images
 
+> **Out of date.** These were captured on 2026-08-12. Since then the deck's
+> filter chip and "1 of 501" counter were removed, "within 1% of its 52-week
+> high" moved from the cons to the pros, and the cart gained the brokerage
+> panel, the order bar and the earnings button. Recapture them from the current
+> build before they go into a store listing.
+
 Store-ready screenshots of StockOrNot, captured from the running site rather
 than mocked up, so what they show is what the product actually does.
 

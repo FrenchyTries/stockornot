@@ -16,13 +16,20 @@ decide: swipe right and it goes in your cart, left and it's gone.
 ## The idea
 
 Most stock screeners either dump a spreadsheet on you or hand you a rating and
-expect you to trust it. This does neither. There is **no score and no verdict** —
-just the numbers a company reports, arranged so you can read them in about
-fifteen seconds, and a pros/cons list where every line names the figure that
+expect you to trust it. This tries to do neither. Each card carries a
+**fundamentals score** from 0 to 100 with a plain label ("Screens well",
+"Mixed", "Screens poorly"), but the score shows its working: five factors
+(value, growth, profitability, momentum, stability), each half a curve over the
+reported figures and half a rank among the company's own sector, with the notes
+on anything it left out and why. [How the score works](https://stockornot.com/method)
+lists every threshold. It describes the last filing and today's price; it does
+not forecast anything.
+
+Beside it sits a pros/cons list where every line names the figure that
 triggered it:
 
-> ✓ Generated $108B of free cash flow in FY2025 — 28% of revenue.
-> ✗ Very expensive at 62.4× earnings — years of growth are already in the price.
+> ✓ Generated $108B of free cash flow in FY2025, 28% of revenue.
+> ✗ Very expensive at 62.4× earnings. Years of growth are already in the price.
 
 You can disagree with any threshold. The fact underneath it is still there, and
 the raw number is in the table below it.
@@ -33,14 +40,14 @@ the raw number is in the table below it.
 
 | Section | What it holds |
 |---|---|
-| **Header** | Price, day move, market cap, position in the 52-week range |
+| **Header** | Price, day move, market cap, position in the 52-week range, and the score with its label |
 | **Earnings** | Next reporting date, before/after the bell, consensus EPS |
-| **For / against** | Up to six of each, derived from thresholds on the real figures |
+| **For / against** | Up to six of each, derived from thresholds on the real figures and ranks within the sector. The card shows four of each; the full record shows them all |
 | **The numbers** | P/E, P/B, P/S, revenue and EPS growth, three margin lines, ROE, debt/equity, current ratio, yield, beta, 3-month and 1-year returns |
 | **Last full year, as filed** | Revenue, net income, operating cash flow, capex, free cash flow, cash, long-term debt, equity — straight from XBRL |
 | **Straight from the 10-K** | The company's own description of what it does, the risk factors it lists, and links to the filing itself |
 | **What the street says** | Share of analysts rating it buy / hold / sell and how that moved on the month, how often it has beaten the EPS estimate, and whether insiders are net buying or selling |
-| **Against its sector** | P/E, price/sales, FCF yield, revenue growth, net margin, ROE, debt and 1-year return set beside the sector median, with where it ranks ("cheaper than 63%") |
+| **Against its sector** | The first six of P/E, price/sales, FCF yield, revenue growth, net margin, ROE (ROA where equity is negative or tiny), debt/equity, dividend yield and 1-year return that the company reports, beside the sector median, with where it ranks among the other companies in the sector ("cheaper than 63%"). The full record shows every row |
 
 "The numbers" is grouped into valuation, growth, profitability, balance sheet,
 dividend and price, and now includes PEG, free-cash-flow yield, ROA, net cash or
@@ -55,8 +62,10 @@ revenue expected, last quarter's result, the beat record, a calendar button),
 trend and drawdown under the price chart, the **closest peers** by size,
 month-by-month **insider sentiment**, and the last ten days of **headlines**.
 
-Scroll the card to read it all. Drag it sideways, use <kbd>←</kbd> / <kbd>→</kbd>,
-or hit the buttons. <kbd>↑</kbd> / <kbd>↓</kbd> scroll.
+Scroll the card to read it all. Drag it sideways or use <kbd>←</kbd> / <kbd>→</kbd>;
+without a pointer or keyboard, *Open the full record* has **Add to cart** and
+**Not for me** buttons. <kbd>↑</kbd> / <kbd>↓</kbd> scroll, and <kbd>Enter</kbd>
+opens the full record.
 
 ## The cart
 
@@ -185,10 +194,13 @@ Which does:
    `scripts/backfill-closes.mjs` rebuilt the earlier sessions from this
    repository's own history.
 
-Output lands in `data/snapshot.json` (market data, ~1MB), `data/detail/*.json`
-(history, chart, analysts) and `data/filings/*.json` (10-K prose, lazy-loaded per
-card). `scripts/audit.mjs` checks the result before anything is committed, and
-refuses to publish a snapshot that is worse than yesterday's.
+Output lands in `data/snapshot.json` (market data, ~0.6MB), `data/detail/*.json`
+(history, daily closes, analysts), `data/filings/*.json` (10-K prose, lazy-loaded
+per card), `data/fundamentals/` (the cached XBRL figures) and one static page per
+company under `stock/` with a `sitemap.xml`. `scripts/audit.mjs` checks the
+result before anything is committed, and refuses to publish a snapshot that is
+worse than yesterday's. The site itself is served by Vercel, which also runs the
+functions under `api/`.
 
 ### Setting it up on your own fork
 
@@ -197,8 +209,11 @@ refuses to publish a snapshot that is worse than yesterday's.
    named `FINNHUB_TOKEN`.
 3. Optionally set a repository *variable* `SEC_USER_AGENT` to
    `Your Name your@email.com` — SEC asks that automated requests identify themselves.
-4. **Actions → Refresh market data → Run workflow.** First run takes 30–60
-   minutes because it downloads every 10-K; later runs are a few minutes.
+4. **Actions → Refresh market data → Run workflow.** Every run takes 30 minutes
+   or more: each company needs at least two Finnhub calls (more when its
+   analyst data is due), roughly 1,000 to 1,500 a night, paced at 50 a minute
+   to stay under the free tier's 60. The first run also downloads every 10-K,
+   which can stretch it past an hour.
 
 The key never reaches the browser. That is the entire reason the pipeline works
 this way.
@@ -211,8 +226,8 @@ companies) and `skip_filings` (set to `1` to skip 10-K downloads).
 ## Running locally
 
 ```bash
-git clone https://github.com/respectking/stockornot.git
-cd stockornot
+git clone https://github.com/respectking/tikstock.git
+cd tikstock
 BROKER_SECRET=$(openssl rand -hex 32) node scripts/dev-server.mjs
 # open http://localhost:8080
 ```
@@ -239,26 +254,6 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
 
 ---
 
-## The screens
-
-Each one is a single rule, applied to the latest snapshot:
-
-| Screen | Rule |
-|---|---|
-| Low P/E | trailing P/E below 15 and positive |
-| Fast growing | revenue growth ≥ 15% year over year |
-| High margin | net margin ≥ 18% |
-| Pays 2%+ | indicated dividend yield ≥ 2% |
-| Net cash | cash on hand exceeds long-term debt |
-| Near 52wk low | price in the bottom quarter of its 52-week range |
-| Earnings < 30d | next report within 30 days |
-| Mega caps | market cap ≥ $200B |
-
-Plus sector filters and a search box. Companies you have swiped are hidden until
-you ask for them back.
-
----
-
 ## Known limits
 
 - **The constituent list is a static file.** `data/sp500.json` is a point-in-time
@@ -273,6 +268,12 @@ you ask for them back.
   won't always reconcile with "Last full year, as filed". Both are labelled.
 - **The pros and cons are thresholds, not analysis.** They have no view on
   management, competition, or anything that happened after the last filing.
+- **Financials are one bucket.** Debt, free cash flow and cash conversion are
+  left out of the score for every company in the Financials sector, because for
+  banks, insurers and brokers borrowing is the business. That also covers
+  payment networks and exchanges, which the sector label cannot tell apart.
+- **No screens or search yet.** The deck is every company in random order;
+  swiped ones stay hidden until you ask for them back.
 
 ---
 

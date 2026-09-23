@@ -649,7 +649,6 @@ async function main() {
 
       mc:   pickMetric(m, "marketCapitalization"),
       pe:   peNow,
-      peF:  pickMetric(m, "peNormalizedAnnual"),
       pb:   pickMetric(m, "pbQuarterly", "pbAnnual"),
       ps:   pickMetric(m, "psTTM", "psAnnual"),
       roe:  pickMetric(m, "roeTTM", "roeRfy"),
@@ -670,7 +669,10 @@ async function main() {
       r26:  pickMetric(m, "26WeekPriceReturnDaily"),
       r52:  pickMetric(m, "52WeekPriceReturnDaily"),
 
-      /* second-look figures: shown on the card, not used by the score */
+      /* more figures for the card's number grid. Forward P/E, five-year EPS
+         growth and interest cover also feed the score (value, growth and
+         stability), and the gap to the S&P 500 sets off one of the cons; the
+         rest are shown only. */
       pef:      pickMetric(m, "forwardPE", "peForward", "forwardPeTTM"),
       pfcf:     pickMetric(m, "pfcfShareTTM", "pfcfShareAnnual"),
       evEbitda: pickMetric(m, "evEbitdaTTM", "evEbitdaAnnual", "currentEv/ebitdaTTM"),

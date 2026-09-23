@@ -5,13 +5,15 @@
    what the company's own 10-K says — and you decide. Swipe right to put it in
    your cart, left to move on.
 
-   The score is a weighted blend of five factor curves over reported figures,
-   and the pros and cons are thresholds that name the number that set them off.
-   Neither predicts anything; both are shown with the raw figures beside them.
+   The score is a weighted blend of five factors, each half a curve over
+   reported figures and half a rank within the sector, and the pros and cons
+   are thresholds that name the number that set them off. Neither predicts
+   anything; both are shown with the raw figures beside them.
 
-   Data comes from data/snapshot.json, rebuilt every weekday morning by a GitHub
-   Action (see scripts/refresh.mjs). Nothing is fetched from the browser except
-   these static files.
+   Data comes from data/snapshot.json, rebuilt every weekday evening by a GitHub
+   Action (see scripts/refresh.mjs). Beyond those static files the page calls
+   /api/news for headlines and /api/broker for the brokerage (both functions on
+   this site), and, for someone signed in, Supabase for the saved cart.
    ========================================================================== */
 import {
   num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
@@ -233,7 +235,7 @@ function renderDeck() {
 }
 
 /* What a visitor sees when the allowance runs out. Two different messages:
-   somebody who has not signed in is one email away from four times as many,
+   somebody who has not signed in is one email away from twice as many,
    which is a much easier ask than a card number. */
 function showWall() {
   cards.forEach(function (c) { c.node.remove(); });
@@ -255,7 +257,7 @@ function showWall() {
     showMessage(
       "You have seen " + seen + " of " + state.all.length,
       "Membership opens the remaining <b>" + (state.all.length - seen) +
-      "</b>, plus screens, search and earnings alerts on everything in your cart.",
+      "</b>, plus an unlimited cart and an email a week before anything in it reports.",
       [
         { label: "See what membership includes", onClick: function () { location.href = "/pricing"; } },
         { label: "Keep my cart and stop here", kind: "link",
@@ -385,7 +387,7 @@ function sectorBlock(s, limit) {
   var box = el("div", "vs-list");
   view.rows.slice(0, limit || view.rows.length).forEach(function (r) {
     var row = el("div", "vs-row");
-    row.title = r.label + " " + r.value + ": " + r.text + " of the " + r.peers + " companies in the sector that report it. Median " + r.median + ".";
+    row.title = r.label + " " + r.value + ": " + r.text + " of the other " + r.peers + " companies in the sector that report it. Median " + r.median + ".";
     var left = el("div", "vs-l");
     left.appendChild(el("span", "vs-label", r.label));
     left.appendChild(el("span", "vs-med", "median " + r.median));
@@ -434,14 +436,49 @@ function fillStreet(box, deep) {
   if (b) {
     box.appendChild(el("p", "street-line",
       "Beat the EPS estimate in " + b.beats + " of the last " + b.of + " quarters" +
-      (num(b.avgSurprise) ? ", with an average surprise of " + pct(b.avgSurprise, 1) + "." : ".")));
+      (num(b.avgSurprise) ? ", coming in " + pctPlain(Math.abs(b.avgSurprise), 1) + (b.avgSurprise >= 0 ? " above" : " below") + " the estimates in total." : ".")));
   }
   if (ins) {
     box.appendChild(el("p", "street-line",
-      "Insiders: " + ins.word + " over the last " + ins.months + " months" +
+      "Insiders: " + ins.word + " " + ins.when +
       " (sentiment " + (ins.mspr > 0 ? "+" : "") + ins.mspr.toFixed(0) + " on a −100 to +100 scale)."));
   }
   return true;
+}
+
+function pcColumn(kind, title, items, glyph, max) {
+  var col = el("section", "pc-col " + kind);
+  var shown = max ? items.slice(0, max) : items;
+
+  var h = el("h3", "");
+  h.appendChild(el("span", "pc-glyph", glyph));
+  h.appendChild(el("span", "", title));
+  if (items.length) h.appendChild(el("span", "pc-count", String(items.length)));
+  col.appendChild(h);
+
+  if (!items.length) {
+    col.appendChild(el("p", "pc-none", kind === "pro"
+      ? "Nothing in the numbers stands out as a strength."
+      : "Nothing in these numbers stands out as a concern. That is not the same as no risk: read the risk factors from the 10-K below."));
+  } else {
+    var ul = el("ul", "");
+    shown.forEach(function (t) { ul.appendChild(el("li", "", t)); });
+    col.appendChild(ul);
+    if (items.length > shown.length) {
+      col.appendChild(el("p", "pc-more",
+        "and " + (items.length - shown.length) + " more in the full record"));
+    }
+  }
+  return col;
+}
+
+/* max: how many of each to show; none shows them all */
+function prosConsBlock(s, max) {
+  var pc = prosAndCons(s, state.scoreCtx);
+  var wrap = el("div", "c-pc");
+  wrap.appendChild(pcColumn("pro", "In its favour", pc.pros, "+", max));
+  wrap.appendChild(pcColumn("con", "Against it", pc.cons, "−", max));
+  return wrap;
 }
 
 var CAL_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
@@ -513,7 +550,7 @@ function makeCard(s, depth) {
   if (e && e.date) {
     var d = daysUntil(e.date);
     var when = d === null ? "" : d < 0 ? "just reported" : d === 0 ? "today" : d === 1 ? "tomorrow" : "in " + d + " days";
-    if (d !== null && d >= 0 && d <= 14) eb.classList.add("is-soon");
+    if (d !== null && d >= 0 && d <= earn.ALERT_DAYS) eb.classList.add("is-soon");
     /* Vendor fields go in as text, never as markup. */
     eb.innerHTML = CAL_ICON;
     var line = el("span", "");
@@ -531,44 +568,12 @@ function makeCard(s, depth) {
   }
   body.appendChild(eb);
 
-  /* ---------- pros and cons ---------- */
-  var pc = prosAndCons(s, state.scoreCtx);
-  var pcWrap = el("div", "c-pc");
-
-  /* The card shows at most four of each. A company with six strengths and one
+  /* ---------- pros and cons ----------
+     The card shows at most four of each. A company with six strengths and one
      worry used to bury the worry below the fold, which is the one line a
      person most needs to see. The count in the heading says what is being
      held back, and the detail sheet lists all of it. */
-  var CARD_MAX = 4;
-
-  function column(kind, title, items, glyph) {
-    var col = el("section", "pc-col " + kind);
-    var shown = items.slice(0, CARD_MAX);
-
-    var h = el("h3", "");
-    h.appendChild(el("span", "pc-glyph", glyph));
-    h.appendChild(el("span", "", title));
-    if (items.length) h.appendChild(el("span", "pc-count", String(items.length)));
-    col.appendChild(h);
-
-    if (!items.length) {
-      col.appendChild(el("p", "pc-none", kind === "pro"
-        ? "Nothing in the numbers stands out as a strength."
-        : "Nothing in these numbers stands out as a concern. That is not the same as no risk: read the risk factors from the 10-K below."));
-    } else {
-      var ul = el("ul", "");
-      shown.forEach(function (t) { ul.appendChild(el("li", "", t)); });
-      col.appendChild(ul);
-      if (items.length > shown.length) {
-        col.appendChild(el("p", "pc-more",
-          "and " + (items.length - shown.length) + " more, tap for the rest"));
-      }
-    }
-    return col;
-  }
-  pcWrap.appendChild(column("pro", "In its favour", pc.pros, "+"));
-  pcWrap.appendChild(column("con", "Against it", pc.cons, "−"));
-  body.appendChild(pcWrap);
+  body.appendChild(prosConsBlock(s, 4));
 
   /* ---------- what the street says, from the deep file ---------- */
   var street = el("section", "c-block c-street");
@@ -1180,7 +1185,7 @@ function renderCart() {
     var note = el("textarea", "ci-note");
     note.rows = 2;
     note.maxLength = NOTE_MAX;
-    note.placeholder = "What made you keep this one? Only you will see it.";
+    note.placeholder = "What made you keep this one? Private to you, and saved with your account if you sign in.";
     note.value = item.note || "";
     note.addEventListener("input", function () {
       var it = cartItem(t);
@@ -1847,12 +1852,15 @@ function renderEarnNotice() {
   var when = first.days === 0 ? "today" : first.days === 1 ? "tomorrow" : "in " + first.days + " days";
   $("#earnNoticeText").textContent = first.t + " reports " + when +
     (num(first.epsEst) ? ", expected " + earn.eps(first.epsEst) + " a share" : "") +
-    (soon.length > 1 ? " · " + (soon.length - 1) + " more in your cart this week" : "");
+    (soon.length > 1 ? " · " + (soon.length - 1) + " more in your cart in the next week" : "");
   box.hidden = false;
   box.dataset.sig = sig;
 }
 
 function openEarnings() {
+  var icsNote = $("#icsNote");
+  if (icsNote.dataset.text) icsNote.textContent = icsNote.dataset.text;
+  else icsNote.dataset.text = icsNote.textContent;
   var list = $("#earnList");
   list.innerHTML = "";
   var month = earn.upcoming(state.cart, state.byTicker, { days: 45 });
@@ -1872,7 +1880,7 @@ function openEarnings() {
   }
 
   var groups = [
-    { title: "This week", rows: month.filter(function (u) { return u.days <= earn.ALERT_DAYS; }) },
+    { title: "Next 7 days", rows: month.filter(function (u) { return u.days <= earn.ALERT_DAYS; }) },
     { title: "Later", rows: month.filter(function (u) { return u.days > earn.ALERT_DAYS; }) }
   ];
   groups.forEach(function (g) {
@@ -1941,7 +1949,7 @@ function renderEmailToggle() {
     box.disabled = false;
     box.checked = !!(r.data && r.data.email);
     note.textContent = box.checked
-      ? "On. Emails go to " + (state.user.email || "your account address") + ", one per company, the first evening it is seven days out."
+      ? "On. One email to " + (state.user.email || "your account address") + " on the first evening anything in your cart is within a week of reporting; each report is mentioned once."
       : "Off.";
   });
 }
@@ -1962,7 +1970,7 @@ function downloadIcs(rows, filename) {
 function cartIcs() {
   var rows = earn.upcoming(state.cart, state.byTicker, { days: 400 });
   if (!rows.length) {
-    $("#earnEmailNote").textContent = "None of the companies in your cart has a report date yet.";
+    $("#icsNote").textContent = "None of the companies in your cart has a report date yet, so there is nothing to put in a calendar.";
     return;
   }
   downloadIcs(rows, "stockornot-earnings.ics");
@@ -2310,7 +2318,7 @@ function buildAnalyst(deep) {
     box.appendChild(el("h4", "sub-h", "Are insiders buying or selling?"));
     box.appendChild(el("p", "block-note first",
       (ins.word === "mixed" ? "No clear direction" : ins.word.charAt(0).toUpperCase() + ins.word.slice(1)) +
-      " over " + ins.months + " months. Sentiment runs from −100, every insider trade a sale, to +100, every one a purchase. " +
+      " " + ins.when + ". Sentiment runs from −100, every insider trade a sale, to +100, every one a purchase. " +
       "Executives sell for many reasons; buying with their own money has only one."));
     var it = el("table", "rv-table");
     var itb = el("tbody");
@@ -2353,8 +2361,11 @@ function buildNextReport(s, deep) {
   grid.appendChild(statRow("EPS expected", earn.eps(e.epsEst), "Consensus earnings per share for the quarter being reported."));
   if (num(e.revEst)) grid.appendChild(statRow("Revenue expected", earn.money(e.revEst), "Consensus revenue for the quarter being reported."));
   var last = ((deep && deep.analyst && deep.analyst.earnings) || [])[0];
+  /* to the cent the estimate can look like a tie ("$0.80 vs $0.80") when the
+     quarter was a narrow miss, so show its real precision and say which */
   grid.appendChild(statRow("Last quarter", last && num(last.actual) ? earn.eps(last.actual) +
-    (num(last.estimate) ? " vs " + earn.eps(last.estimate) : "") : "—", "Reported EPS against what was expected, for the most recent quarter."));
+    (num(last.estimate) ? " vs $" + trimNum(last.estimate) + (last.actual >= last.estimate ? ", a beat" : ", a miss") : "") : "—",
+    "Reported EPS against what was expected, for the most recent quarter."));
   box.appendChild(grid);
 
   var trackLine = earn.track(deep && deep.analyst);
@@ -2502,6 +2513,7 @@ function openDetail(s) {
     scoreBox.appendChild(scoreHead);
     scoreBox.appendChild(factorBars(scoreRes));
     body.appendChild(section("Fundamentals score", scoreBox));
+    body.appendChild(section("For and against", prosConsBlock(s)));
 
     var nextBox = buildNextReport(s, deep);
     if (nextBox) body.appendChild(section("Next report", nextBox));
@@ -2561,7 +2573,7 @@ function openDetail(s) {
       var vsBox = el("div", "");
       if (vsFull) {
         vsBox.appendChild(el("p", "block-note first", "Against the " + vsFull.view.count + " " + vsFull.view.sector +
-          " companies in the index. The score uses the same thresholds for every company; this is the same figure set beside businesses that actually compete."));
+          " companies in the index (a company with two share classes counts once). Half of each factor in the score is already a rank within the sector; these are the raw figures behind it, beside the sector median."));
         vsBox.appendChild(vsFull.node);
       }
       if (peers.length) vsBox.appendChild(buildPeers(s, peers));
@@ -2827,7 +2839,10 @@ function renderAuthButton() {
   btn.classList.toggle("is-pending", !state.user && !!state.authPending);
 }
 
+var startAuth = function () {};   /* set by wireAuth */
+
 function openAuth() {
+  startAuth();
   if (state.user) {
     $("#authWho").textContent = state.user.email || "your account";
     showAuthStep("authSignedIn");
@@ -2911,43 +2926,18 @@ function wireAuth() {
     });
   });
 
-  /* One place decides what being signed in means, so a session restored on
-     page load and a fresh sign-in take exactly the same path. */
-  auth.onAuthChange(function (user) {
-    var same = user && state.user && state.user.id === user.id;
-    state.user = user;
-    renderAuthButton();
-    setSyncNote("saved");
-    state.authPending = false;
-    refreshTier();
-    if (user) {
-      auth.tidyUrl();
-      /* token refreshes arrive here too; only a new person needs the check */
-      if (!same) ensureCartOwner(user, fresh);
-      if ($("#dlgAuth").open) {
-        $("#authWho").textContent = user.email || "your account";
-        showAuthStep("authSignedIn");
-      }
-    } else if ($("#dlgAuth").open && !$("#authSignedIn").hidden) {
-      /* only a dialog still saying "signed in" needs to change; resetting
-         any other step would wipe a message or a half-typed code */
-      showAuthStep("authEmailStep");
-    }
-  });
-
-  auth.currentUser().then(function (user) {
-    var same = user && state.user && state.user.id === user.id;
-    state.authPending = false;
-    state.user = user;
-    refreshTier();
-    renderAuthButton();
-    auth.tidyUrl();
-    if (user && !same) ensureCartOwner(user, fresh);
-    if (!user && linkError) {
-      openAuth();
-      showAuthStep("authEmailStep");
-      authError(linkError);
-    }
+  /* The sign-in library is only loaded for someone who is signed in, is
+     arriving from a sign-in link, or opens the sign-in dialog (or signs in
+     from another tab). Everyone else never downloads it. */
+  var started = false;
+  startAuth = function () {
+    if (started) return;
+    started = true;
+    listen();
+  };
+  if (auth.hasStoredSession() || auth.isAuthCallback() || linkError) startAuth();
+  window.addEventListener("storage", function (e) {
+    if (e.key && e.key.indexOf("sb-") === 0 && e.newValue) startAuth();
   });
 
   window.addEventListener("online", function () { if (state.user) syncCart(); });
@@ -2956,6 +2946,47 @@ function wireAuth() {
     /* leaving the page: send anything still waiting on the debounce */
     if (document.visibilityState === "hidden" && sync.timer) syncCart();
   });
+
+  function listen() {
+    /* One place decides what being signed in means, so a session restored on
+       page load and a fresh sign-in take exactly the same path. */
+    auth.onAuthChange(function (user) {
+      var same = user && state.user && state.user.id === user.id;
+      state.user = user;
+      renderAuthButton();
+      setSyncNote("saved");
+      state.authPending = false;
+      refreshTier();
+      if (user) {
+        auth.tidyUrl();
+        /* token refreshes arrive here too; only a new person needs the check */
+        if (!same) ensureCartOwner(user, fresh);
+        if ($("#dlgAuth").open) {
+          $("#authWho").textContent = user.email || "your account";
+          showAuthStep("authSignedIn");
+        }
+      } else if ($("#dlgAuth").open && !$("#authSignedIn").hidden) {
+        /* only a dialog still saying "signed in" needs to change; resetting
+           any other step would wipe a message or a half-typed code */
+        showAuthStep("authEmailStep");
+      }
+    });
+
+    auth.currentUser().then(function (user) {
+      var same = user && state.user && state.user.id === user.id;
+      state.authPending = false;
+      state.user = user;
+      refreshTier();
+      renderAuthButton();
+      auth.tidyUrl();
+      if (user && !same) ensureCartOwner(user, fresh);
+      if (!user && linkError) {
+        openAuth();
+        showAuthStep("authEmailStep");
+        authError(linkError);
+      }
+    });
+  }
 }
 
 function init() {

@@ -11,11 +11,14 @@ the gap, so nobody ships a payment button on top of a gate that does not hold.
 
 `lib/tier.mjs` decides what the interface offers:
 
-| | Companies | Cart | Screens | Search | Alerts |
-|---|---|---|---|---|---|
-| Signed out | 5 | 3 | — | — | — |
-| Free account | 20 | 10 | — | — | — |
-| Member | all | unlimited | yes | yes | yes |
+| | Companies | Cart | Earnings emails |
+|---|---|---|---|
+| Signed out | 5 | 3 | — |
+| Free account | 10 | 10 | — |
+| Member | all | unlimited | yes |
+
+`lib/tier.mjs` also carries `screens` and `search` flags for members. Neither
+feature is built yet, so neither is offered on the pricing page.
 
 The count is of distinct companies opened, held in `localStorage` under
 `ts.viewed`. Companies already opened stay open permanently. Tier comes from a
@@ -26,7 +29,7 @@ only by the service_role key.
 
 **`data/snapshot.json` is a public URL.** Every company, every figure, in one
 file, served by the site and mirrored on GitHub. Anyone who opens developer
-tools, or simply types the address, has all 501 regardless of tier.
+tools, or simply types the address, has every company regardless of tier.
 
 So the gate in the browser is a product decision, not a security boundary. It
 shapes what an ordinary visitor is offered. It stops nobody who looks.
@@ -64,8 +67,11 @@ first charge.
   be replaced outright.
 
   SEC EDGAR is US government work in the public domain: the filings, the
-  five-year financials, the risk factors and the score built from them carry no
-  such restriction.
+  five-year financials and the risk factors carry no such restriction. The
+  score does not escape the licence, though: most of its inputs (P/E, P/B,
+  P/S, margins, returns on equity and assets, growth rates, beta, the 52-week
+  range, dividend yield) are Finnhub's. Only free-cash-flow yield, cash
+  conversion and years-to-repay-debt come from the filings alone.
 
 - **Vercel Hobby is non-commercial.** Pro is $20 a month once revenue exists.
 
