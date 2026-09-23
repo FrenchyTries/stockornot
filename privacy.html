@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy | StockOrNot</title>
+<meta name="description" content="What StockOrNot keeps about you, where it is kept, who else is involved, and how to have it deleted. No ads, no analytics, no tracking." />
+<link rel="canonical" href="https://stockornot.com/privacy" />
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#0b0c0e" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="StockOrNot privacy" />
+<meta property="og:description" content="What StockOrNot keeps about you, and how to have it deleted." />
+<meta property="og:url" content="https://stockornot.com/privacy" />
+<meta property="og:image" content="https://stockornot.com/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A StockOrNot card: the price, the score out of 100, and the case for and against." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="/favicon.svg" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body class="docpage">
+<header class="topbar">
+  <a class="brand" href="/">
+    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="24" fill="#4c8dff"/><path d="M22 64 L41 45 L56 57 L78 33" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Stock<b>OrNot</b></span>
+  </a>
+  <nav class="topnav" aria-label="Site">
+    <a href="/stock">Companies</a>
+    <a href="/method">How the score works</a>
+    <a href="/pricing">Pricing</a>
+  </nav>
+  <div class="topbar-actions">
+    <a class="primary-btn" href="/">Open the deck</a>
+  </div>
+</header>
+<main class="doc">
+
+  <p class="eyebrow">Privacy</p>
+
+  <h1>What this site keeps about you, and where.</h1>
+
+  <p class="doc-standfirst">No advertising, no analytics and no tracking scripts. What is kept
+  is what the cart and the alerts need in order to work, and this page lists all of it.</p>
+
+  <p class="note">Last updated September 23, 2026.</p>
+
+  <h2>Without an account</h2>
+
+  <p>Nothing about you leaves your browser. The cart, with any notes and planned amounts, the
+  cards you have already swiped past, and which companies you have opened (for the free
+  allowance) are kept in your browser's own storage on this device. Clearing this site's data
+  in your browser removes all of it.</p>
+
+  <h2>With an account</h2>
+
+  <p>Signing in asks for an <b>email address</b> and sends a one-time sign-in link or code to
+  it. There is no password. With an account, these are kept in the site's database, hosted by Supabase:</p>
+
+  <ul class="limits">
+    <li><b>Your email address</b>, to sign you in and, if you ask for them, to send earnings alerts.</li>
+    <li><b>Your cart</b>: the companies in it, when you added them and at what price, your notes and
+    planned amounts, and a record of the last order sent for each, so a retry cannot place it twice.</li>
+    <li><b>Your alert settings</b>, and a log of which alerts have been sent, so no report is emailed twice.</li>
+    <li><b>Membership status</b>, once membership opens. Card details never reach this site; the
+    payment provider handles them.</li>
+  </ul>
+
+  <p>The database only lets you read or change your own rows. That rule is enforced by the
+  database itself, so it holds even against a request crafted by hand.</p>
+
+  <h2>Earnings alerts</h2>
+
+  <p>Alerts are off until you switch them on. When they are on, an email goes out through
+  Resend a week before a company in your cart reports, listing the companies and what the
+  street expects. Turn them off at any time under Cart, then Earnings dates.</p>
+
+  <h2>A brokerage connection</h2>
+
+  <p>If you connect an Alpaca account, the keys or sign-in token are encrypted into a cookie
+  in your browser that only this site's server can read. They are not stored in any database
+  here. The cookie expires after 30 days, or at once when you disconnect. Orders you confirm
+  go straight to Alpaca, whose own privacy policy covers your account there.</p>
+
+  <h2>Who else is involved</h2>
+
+  <ul class="limits">
+    <li><b>Vercel</b> hosts the site. Like any web host it keeps short-lived request logs, which
+    include IP addresses.</li>
+    <li><b>Supabase</b> holds accounts and the data listed above, and sends the sign-in emails.</li>
+    <li><b>Resend</b> sends earnings alerts, and only to people who switched them on.</li>
+    <li><b>esm.sh</b> serves the sign-in library to your browser when you sign in, so it sees
+    that request.</li>
+    <li><b>Alpaca</b>, only if you connect a brokerage account.</li>
+    <li><b>Finnhub</b> supplies market data and news. Its requests come from this site's server
+    and carry nothing about you.</li>
+  </ul>
+
+  <p>Nothing is sold, rented or shared for marketing. The typeface is served from this site,
+  not from a font service.</p>
+
+  <h2>Deleting it</h2>
+
+  <p>You can empty the cart and switch alerts off at any time, and signing out removes the
+  session from that browser. To delete the account itself, with the email address and
+  everything attached to it, write to
+  <a href="mailto:hello@stockornot.com">hello@stockornot.com</a> from that address. It is
+  done within 30 days, and you get a reply when it is.</p>
+
+  <h2>Changes</h2>
+
+  <p>If what is kept changes, this page changes first, and the date at the top moves.</p>
+
+</main>
+
+<footer class="sitefoot">
+  <nav class="foot-nav" aria-label="Footer">
+    <a href="/stock">Companies</a>
+    <a href="/method">How the score works</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/privacy" aria-current="page">Privacy</a>
+  </nav>
+  <p><b>Not investment advice.</b> Every figure here comes from
+  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
+  <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
+  Read the actual filing before you buy anything.</p>
+</footer>
+</body>
+</html>

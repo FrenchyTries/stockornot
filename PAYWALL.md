@@ -79,8 +79,9 @@ first charge.
   Investment Advisers Act. The publisher's exemption may well apply and is
   fact-specific. This needs a securities lawyer, not a guess.
 
-- **A privacy policy and terms.** Required once money and email addresses are
-  involved, and required by both app stores.
+- **Terms of service.** Required once money is involved, and by both app
+  stores. The privacy policy exists at `/privacy` (`privacy.html`); it has to
+  be updated to name the payment provider before membership opens.
 
 ## Why the button says "Opening soon"
 

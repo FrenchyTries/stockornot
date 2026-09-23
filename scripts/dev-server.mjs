@@ -43,10 +43,10 @@ const TYPES = {
   ".ics": "text/calendar; charset=utf-8", ".woff2": "font/woff2"
 };
 
-async function serveFile(res, file) {
+async function serveFile(res, file, status = 200) {
   try {
     const body = await fs.readFile(file);
-    res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] || "application/octet-stream" });
+    res.writeHead(status, { "Content-Type": TYPES[path.extname(file)] || "application/octet-stream" });
     res.end(body);
     return true;
   } catch { return false; }
@@ -93,6 +93,7 @@ const server = http.createServer(async (req, res) => {
   if (await serveFile(res, file)) return;
   if (!path.extname(file) && await serveFile(res, file + ".html")) return;               /* cleanUrls */
   if (!path.extname(file) && await serveFile(res, path.join(file, "index.html"))) return; /* directory index */
+  if (await serveFile(res, path.join(ROOT, "404.html"), 404)) return;                   /* as Vercel does */
   res.writeHead(404, { "Content-Type": "text/plain" });
   res.end("Not found");
 });

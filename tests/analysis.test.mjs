@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { pct, pctPlain, inputs, rankAmong, scoreStock, prosAndCons, buildScoreContext, rangeSummary } from "../lib/analysis.mjs";
 import { beatRecord, insiderSummary, financialChecks, historyChecks, buildSectorStats, sectorView, nearestPeers } from "../lib/insight.mjs";
+import { CHECK_ICONS } from "../lib/icons.mjs";
 
 test("values that round to zero print as zero", () => {
   assert.equal(pct(-0.04), "0.0%");
@@ -75,6 +76,13 @@ test("the financials are five questions, each answered from its own figures", ()
   assert.equal(by.margins.answer.text, "Yes, improving");       /* 8.9% → 12% */
   assert.equal(by.balance.answer.text, "Yes, the debt is manageable");   /* 2.5 years */
   for (const g of checks) assert.ok(g.question.endsWith("?"), g.id);
+});
+
+test("every check has a line icon, and no emoji is left standing in for one", () => {
+  const s = base({ fin: { ...base().fin, revenuePrev: 4.5e9, netIncomePrev: 4e8 } });
+  for (const g of financialChecks(s, scoreStock(s))) {
+    assert.match(CHECK_ICONS[g.icon] || "", /^<svg [^>]*aria-hidden="true"/, g.id);
+  }
 });
 
 test("a bank's cash flow and debt are not judged, and its revenue jump is not used", () => {
