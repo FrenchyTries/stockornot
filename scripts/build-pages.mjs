@@ -13,7 +13,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   num, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
-  FACTORS, scoreStock, scoreLabel, prosAndCons,
+  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext,
   splitAdjustShares, shareCountNote
 } from "../lib/analysis.mjs";
 
@@ -138,10 +138,14 @@ function historyTable(history) {
 
 /* ------------------------------------------------------------- one company */
 
+/* Every company is scored partly against its own sector, so the pages need
+   the whole snapshot in view. Set once in main(). */
+let CTX = null;
+
 function companyPage(s, filing, deep, siblings, updated) {
-  const res = scoreStock(s);
+  const res = scoreStock(s, CTX);
   const label = scoreLabel(res.overall);
-  const pc = prosAndCons(s);
+  const pc = prosAndCons(s, CTX);
   const pos = rangePos(s);
   const url = `${SITE}/stock/${slug(s.t)}`;
 
@@ -195,7 +199,8 @@ function companyPage(s, filing, deep, siblings, updated) {
 
   const list = (items, cls) => items.length
     ? `<ul class="doc-list ${cls}">${items.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>`
-    : `<p class="block-note">Nothing in the numbers stands out ${cls === "pro" ? "as a strength" : "as a concern"}.</p>`;
+    : `<p class="block-note">${cls === "pro" ? "Nothing in the numbers stands out as a strength."
+        : "Nothing in these numbers stands out as a concern. That is not the same as no risk: read the risk factors below."}</p>`;
 
   return head(title + " | StockOrNot", description, url, extra) + `
 <nav class="crumbs"><a href="/stock/">All companies</a> <span>/</span> <span>${esc(s.t)}</span></nav>
@@ -288,7 +293,7 @@ function indexPage(stocks, updated) {
       .slice()
       .sort((a, b) => (b.mc || 0) - (a.mc || 0))
       .map((s) => {
-        const res = scoreStock(s);
+        const res = scoreStock(s, CTX);
         return `<tr>
 <th scope="row"><a href="/stock/${slug(s.t)}"><b>${esc(s.t)}</b> <span>${esc(s.n)}</span></a></th>
 <td>${esc(price(s.price))}</td>
@@ -320,6 +325,7 @@ ${body}
 
 async function main() {
   const snap = await readJSON(path.join(DATA, "snapshot.json"));
+  CTX = buildScoreContext(snap?.stocks || []);
   if (!snap?.stocks?.length) {
     console.error("No snapshot to build from. Run scripts/refresh.mjs first.");
     process.exit(1);

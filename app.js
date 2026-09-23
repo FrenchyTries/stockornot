@@ -15,7 +15,7 @@
    ========================================================================== */
 import {
   num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
-  FACTORS, scoreStock, scoreLabel, prosAndCons,
+  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext,
   splitAdjustShares, shareCountNote
 } from "./lib/analysis.mjs";
 import * as auth from "./lib/auth.mjs";
@@ -52,6 +52,7 @@ var state = {
   authPending: false,     /* true while we are still finding out */
   busy:    false,
   sectors: null,          /* per-sector sorted metrics, built once per snapshot */
+  scoreCtx: null,         /* the same, for the score's sector half */
   broker:  null,          /* last /api/broker status; null until asked */
   orderType: "market"     /* market (dollars) | limit (whole shares) */
 };
@@ -112,6 +113,7 @@ function loadSnapshot() {
       state.updated = snap.updated;
       state.all.forEach(function (s) { state.byTicker[s.t] = s; });
       state.sectors = insight.buildSectorStats(state.all);
+      state.scoreCtx = buildScoreContext(state.all);
       return snap;
     });
 }
@@ -408,13 +410,13 @@ function fillStreet(box, deep) {
     box.appendChild(bar);
     var line = c.buyPct + "% rate it a buy, " + c.holdPct + "% hold, " + c.sellPct + "% sell · " +
       c.total + " analysts";
-    if (num(c.shift) && c.shift !== 0) line += " · buys " + (c.shift > 0 ? "up " : "down ") + Math.abs(c.shift) + " pts on the month";
+    if (num(c.shift) && c.shift !== 0) line += " · buys " + (c.shift > 0 ? "up " : "down ") + Math.abs(c.shift) + (Math.abs(c.shift) === 1 ? " pt" : " pts") + " on the month";
     box.appendChild(el("p", "street-line", line));
   }
   if (b) {
     box.appendChild(el("p", "street-line",
       "Beat the EPS estimate in " + b.beats + " of the last " + b.of + " quarters" +
-      (num(b.avgSurprise) ? ", by " + pct(b.avgSurprise, 1) + " on average." : ".")));
+      (num(b.avgSurprise) ? ", with an average surprise of " + pct(b.avgSurprise, 1) + "." : ".")));
   }
   if (ins) {
     box.appendChild(el("p", "street-line",
@@ -448,7 +450,7 @@ function makeCard(s, depth) {
   idb.appendChild(el("span", "c-sector", s.s));
   top.appendChild(mark);
   top.appendChild(idb);
-  var res = scoreStock(s);
+  var res = scoreStock(s, state.scoreCtx);
   top.appendChild(scoreRing(res, false));
   body.appendChild(top);
 
@@ -508,7 +510,7 @@ function makeCard(s, depth) {
   body.appendChild(eb);
 
   /* ---------- pros and cons ---------- */
-  var pc = prosAndCons(s);
+  var pc = prosAndCons(s, state.scoreCtx);
   var pcWrap = el("div", "c-pc");
 
   /* The card shows at most four of each. A company with six strengths and one
@@ -530,7 +532,7 @@ function makeCard(s, depth) {
     if (!items.length) {
       col.appendChild(el("p", "pc-none", kind === "pro"
         ? "Nothing in the numbers stands out as a strength."
-        : "Nothing in the numbers stands out as a concern."));
+        : "Nothing in these numbers stands out as a concern. That is not the same as no risk: read the risk factors from the 10-K below."));
     } else {
       var ul = el("ul", "");
       shown.forEach(function (t) { ul.appendChild(el("li", "", t)); });
@@ -2129,7 +2131,7 @@ function openDetail(s) {
     body.innerHTML = "";
 
     /* --- the score, and what drove it --- */
-    var scoreRes = scoreStock(s);
+    var scoreRes = scoreStock(s, state.scoreCtx);
     var scoreBox = el("div", "score-detail");
     var scoreHead = el("div", "score-head");
     scoreHead.appendChild(scoreRing(scoreRes, true));
@@ -2138,6 +2140,11 @@ function openDetail(s) {
       ? "A weighted blend of the five factors below. It describes what the last filing and the current price look like. It is not a forecast, and it knows nothing about the business beyond these numbers."
       : "Not enough reported data to score this one."));
     scoreHead.appendChild(blurb);
+    if (scoreRes.notes && scoreRes.notes.length) {
+      var notes = el("ul", "score-notes");
+      scoreRes.notes.forEach(function (n) { notes.appendChild(el("li", "", n)); });
+      blurb.appendChild(notes);
+    }
     scoreBox.appendChild(scoreHead);
     scoreBox.appendChild(factorBars(scoreRes));
     body.appendChild(section("Fundamentals score", scoreBox));
