@@ -119,13 +119,23 @@ function loadSnapshot() {
 }
 
 /* 10-K prose is one small file per company, fetched only when its card renders. */
+/* The cached reading must belong to the 10-K the card links to. After a new
+   filing that could not be read, the file can still hold last year's text,
+   which would otherwise sit under this year's link. Revalidated each visit
+   (no-cache), because a new filing replaces the file in place. */
+function filingMatches(s, j) {
+  var k = s && s.sec && s.sec.tenK;
+  if (!k || !j) return false;
+  return !k.accession || !j.accession || k.accession === j.accession;
+}
+
 function loadDetail(ticker) {
   if (state.details[ticker] !== undefined) return Promise.resolve(state.details[ticker]);
   var safe = ticker.replace(/[^A-Z0-9.]/gi, "_");
-  return fetch("data/filings/" + encodeURIComponent(safe) + ".json", { cache: "force-cache" })
+  return fetch("data/filings/" + encodeURIComponent(safe) + ".json", { cache: "no-cache" })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (j) {
-      var d = (j && j.detail) || null;
+      var d = j && filingMatches(state.byTicker[ticker], j) ? j.detail || null : null;
       state.details[ticker] = d;
       return d;
     })
@@ -1788,12 +1798,17 @@ var HISTORY_ROWS = [
 function buildHistory(deep) {
   var box = el("div", "");
   var h = deep && deep.history;
-  if (!h || !h.revenue) {
+  if (!h || !Object.keys(h).some(function (k) { return h[k] && typeof h[k] === "object"; })) {
     box.appendChild(el("p", "block-note", "This company files its numbers in a shape this reader could not follow, so there is no year-by-year history."));
     return box;
   }
 
-  var years = Object.keys(h.revenue).map(Number).sort(function (a, b) { return b - a; }).slice(0, 5);
+  /* every year any row reports, not just revenue's */
+  var yearSet = {};
+  Object.keys(h).forEach(function (k) {
+    if (h[k] && typeof h[k] === "object") Object.keys(h[k]).forEach(function (y) { yearSet[y] = true; });
+  });
+  var years = Object.keys(yearSet).map(Number).sort(function (a, b) { return b - a; }).slice(0, 5);
 
   var table = el("table", "fin-table");
   var thead = el("thead");
@@ -1831,12 +1846,13 @@ function buildHistory(deep) {
       var th2 = el("th", "", pair[1]); th2.scope = "row";
       tr2.appendChild(th2);
       years.forEach(function (y) {
-        var v = h[pair[0]][y], r = h.revenue[y];
+        var v = h[pair[0]][y], r = h.revenue ? h.revenue[y] : null;
         tr2.appendChild(el("td", "", num(v) && num(r) && r !== 0 ? ((v / r) * 100).toFixed(1) + "%" : "—"));
       });
       tb.appendChild(tr2);
     });
-  var adjShares = splitAdjustShares(h.shares).shares;
+  var shareOpts = { restated: !!(deep && deep.sharesRestated) };
+  var adjShares = splitAdjustShares(h.shares, shareOpts).shares;
   if (adjShares) {
     var trS = el("tr");
     var thS = el("th", "", "Diluted shares"); thS.scope = "row";
@@ -1851,7 +1867,7 @@ function buildHistory(deep) {
   scroll.appendChild(table);
   box.appendChild(scroll);
 
-  var note = shareCountNote(h.shares);
+  var note = shareCountNote(h.shares, shareOpts);
   if (note) box.appendChild(el("p", "fin-note", note));
   return box;
 }
@@ -1986,8 +2002,9 @@ function buildAnalyst(deep) {
 function buildNextReport(s, deep) {
   var e = s.earnings;
   if (!e || !e.date) return null;
-  var box = el("div", "next-report");
   var d = earn.daysUntil(e.date);
+  if (d === null || d < 0) return null;       /* already reported: nothing "next" to show */
+  var box = el("div", "next-report");
   var head = el("p", "nr-head");
   head.appendChild(el("b", "", dateShort(e.date)));
   head.appendChild(el("span", "", " · " + (d === 0 ? "today" : d === 1 ? "tomorrow" : d > 1 ? "in " + d + " days" : "just reported") +
@@ -2153,30 +2170,49 @@ function openDetail(s) {
     if (nextBox) body.appendChild(section("Next report", nextBox));
 
     /* --- price chart with a range toggle --- */
+    var points = insight.priceSeries(deep);
     var chartBox = el("div", "");
-    var ranges = el("div", "range-toggle");
-    var chartSlot = el("div", "");
-    [{ label: "1Y", months: 12 }, { label: "5Y", months: 0 }].forEach(function (r, i) {
-      var b = el("button", "chip" + (i === 1 ? " is-on" : ""), r.label);
-      b.type = "button";
-      b.addEventListener("click", function () {
-        Array.prototype.forEach.call(ranges.children, function (x) { x.classList.remove("is-on"); });
-        b.classList.add("is-on");
+    if (!points) {
+      chartBox.appendChild(el("p", "block-note first", "No price history recorded for this company yet."));
+    } else {
+      var ranges = el("div", "range-toggle");
+      var chartSlot = el("div", "");
+      var spanDays = (new Date(points[points.length - 1][0]) - new Date(points[0][0])) / 864e5;
+      /* Only offer windows the data actually covers, then "All". */
+      var windows = [{ label: "1M", months: 1 }, { label: "3M", months: 3 }, { label: "1Y", months: 12 }]
+        .filter(function (r) { return spanDays > r.months * 30.5 * 1.15; })
+        .concat([{ label: "All", months: 0 }]);
+      var draw = function (months) {
         chartSlot.innerHTML = "";
-        chartSlot.appendChild(buildChart(deep && deep.chart, r.months));
-      });
-      ranges.appendChild(b);
-    });
-    chartSlot.appendChild(buildChart(deep && deep.chart, 0));
-    chartBox.appendChild(ranges);
-    chartBox.appendChild(chartSlot);
-    var cs = insight.chartStats(deep && deep.chart);
-    if (cs) {
-      var csGrid = el("dl", "c-stats");
-      csGrid.appendChild(statRow("vs 200-day avg", pct(cs.vsMa200, 1), "Last close against the average of the last forty weekly closes. Above zero means the trend is up."));
-      csGrid.appendChild(statRow("Worst fall", pct(cs.maxDrawdown, 0), "The biggest drop from a high to a later low over the chart window" + (cs.maxDrawdownAt ? ", bottoming " + dateShort(cs.maxDrawdownAt) : "") + "."));
-      csGrid.appendChild(statRow("Volatility", pctPlain(cs.volatility, 0) + "/yr", "How widely weekly returns swing, scaled to a year. The S&P 500 usually runs 15–20%."));
-      chartBox.appendChild(csGrid);
+        chartSlot.appendChild(buildChart(points, months));
+        var shown = months ? points.filter(function (p) { return p[0] >= new Date(Date.now() - months * 30.5 * 864e5).toISOString().slice(0, 10); }) : points;
+        var cs = insight.chartStats(shown);
+        if (cs) {
+          var csGrid = el("dl", "c-stats");
+          if (num(cs.vsMa)) csGrid.appendChild(statRow("vs " + cs.maLabel + " avg", pct(cs.vsMa, 1), "Last close against the average of the last " + cs.maLabel + ". Above zero means the trend is up."));
+          csGrid.appendChild(statRow("Worst fall", pct(cs.maxDrawdown, 0), "The biggest drop from a high to a later low in this window" + (cs.maxDrawdownAt ? ", bottoming " + dateShort(cs.maxDrawdownAt) : "") + "."));
+          if (num(cs.volatility)) csGrid.appendChild(statRow("Volatility", pctPlain(cs.volatility, 0) + "/yr", "How widely daily returns swing, scaled to a year. The S&P 500 usually runs 15–20%."));
+          chartSlot.appendChild(csGrid);
+        }
+      };
+      if (windows.length > 1) {
+        windows.forEach(function (r, i) {
+          var b = el("button", "chip" + (i === windows.length - 1 ? " is-on" : ""), r.label);
+          b.type = "button";
+          b.addEventListener("click", function () {
+            Array.prototype.forEach.call(ranges.children, function (x) { x.classList.remove("is-on"); });
+            b.classList.add("is-on");
+            draw(r.months);
+          });
+          ranges.appendChild(b);
+        });
+        chartBox.appendChild(ranges);
+      }
+      chartBox.appendChild(chartSlot);
+      draw(0);
+      if (!(deep && deep.chart && deep.chart.length >= 20)) {
+        chartBox.appendChild(el("p", "block-note", "Closing prices recorded here each trading day since " + dateShort(points[0][0]) + "."));
+      }
     }
     body.appendChild(section("Price", chartBox));
 
@@ -2213,7 +2249,7 @@ function openDetail(s) {
       fbox.appendChild(el("p", "filing-text", filing.business));
     }
     if (filing && filing.risks && filing.risks.length) {
-      fbox.appendChild(el("h4", "sub-h", "Every risk factor it lists (" + filing.risks.length + ")"));
+      fbox.appendChild(el("h4", "sub-h", "Risk factors it lists (" + filing.risks.length + ")"));
       var ul = el("ul", "risk-list");
       filing.risks.forEach(function (r) { ul.appendChild(el("li", "", r)); });
       fbox.appendChild(ul);

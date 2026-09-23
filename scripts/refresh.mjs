@@ -22,11 +22,23 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { extractFundamentals, FUNDAMENTALS_VERSION } from "./fundamentals.mjs";
+import { parseTenK } from "./tenk.mjs";
+import { sessionDate } from "./dates.mjs";
 
 const ROOT       = path.resolve(import.meta.dirname, "..");
 const DATA       = path.join(ROOT, "data");
 const FILING_DIR = path.join(DATA, "filings");
 const DETAIL_DIR = path.join(DATA, "detail");
+const FUND_DIR   = path.join(DATA, "fundamentals");
+
+/* Where the APIs live. Overridable only so the whole pipeline can be run
+   against local mock servers; production never sets these. Links written
+   into the data always point at the real sec.gov. */
+const FINNHUB_API = process.env.FINNHUB_API || "https://finnhub.io/api/v1";
+const SEC_DATA    = process.env.SEC_DATA    || "https://data.sec.gov";
+const SEC_WWW     = process.env.SEC_WWW     || "https://www.sec.gov";
+const secFetchUrl = (u) => u.replace(/^https:\/\/www\.sec\.gov/, SEC_WWW);
 
 const TOKEN = process.env.FINNHUB_TOKEN;
 const UA    = process.env.SEC_USER_AGENT || "StockOrNot open-source project contact@example.com";
@@ -34,13 +46,24 @@ const LIMIT = process.env.LIMIT ? Number(process.env.LIMIT) : 0;
 const SKIP_FILINGS = process.env.SKIP_FILINGS === "1";
 
 /* Bump when the 10-K parser changes so cached extractions are redone once. */
-const PARSER_VERSION = 3;
+const PARSER_VERSION = 4;
+
+/* A parser change re-reads every cached filing. Spread that over several
+   nights instead of one very long run; new 10-Ks are always read at once. */
+const REPARSE_BUDGET = 150;
 
 /* Recommendation trends move monthly, so a slice of the index each night keeps
    every company under a week old without doubling the run time. */
 const ANALYST_TTL_DAYS = 6;
 const ANALYST_MISS_TTL = 2;    /* a ticker that came back empty waits this long */
 const ANALYST_BUDGET   = 520;  /* high enough to fill the whole index in one run */
+
+/* S&P 500 companies report quarterly, so a "next report" further out than
+   this is the one after next. */
+const FAR_REPORT_DAYS = 100;
+
+/* Five years of daily closes. */
+const MAX_CLOSES = 1300;
 
 /* Every ticker starts stale, so the first run fetches all 501. Left at a flat
    TTL they would then all come due again on the same day, spiking one run a
@@ -112,7 +135,7 @@ async function getText(url, { headers = {}, gate, label = "" } = {}) {
 }
 
 const finnhub = (p) =>
-  getJSON(`https://finnhub.io/api/v1${p}${p.includes("?") ? "&" : "?"}token=${TOKEN}`,
+  getJSON(`${FINNHUB_API}${p}${p.includes("?") ? "&" : "?"}token=${TOKEN}`,
           { gate: finnhubGate, label: `finnhub ${p.split("?")[0]}` });
 
 const sec = (url, label) => getJSON(url, { headers: { "User-Agent": UA }, gate: secGate, label });
@@ -157,7 +180,7 @@ async function loadFrames(years) {
       for (const tag of concept.tags) {
         const period = concept.kind === "instant" ? `CY${year}Q4I` : `CY${year}`;
         const unit = concept.unit || "USD";
-        const url = `https://data.sec.gov/api/xbrl/frames/us-gaap/${tag}/${unit}/${period}.json`;
+        const url = `${SEC_DATA}/api/xbrl/frames/us-gaap/${tag}/${unit}/${period}.json`;
         const json = await sec(url, `frames ${tag} ${period}`);
         if (!json?.data) continue;
         for (const row of json.data) {
@@ -180,40 +203,37 @@ async function loadFrames(years) {
   return byCik;
 }
 
-/* Frames are organised by calendar year, so a filer whose fiscal year ends in
-   August or November shows up in none of them. For those, ask for the concept
-   directly and take the most recent annual figure they actually reported. */
-async function conceptFallback(cik, concept) {
-  for (const tag of concept.tags) {
-    const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/us-gaap/${tag}.json`;
-    const json = await sec(url, `concept ${tag}`);
-    const units = json?.units?.[concept.unit || "USD"];
-    if (!units?.length) continue;
+/* ------------------------------------------------ financials, per company
 
-    const annual = units.filter((u) => {
-      if (u.form !== "10-K" || !u.end) return false;
-      if (concept.kind === "instant") return !u.start;
-      if (!u.start) return false;
-      const days = (new Date(u.end) - new Date(u.start)) / 864e5;
-      return days > 300 && days < 400;          /* a full year, not a quarter */
-    });
-    if (!annual.length) continue;
+   The frames above are kept only as a fallback. The real source is each
+   company's own companyfacts, read by scripts/fundamentals.mjs, which knows
+   the company's fiscal calendar (see the header of that file for why the
+   frames got it wrong). The result is cached per 10-K accession, so a company
+   is fetched once when it files its annual report and not again for a year. */
 
-    annual.sort((a, b) => (a.end < b.end ? 1 : -1));
-    const byYear = {};
-    for (const u of annual) {
-      const y = Number(u.end.slice(0, 4));
-      if (byYear[y] === undefined) byYear[y] = numOrNull(u.val);
-    }
-    const latest = annual[0];
-    const latestYear = Number(latest.end.slice(0, 4));
-    return {
-      value: numOrNull(latest.val),
-      prior: byYear[latestYear - 1] ?? null,
-      series: byYear,
-      fy: latestYear
-    };
+async function fundamentalsFor(c, tenK, safeName) {
+  const file = path.join(FUND_DIR, safeName + ".json");
+  let cached = null;
+  try { cached = JSON.parse(await fs.readFile(file, "utf8")); } catch { /* first run */ }
+  if (cached?.out && cached.v === FUNDAMENTALS_VERSION && tenK && cached.accession === tenK.accession) {
+    return { out: cached.out, how: "cached" };
   }
+
+  const json = await sec(`${SEC_DATA}/api/xbrl/companyfacts/CIK${c.cik}.json`, `companyfacts ${c.t}`);
+  const out = json ? extractFundamentals(json, { latestPeriod: tenK?.period || null }) : null;
+  if (out) {
+    /* Right after a filing the facts API can lag the submissions index by a
+       few hours. Only tie the cache to the accession once the newest period
+       is actually in the facts, or tonight's stale read would stick for a year. */
+    await fs.writeFile(file, JSON.stringify({
+      accession: out.current && tenK ? tenK.accession : null,
+      v: FUNDAMENTALS_VERSION, at: new Date().toISOString(), out
+    }));
+    return { out, how: "fetched" };
+  }
+  /* SEC unreachable tonight, or nothing parseable: yesterday's figures are
+     still the right ones, just not refreshed. */
+  if (cached?.out) return { out: cached.out, how: "stale" };
   return null;
 }
 
@@ -337,136 +357,47 @@ function filingFromSubmissions(sub, cik, form) {
   };
 }
 
-const stripTags = (html) =>
-  html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;|&#160;|&#xa0;/gi, " ")
-    .replace(/&amp;/gi, "&").replace(/&#8217;|&rsquo;/gi, "’")
-    .replace(/&#8220;|&#8221;|&ldquo;|&rdquo;/gi, '"')
-    .replace(/&#8212;|&mdash;/gi, "—").replace(/&#8211;|&ndash;/gi, "–")
-    .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&[a-z]+;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-/* 10-K markup is wildly inconsistent between filers. Normalising the invisible
-   whitespace entities first is what makes "Item&#160;1A." findable at all. */
-function normalizeHtml(html) {
-  return html.replace(/&nbsp;|&#160;|&#xa0;|&#xA0;/g, " ");
+/* undefined: could not download (try again tomorrow); null: downloaded but
+   nothing readable in it (remember that, do not retry). */
+async function fetchFilingDetail(ticker, tenK) {
+  if (!tenK?.url) return undefined;
+  const raw = await getText(secFetchUrl(tenK.url), { headers: { 'User-Agent': UA }, gate: secGate, label: `10-K ${ticker}` });
+  if (!raw) return undefined;
+  if (raw.length < 5000) return null;
+  const read = parseTenK(raw);
+  return read ? { ...read, source: tenK.url } : null;
 }
 
-/* Build a regex for an Item heading that tolerates tags and entities appearing
-   between every single token — "Item", "1A", the punctuation and the word. */
-function itemRe(number, word, flags) {
-  const gap = "(?:\\s|<[^>]*>)*";
-  return new RegExp(`item${gap}${number}${gap}[.:\\-—]?${gap}${word}`, flags);
-}
+/* ------------------------------------------------------- renamed tickers
 
-/** Slice the HTML between two Item headings, skipping the table of contents. */
-function sliceItem(html, startRe, endRe, minLen = 1500) {
-  const starts = [...html.matchAll(startRe)].map((m) => m.index);
-  if (!starts.length) return null;
-  /* the ToC mention comes first and is followed almost immediately by the next
-     item, so prefer the start with the longest run of content after it */
-  let best = null;
-  for (const s of starts) {
-    const rest = html.slice(s);
-    const e = rest.search(endRe);
-    const len = e === -1 ? rest.length : e;
-    if (len > minLen && (!best || len > best.len)) best = { s, len };
-  }
-  if (!best) return null;
-  return html.slice(best.s, best.s + Math.min(best.len, 1200000));
-}
+   data/sp500.json is maintained by hand, so a company that changes its ticker
+   (Fiserv, Marsh McLennan) silently vanished from the deck for weeks. When a
+   quote fails, ask the SEC which tickers the company's CIK trades under now
+   and try those before giving up. Loaded only if something fails to quote. */
 
-const BOILERPLATE = /^(table of contents|part\s+[ivx]+|item\s+\d|risk factors?|forward-looking|see also|index)/i;
-
-function usableHeading(text) {
-  if (text.length < 35 || text.length > 230) return false;
-  if (!/[a-z]/.test(text)) return false;              /* skip ALL-CAPS chrome */
-  if (BOILERPLATE.test(text)) return false;
-  if (!/\s/.test(text)) return false;
-  return true;
-}
-
-/** Risk-factor headings: bold/italic tags, or spans styled bold. */
-function headingsFrom(chunk) {
-  const out = [];
-  const seen = new Set();
-  const push = (raw) => {
-    const text = stripTags(raw);
-    if (!usableHeading(text)) return;
-    const key = text.toLowerCase().slice(0, 60);
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(text.replace(/\s*[.;:]\s*$/, ""));
-  };
-
-  let m;
-  const tagRe = /<(b|strong|em|i)[^>]*>([\s\S]{0,800}?)<\/\1>/gi;
-  while ((m = tagRe.exec(chunk)) !== null && out.length < 14) push(m[2]);
-
-  if (out.length < 3) {
-    /* many filers style headings inline instead of using <b> */
-    const styleRe = /<(span|p|div)[^>]*style="[^"]*font-(?:weight|style)\s*:\s*(?:bold|700|800|italic)[^"]*"[^>]*>([\s\S]{0,800}?)<\/\1>/gi;
-    while ((m = styleRe.exec(chunk)) !== null && out.length < 14) push(m[2]);
-  }
-
-  if (out.length < 3) {
-    /* last resort: pull sentences that actually state a risk */
-    const text = stripTags(chunk);
-    const sentences = text.split(/(?<=[.!?])\s+/);
-    for (const s of sentences) {
-      const t = s.trim().replace(/\s*[.;:]\s*$/, "");
-      if (t.length < 60 || t.length > 230) continue;
-      if (!/\b(could|may|might|risk|adversely|failure|unable|depend)\b/i.test(t)) continue;
-      if (BOILERPLATE.test(t)) continue;
-      const key = t.toLowerCase().slice(0, 60);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(t);
-      if (out.length >= 10) break;
+let secTickers = null;
+async function tickersForCik(cik) {
+  if (!secTickers) {
+    const j = await getJSON(`${SEC_WWW}/files/company_tickers.json`,
+      { headers: { "User-Agent": UA }, gate: secGate, label: "SEC ticker list" });
+    secTickers = new Map();
+    for (const r of Object.values(j || {})) {
+      const key = String(r.cik_str).padStart(10, "0");
+      if (!secTickers.has(key)) secTickers.set(key, []);
+      secTickers.get(key).push(String(r.ticker).toUpperCase().replace(/-/g, "."));
     }
   }
-
-  return out;
+  return secTickers.get(cik) || [];
 }
 
-async function fetchFilingDetail(ticker, tenK) {
-  if (!tenK?.url) return null;
-  const raw = await getText(tenK.url, { headers: { 'User-Agent': UA }, gate: secGate, label: `10-K ${ticker}` });
-  if (!raw || raw.length < 5000) return null;
-  const html = normalizeHtml(raw);
-
-  const bizChunk = sliceItem(html, itemRe('1', 'business', 'gi'), itemRe('1a', 'risk', 'i'));
-
-  /* Three passes, each looser than the last. Filers are inconsistent enough
-     that no single pattern finds the risk section in all 500 documents. */
-  let riskChunk =
-    sliceItem(html, itemRe('1a', 'risk', 'gi'), itemRe('(?:1b|2)', '[a-z]', 'i')) ||
-    sliceItem(html, /risk\s*factors/gi, itemRe('(?:1b|2)', '[a-z]', 'i'), 800) ||
-    sliceItem(html, itemRe('1a', 'risk', 'gi'), /item(?:\s|<[^>]*>)*(?:1b|2)/i, 800);
-
-  if (!riskChunk) {
-    /* nothing bounded the section — take a slab after the last heading and let
-       the heading filter sort it out */
-    const hits = [...html.matchAll(/risk\s*factors/gi)].map((m) => m.index);
-    if (hits.length) riskChunk = html.slice(hits[hits.length - 1], hits[hits.length - 1] + 300000);
-  }
-
-  let business = null;
-  if (bizChunk) {
-    const text = stripTags(bizChunk)
-      .replace(/^item\s*1\s*[.:\-—]?\s*business[\s.:-]*/i, '')
-      .replace(/^general[\s.:-]*/i, '');
-    business = text.slice(0, 950).replace(/\s+\S*$/, '') + (text.length > 950 ? '…' : '');
-    if (business.length < 120) business = null;
-  }
-
-  const risks = riskChunk ? headingsFrom(riskChunk) : [];
-
-  if (!business && !risks.length) return null;
-  return { business, risks, source: tenK.url };
+/* A quarterly EPS figure fifty times the company's own trailing annual EPS
+   is another share class's (Berkshire B has carried Class A's ~$8,467
+   estimate against ~$44 of annual EPS, 190×). Genuine outliers, companies
+   whose trailing EPS is depressed by a one-off charge, sit under 10×. */
+function plausibleEps(v, annualEps) {
+  if (typeof v !== "number" || !isFinite(v)) return true;
+  if (typeof annualEps !== "number" || !isFinite(annualEps) || annualEps <= 0) return true;
+  return Math.abs(v) <= Math.max(annualEps * 50, 5);
 }
 
 /* ------------------------------------------------------------------ pipeline */
@@ -480,6 +411,7 @@ async function main() {
 
   /* --- upcoming earnings, one bulk call ---------------------------------- */
   const today = new Date();
+  const runSession = sessionDate(today);
   const horizon = new Date(today.getTime() + 200 * 864e5);
   const fmt = (d) => d.toISOString().slice(0, 10);
   const cal = await finnhub(`/calendar/earnings?from=${fmt(today)}&to=${fmt(horizon)}`);
@@ -489,8 +421,14 @@ async function main() {
   /* Finnhub returns calendar rows in no particular order and a company can have
      several scheduled dates in the window — keep the soonest one that has not
      already happened, or the card advertises next February's report. */
+  /* The scheduled run starts after the close, so anything dated today has
+     already reported; carrying it for another day made every view disagree
+     about whether it was "next". A manual run earlier in the day keeps it
+     unless the actuals are already in. */
+  const afterClose = today.getUTCHours() >= 21;
   const remember = (row) => {
     if (!row?.date || row.date < todayStr) return;
+    if (row.date === todayStr && (afterClose || numOrNull(row.epsActual) !== null)) return;
     const held = earnings.get(row.symbol);
     if (held && held.date <= row.date) return;
     earnings.set(row.symbol, {
@@ -518,35 +456,54 @@ async function main() {
 
   const stocks = [];
   const skipped = [];
-  let filingsFetched = 0, filingsCached = 0, fellBack = 0;
+  let filingsFetched = 0, filingsCached = 0, reparsed = 0;
+  const fundCount = { fetched: 0, cached: 0, stale: 0, frames: 0 };
+  await fs.mkdir(FUND_DIR, { recursive: true });
+
+  const renamed = [];
+  const market = (t) => Promise.all([
+    finnhub(`/quote?symbol=${encodeURIComponent(t)}`),
+    finnhub(`/stock/metric?metric=all&symbol=${encodeURIComponent(t)}`)
+  ]);
+  const quoted = (q) => q && numOrNull(q.c) && q.c !== 0;
 
   for (let i = 0; i < companies.length; i++) {
-    const c = companies[i];
+    let c = companies[i];
     const tag = `[${String(i + 1).padStart(3)}/${companies.length}] ${c.t}`;
-    const safeName = c.t.replace(/[^A-Z0-9.]/gi, "_");
 
     /* -- market data -- */
-    const [quote, metricRes] = await Promise.all([
-      finnhub(`/quote?symbol=${encodeURIComponent(c.t)}`),
-      finnhub(`/stock/metric?metric=all&symbol=${encodeURIComponent(c.t)}`)
-    ]);
+    let [quote, metricRes] = await market(c.t);
 
-    if (!quote || !numOrNull(quote.c) || quote.c === 0) {
-      console.log(`${tag}  skipped (no quote)`);
-      skipped.push(c.t);
-      continue;
+    if (!quoted(quote)) {
+      const alt = (await tickersForCik(c.cik)).find((t) => t !== c.t);
+      const retry = alt ? await market(alt) : null;
+      if (retry && quoted(retry[0])) {
+        console.log(`${tag}  now trades as ${alt}: update data/sp500.json`);
+        renamed.push({ from: c.t, to: alt });
+        c = { ...c, t: alt };
+        [quote, metricRes] = retry;
+      } else {
+        console.log(`${tag}  skipped (no quote)`);
+        skipped.push(c.t);
+        continue;
+      }
     }
+    const safeName = c.t.replace(/[^A-Z0-9.]/gi, "_");
     const m = metricRes?.metric || {};
 
     /* The bulk calendar only carries dates that are already announced, which is
-       a minority of the index at any moment. Ask per symbol for the rest. */
-    if (!earnings.has(c.t)) {
+       a minority of the index at any moment. Ask per symbol for the rest, and
+       also whenever the bulk answer is more than ~100 days out: a company
+       that reports every quarter has a nearer date the bulk call skipped,
+       and keeping the far one meant no alert for the real report. */
+    const held = earnings.get(c.t);
+    if (!held || (new Date(held.date) - today) / 864e5 > FAR_REPORT_DAYS) {
       const one = await finnhub(`/calendar/earnings?symbol=${encodeURIComponent(c.t)}&from=${fmt(today)}&to=${fmt(horizon)}`);
       for (const row of one?.earningsCalendar || []) remember({ ...row, symbol: c.t });
     }
 
     /* -- SEC filing history -- */
-    const sub = await sec(`https://data.sec.gov/submissions/CIK${c.cik}.json`, `submissions ${c.t}`);
+    const sub = await sec(`${SEC_DATA}/submissions/CIK${c.cik}.json`, `submissions ${c.t}`);
     const tenK = sub ? filingFromSubmissions(sub, c.cik, "10-K") : null;
     const tenQ = sub ? filingFromSubmissions(sub, c.cik, "10-Q") : null;
 
@@ -556,55 +513,60 @@ async function main() {
     if (tenK) {
       let cached = null;
       try { cached = JSON.parse(await fs.readFile(cachePath, "utf8")); } catch { /* first run */ }
-      if (cached?.accession === tenK.accession && cached.v === PARSER_VERSION) {
+      const sameFiling = cached?.accession === tenK.accession;
+      if (sameFiling && cached.v === PARSER_VERSION) {
+        detail = cached.detail;
+        filingsCached++;
+      } else if (sameFiling && (SKIP_FILINGS || reparsed >= REPARSE_BUDGET)) {
+        /* older parser's reading of the right filing; re-read on a later night */
         detail = cached.detail;
         filingsCached++;
       } else if (!SKIP_FILINGS) {
-        detail = await fetchFilingDetail(c.t, tenK);
-        if (detail) {
+        if (sameFiling) reparsed++;
+        const read = await fetchFilingDetail(c.t, tenK);
+        if (read !== undefined) {
+          /* Written even when nothing could be read, tied to this accession, so
+             the page never shows last year's text under this year's link and a
+             filing that cannot be parsed is not downloaded again every night. */
+          detail = read;
           await fs.writeFile(cachePath, JSON.stringify({ accession: tenK.accession, v: PARSER_VERSION, detail }));
           filingsFetched++;
         }
       }
     }
 
-    const f = frames.get(c.cik) || {};
-    let yr = (k) => f[k]?.[year - 1] ?? null;
-    let prev = (k) => f[k]?.[year - 2] ?? null;
-    let finFy = year - 1;
-
-    /* A filer with a non-calendar fiscal year appears in no CY frame. Ask for
-       its concepts directly rather than showing a card with no financials. */
-    const directSeries = {};
-    if (yr("revenue") === null) {
-      const direct = {};
+    /* ---- financials: the company's own filings, frames only as a fallback ---- */
+    const fund = await fundamentalsFor(c, tenK, safeName);
+    let fin, history, finFy, sharesRestated = false;
+    if (fund) {
+      fundCount[fund.how]++;
+      ({ fin, history, fy: finFy } = fund.out);
+      sharesRestated = !!fund.out.sharesRestated;
+    } else {
+      fundCount.frames++;
+      const f = frames.get(c.cik) || {};
+      const yr = (k) => f[k]?.[year - 1] ?? null;
+      const prev = (k) => f[k]?.[year - 2] ?? null;
+      finFy = year - 1;
+      const ocf = yr("ocf"), capex = yr("capex");
+      fin = {
+        revenue: yr("revenue"), revenuePrev: prev("revenue"),
+        netIncome: yr("netIncome"), netIncomePrev: prev("netIncome"),
+        assets: yr("assets"), liabs: yr("liabs"), equity: yr("equity"),
+        cash: yr("cash"), debt: yr("debt"),
+        ocf, capex,
+        fcf: ocf !== null && capex !== null ? ocf - capex : null,
+        fy: finFy
+      };
+      history = {};
       for (const concept of FRAME_CONCEPTS) {
-        const hit = await conceptFallback(c.cik, concept);
-        if (hit) {
-          direct[concept.key] = hit;
-          if (hit.series) directSeries[concept.key] = hit.series;
-          finFy = hit.fy || finFy;
+        const row = {};
+        for (let k = 0; k < HISTORY_YEARS; k++) {
+          const v = f[concept.key]?.[finFy - k];
+          if (v !== undefined && v !== null) row[finFy - k] = v;
         }
+        if (Object.keys(row).length) history[concept.key] = row;
       }
-      if (Object.keys(direct).length) {
-        yr = (k) => direct[k]?.value ?? f[k]?.[year - 1] ?? null;
-        prev = (k) => direct[k]?.prior ?? f[k]?.[year - 2] ?? null;
-        fellBack++;
-      }
-    }
-
-    const ocf = yr("ocf"), capex = yr("capex");
-
-    /* ---- multi-year history for the detail sheet ---- */
-    const histYears = Array.from({ length: HISTORY_YEARS }, (_, k) => finFy - k);
-    const history = {};
-    for (const concept of FRAME_CONCEPTS) {
-      const row = {};
-      for (const y of histYears) {
-        const v = directSeries[concept.key]?.[y] ?? f[concept.key]?.[y];
-        if (v !== undefined && v !== null) row[y] = v;
-      }
-      if (Object.keys(row).length) history[concept.key] = row;
     }
 
     /* ---- price history and the analyst view, written per company ---- */
@@ -614,6 +576,15 @@ async function main() {
 
     const chart = (await priceHistory(c.t)) || priorDetail?.chart || null;
     if (chart) chartsOk++;
+
+    /* Our own record of the close, one point per session. The external chart
+       sources have never worked from the Action's runners, so this is what
+       the price chart is actually drawn from; it grows by a point a night. */
+    const session = quote.t ? sessionDate(new Date(quote.t * 1000)) : runSession;
+    const closes = (priorDetail?.closes || []).filter((p) => p[0] !== session);
+    if (session && numOrNull(quote.c)) closes.push([session, +quote.c.toFixed(4)]);
+    closes.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    if (closes.length > MAX_CLOSES) closes.splice(0, closes.length - MAX_CLOSES);
 
     const ageOf = (stamp) => (stamp ? (Date.now() - new Date(stamp)) / 864e5 : Infinity);
     let analyst   = priorDetail?.analyst || null;
@@ -639,9 +610,32 @@ async function main() {
       }
     }
 
+    /* Share-class sanity: another class's price range or per-share figures
+       (Berkshire B carried Class A's) are dropped rather than published. */
+    const px = numOrNull(quote.c);
+    const peNow = pickMetric(m, "peTTM", "peBasicExclExtraTTM", "peAnnual");
+    const annualEps = px && peNow && peNow > 0 ? px / peNow : null;
+    let lo = pickMetric(m, "52WeekLow"), hi = pickMetric(m, "52WeekHigh");
+    if (lo !== null && hi !== null && px && (px < lo * 0.5 || px > hi * 2)) {
+      console.warn(`  ! ${c.t}: 52-week range ${lo}–${hi} does not fit a ${px} price; dropped`);
+      lo = hi = null;
+    }
+    let nextReport = earnings.get(c.t) || null;
+    if (nextReport && !plausibleEps(nextReport.epsEst, annualEps)) {
+      console.warn(`  ! ${c.t}: EPS estimate ${nextReport.epsEst} is implausible against ${annualEps?.toFixed(2)} trailing; dropped`);
+      nextReport = { ...nextReport, epsEst: null, revEst: null };
+    }
+    if (analyst?.earnings?.length) {
+      const kept = analyst.earnings.filter((e) => plausibleEps(e.actual, annualEps) && plausibleEps(e.estimate, annualEps));
+      if (kept.length !== analyst.earnings.length) {
+        console.warn(`  ! ${c.t}: dropped ${analyst.earnings.length - kept.length} implausible EPS surprise rows`);
+        analyst = { ...analyst, earnings: kept };
+      }
+    }
+
     await fs.writeFile(detailPath, JSON.stringify({
       t: c.t, updated: new Date().toISOString(),
-      fy: finFy, history, chart, analyst, analystAt, analystMissAt
+      fy: finFy, history, sharesRestated, chart, closes, analyst, analystAt, analystMissAt
     }));
 
     stocks.push({
@@ -653,7 +647,7 @@ async function main() {
       prev:   numOrNull(quote.pc),
 
       mc:   pickMetric(m, "marketCapitalization"),
-      pe:   pickMetric(m, "peTTM", "peBasicExclExtraTTM", "peAnnual"),
+      pe:   peNow,
       peF:  pickMetric(m, "peNormalizedAnnual"),
       pb:   pickMetric(m, "pbQuarterly", "pbAnnual"),
       ps:   pickMetric(m, "psTTM", "psAnnual"),
@@ -666,13 +660,11 @@ async function main() {
       rg5:  pickMetric(m, "revenueGrowth5Y"),
       eg:   pickMetric(m, "epsGrowthTTMYoy", "epsGrowthQuarterlyYoy"),
       beta: pickMetric(m, "beta"),
-      lo:   pickMetric(m, "52WeekLow"),
-      hi:   pickMetric(m, "52WeekHigh"),
+      lo, hi,
       dy:   pickMetric(m, "dividendYieldIndicatedAnnual", "currentDividendYieldTTM"),
       payout: pickMetric(m, "payoutRatioTTM", "payoutRatioAnnual"),
       de:   pickMetric(m, "totalDebt/totalEquityQuarterly", "totalDebt/totalEquityAnnual"),
       cr:   pickMetric(m, "currentRatioQuarterly", "currentRatioAnnual"),
-      r4:   pickMetric(m, "4WeekPriceReturnDaily"),
       r13:  pickMetric(m, "13WeekPriceReturnDaily"),
       r26:  pickMetric(m, "26WeekPriceReturnDaily"),
       r52:  pickMetric(m, "52WeekPriceReturnDaily"),
@@ -689,22 +681,14 @@ async function main() {
       rs52:     pickMetric(m, "priceRelativeToS&P50052Week"),
       vol:      pickMetric(m, "10DayAverageTradingVolume", "3MonthAverageTradingVolume"),
 
-      earnings: earnings.get(c.t) || null,
+      earnings: nextReport,
 
-      fin: {
-        revenue:  yr("revenue"),  revenuePrev:  prev("revenue"),
-        netIncome: yr("netIncome"), netIncomePrev: prev("netIncome"),
-        assets: yr("assets"), liabs: yr("liabs"), equity: yr("equity"),
-        cash: yr("cash"), debt: yr("debt"),
-        ocf, capex,
-        fcf: ocf !== null && capex !== null ? ocf - capex : null,
-        fy: finFy
-      },
+      fin,
 
       /* the 10-K prose lives in data/filings/<TICKER>.json and is lazy-loaded by
          the page — keeping it out of the snapshot keeps first paint fast */
       sec: {
-        tenK: tenK && { date: tenK.date, period: tenK.period, url: tenK.url, index: tenK.index },
+        tenK: tenK && { date: tenK.date, period: tenK.period, url: tenK.url, index: tenK.index, accession: tenK.accession },
         tenQ: tenQ && { date: tenQ.date, period: tenQ.period, url: tenQ.url, index: tenQ.index },
         detail: !!(detail?.business || detail?.risks?.length)
       },
@@ -724,6 +708,7 @@ async function main() {
   const withAnalyst = stocks.filter((s) => s.deep.analyst).length;
   const snapshot = {
     updated: new Date().toISOString(),
+    session: runSession,
     universe: "S&P 500",
     counts: {
       companies: stocks.length,
@@ -734,6 +719,7 @@ async function main() {
       withCharts, withAnalyst
     },
     skipped,
+    renamed,
     stocks
   };
 
@@ -747,9 +733,20 @@ async function main() {
       const fresh = new Map(stocks.map((s) => [s.t, s]));
       snapshot.stocks = prior.stocks.map((s) => fresh.get(s.t) || s);
       for (const s of stocks) if (!prior.stocks.some((p) => p.t === s.t)) snapshot.stocks.push(s);
-      snapshot.counts.companies = snapshot.stocks.length;
-      snapshot.counts.partialRun = stocks.length;
-      snapshot.skipped = prior.skipped || [];
+      /* yesterday's skips, minus the tickers this run just looked at again */
+      const looked = new Set(companies.map((c) => c.t));
+      snapshot.skipped = [...new Set([...(prior.skipped || []).filter((t) => !looked.has(t)), ...skipped])];
+      const all = snapshot.stocks;
+      snapshot.counts = {
+        companies: all.length,
+        skipped: snapshot.skipped.length,
+        withEarningsDate: all.filter((s) => s.earnings).length,
+        withFilings: all.filter((s) => s.sec?.detail).length,
+        withFinancials: all.filter((s) => s.fin?.revenue !== null && s.fin?.revenue !== undefined).length,
+        withCharts: all.filter((s) => s.deep?.chart).length,
+        withAnalyst: all.filter((s) => s.deep?.analyst).length,
+        partialRun: stocks.length
+      };
       console.log(`Limited run: merged ${stocks.length} companies into the existing ${prior.stocks.length}.`);
     }
   }
@@ -765,7 +762,7 @@ async function main() {
 ` +
     `  10-Ks: ${filingsFetched} downloaded, ${filingsCached} from cache
 ` +
-    `  ${fellBack} companies needed a direct XBRL lookup (non-calendar fiscal year)`
+    `  financials: ${fundCount.fetched} fetched, ${fundCount.cached} cached, ${fundCount.stale} carried over, ${fundCount.frames} from frames`
   );
 }
 

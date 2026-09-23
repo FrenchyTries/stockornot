@@ -69,9 +69,9 @@ jobs:
           # our freshly built files staged, and commit on top. The run that just
           # spent an hour fetching wins, and no merge is ever attempted.
           git fetch origin "${GITHUB_REF_NAME}"
-          git add data/snapshot.json data/audit.json data/filings data/detail stock sitemap.xml robots.txt
+          git add data/snapshot.json data/audit.json data/filings data/detail data/fundamentals stock sitemap.xml robots.txt
           git reset --soft FETCH_HEAD
-          git add data/snapshot.json data/audit.json data/filings data/detail stock sitemap.xml robots.txt
+          git add data/snapshot.json data/audit.json data/filings data/detail data/fundamentals stock sitemap.xml robots.txt
 
           if git diff --cached --quiet; then
             echo "Nothing changed."

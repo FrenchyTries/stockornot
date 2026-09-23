@@ -198,7 +198,7 @@ async function checkDeepFiles(snap) {
     try {
       const d = JSON.parse(await fs.readFile(path.join(DATA, "detail", safe + ".json"), "utf8"));
       present++;
-      if (d.chart?.length) charts++;
+      if (d.chart?.length >= 20 || d.closes?.length >= 5) charts++;
       if (d.analyst) analysts++;
     } catch { /* counted by absence */ }
   }
@@ -206,7 +206,7 @@ async function checkDeepFiles(snap) {
   if (present / total < 0.9)
     add("fail", "detail-missing", `Only ${present} of ${total} companies have a detail file.`);
   if (charts / total < 0.8)
-    add("warn", "charts-missing", `Only ${charts} of ${total} companies have a price chart.`);
+    add("warn", "charts-missing", `Only ${charts} of ${total} companies have price history to chart.`);
   if (analysts / total < 0.8)
     add("warn", "analyst-missing", `Only ${analysts} of ${total} companies have an analyst view.`);
   return { present, charts, analysts };
@@ -224,6 +224,43 @@ function checkFreshness(snap) {
   }).map((s) => s.t);
   if (past.length > snap.stocks.length * 0.1)
     add("warn", "earnings-past", `${past.length} companies still show an earnings date in the past.`, past);
+}
+
+/* The figures that were publicly wrong before this check existed: REIT and
+   bank revenue that was a small sub-line ("FCF 1337% of revenue"), a
+   utility's 2018 numbers labelled FY2025, report dates six months out, and
+   Berkshire B's Class A estimate. Each is a warning with the tickers named;
+   the refresh itself now avoids them, so any hit here is a regression. */
+function checkPlausibility(snap) {
+  const bad = { revenue: [], income: [], stale: [], far: [], eps: [] };
+  const today = Date.now();
+  for (const s of snap.stocks) {
+    const f = s.fin || {};
+    if (num(f.revenue) && f.revenue > 0 && num(s.mc) && num(s.ps) && s.ps > 0) {
+      const implied = (s.mc * 1e6) / s.ps;
+      const ratio = f.revenue / implied;
+      if (ratio > 3 || ratio < 1 / 3) bad.revenue.push(`${s.t} filed ${(f.revenue / 1e9).toFixed(1)}B vs ~${(implied / 1e9).toFixed(1)}B`);
+    }
+    if (num(f.netIncome) && num(f.revenue) && f.revenue > 0 && f.netIncome > f.revenue) bad.income.push(s.t);
+    const k = s.sec?.tenK?.period;
+    if (f.end && k && Math.abs(new Date(f.end) - new Date(k)) / 864e5 > 20) bad.stale.push(`${s.t} ${f.end} vs 10-K ${k}`);
+    const d = s.earnings?.date;
+    if (d && (new Date(d + "T12:00:00Z") - today) / 864e5 > 100) bad.far.push(`${s.t} ${d}`);
+    const e = s.earnings?.epsEst;
+    if (num(e) && num(s.pe) && s.pe > 0 && num(s.price) && Math.abs(e) > Math.max((s.price / s.pe) * 50, 5)) bad.eps.push(`${s.t} ${e}`);
+  }
+  if (bad.revenue.length) add("warn", "revenue-implausible", `${bad.revenue.length} companies' filed revenue is more than 3× off what their price/sales implies.`, bad.revenue);
+  if (bad.income.length) add("warn", "income-exceeds-revenue", `${bad.income.length} companies report net income above revenue.`, bad.income);
+  if (bad.stale.length) add("warn", "financials-not-latest", `${bad.stale.length} companies' financials are not from their latest 10-K.`, bad.stale);
+  if (bad.far.length) add("warn", "earnings-far", `${bad.far.length} companies show a next report more than 100 days out; they report quarterly.`, bad.far);
+  if (bad.eps.length) add("warn", "eps-implausible", `${bad.eps.length} EPS estimates are implausible for the share price.`, bad.eps);
+
+  /* A ticker that stops quoting is dropped from the deck. It used to go
+     unmentioned for weeks (Fiserv, Marsh McLennan) once the first night
+     had passed. */
+  if (snap.skipped?.length) add("warn", "skipped", `${snap.skipped.length} tickers in data/sp500.json could not be priced and are not in the deck.`, snap.skipped);
+  if (snap.renamed?.length) add("warn", "renamed", `${snap.renamed.length} tickers were found under a new symbol. Update data/sp500.json.`,
+    snap.renamed.map((r) => `${r.from}→${r.to}`));
 }
 
 /* -------------------------------------------------------------------- main */
@@ -244,6 +281,7 @@ checkPrices(snap, prev);
 checkFundamentals(snap);
 checkCompleteness(snap, prev);
 checkFreshness(snap);
+checkPlausibility(snap);
 await checkShareHistory(snap);
 const deep = await checkDeepFiles(snap);
 
