@@ -7,7 +7,9 @@
                               keep them sealed in an HttpOnly cookie
      POST ?action=disconnect  forget the connection
      GET  ?action=portfolio   positions and the last 25 orders
-     POST ?action=orders      { orders: [...] } — place a batch, one by one
+     POST ?action=orders      { env, confirmLive, orders: [...] } — place a
+                              batch, one by one, under the environment the
+                              person reviewed them in and no other
      POST ?action=cancel      { id } — cancel an open order
 
    Nothing is stored on the server. See api/_lib/seal.mjs for why.
@@ -48,9 +50,10 @@ function fail(res, err) {
 
 export default async function handler(req, res) {
   const action = query(req).get("action") || "status";
-  const conn = secretConfigured() ? connection(req) : null;
 
   try {
+    const conn = secretConfigured() ? connection(req) : null;
+
     if (action === "status" && req.method === "GET") {
       const out = describe(conn);
       if (conn) {
@@ -86,7 +89,7 @@ export default async function handler(req, res) {
       const next = { via: "keys", env, k: keyId, s: secret };
       const account = await alpaca.account(next);
       return send(res, 200, { ...describe(next), account },
-        { "Set-Cookie": cookie(COOKIE, seal(next), { maxAge: MAX_AGE, sameSite: "Strict" }) });
+        { "Set-Cookie": cookie(COOKIE, seal(next, MAX_AGE), { maxAge: MAX_AGE, sameSite: "Strict" }) });
     }
 
     if (action === "disconnect" && req.method === "POST") {
@@ -106,6 +109,20 @@ export default async function handler(req, res) {
       if (!list || !list.length) return send(res, 400, { error: "No orders to place." });
       if (list.length > MAX_BATCH) return send(res, 400, { error: `At most ${MAX_BATCH} orders at a time.` });
 
+      /* The cookie is shared by every tab. If it now points somewhere other
+         than where these orders were reviewed (live connected in another tab
+         after this one showed Paper), refuse the lot rather than spend real
+         money from a screen that never asked for the real-money confirmation. */
+      if (body.env !== "paper" && body.env !== "live") {
+        return send(res, 400, { error: "This page is out of date. Reload it and review the orders again." });
+      }
+      if (body.env !== conn.env) {
+        return send(res, 409, { error: `This browser is now connected to ${conn.env === "live" ? "a live" : "a paper"} account. Check the orders again before placing.`, env: conn.env });
+      }
+      if (conn.env === "live" && body.confirmLive !== true) {
+        return send(res, 400, { error: "Live orders need the real-money box ticked." });
+      }
+
       /* Sequential on purpose: the brokerage checks buying power per order,
          and firing them in parallel makes which ones fail a race. */
       const results = [];
@@ -115,7 +132,7 @@ export default async function handler(req, res) {
         if (built.error) { results.push({ symbol, ok: false, error: built.error }); continue; }
         try {
           const placed = await alpaca.placeOrder(conn, built.order);
-          results.push({ symbol, ok: true, order: placed });
+          results.push({ symbol, ok: true, order: placed, duplicate: Boolean(placed.duplicate) });
         } catch (err) {
           results.push({ symbol, ok: false, error: err.message });
           if (err.status === 401) break;

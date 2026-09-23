@@ -44,6 +44,7 @@ const RESEND = process.env.RESEND_API_KEY;
 const FROM  = process.env.ALERT_FROM || "StockOrNot <alerts@stockornot.com>";
 const SITE  = (process.env.SITE_ORIGIN || "https://stockornot.com").replace(/\/+$/, "");
 const DRY   = process.env.DRY_RUN === "1";
+const RESEND_URL = process.env.RESEND_URL || "https://api.resend.com/emails";   /* overridable for tests */
 
 if (!URL_ || !KEY) {
   console.log("Earnings alerts: SUPABASE_SERVICE_ROLE_KEY is not set, skipping.");
@@ -65,6 +66,26 @@ async function rest(pathAndQuery, init = {}) {
   });
   if (!res.ok) throw new Error(`${init.method || "GET"} ${pathAndQuery.split("?")[0]}: HTTP ${res.status} ${await res.text()}`);
   return res.status === 204 || res.headers.get("content-length") === "0" ? null : res.json().catch(() => null);
+}
+
+/* Every row, not just the first page: PostgREST quietly stops at the
+   project's max-rows (1000 by default). Pages are kept under that, and the
+   query must carry an order so the pages do not overlap. */
+async function restAll(pathAndQuery, pageSize = 500) {
+  const out = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await rest(`${pathAndQuery}&limit=${pageSize}&offset=${offset}`) || [];
+    out.push(...page);
+    if (page.length < pageSize) return out;
+  }
+}
+
+/* A cart is JSON its owner writes, so read it defensively: a list of objects
+   with a ticker, minus the tombstones lib/cart.mjs leaves for removals. */
+function cartItems(items) {
+  return Array.isArray(items)
+    ? items.filter((i) => i && typeof i === "object" && typeof i.t === "string" && i.t && !i.deletedAt)
+    : [];
 }
 
 async function emailOf(userId) {
@@ -138,11 +159,18 @@ async function send(to, mail) {
     console.log(`\n--- would send to ${to} ---\nSubject: ${mail.subject}\n\n${mail.text}\n`);
     return true;
   }
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: FROM, to: [to], subject: mail.subject, html: mail.html, text: mail.text })
-  });
+  let res;
+  try {
+    res = await fetch(RESEND_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: FROM, to: [to], subject: mail.subject, html: mail.html, text: mail.text }),
+      signal: AbortSignal.timeout(20000)
+    });
+  } catch (err) {
+    console.warn(`  ! send to user failed: ${err.message}`);
+    return false;
+  }
   if (!res.ok) { console.warn(`  ! send to user failed: HTTP ${res.status} ${await res.text()}`); return false; }
   return true;
 }
@@ -153,7 +181,7 @@ async function main() {
   const snap = JSON.parse(await fs.readFile(path.join(DATA, "snapshot.json"), "utf8"));
   const byTicker = Object.fromEntries(snap.stocks.map((s) => [s.t, s]));
 
-  const prefs = await rest("alert_prefs?select=user_id,days_before&email=eq.true");
+  const prefs = await restAll("alert_prefs?select=user_id,days_before&email=eq.true&order=user_id");
   if (!prefs?.length) { console.log("Earnings alerts: nobody has them switched on."); return; }
 
   const ids = prefs.map((p) => p.user_id);
@@ -161,8 +189,8 @@ async function main() {
   const today = new Date().toISOString().slice(0, 10);
   for (const part of chunks(ids, 80)) {
     const list = `(${part.join(",")})`;
-    for (const c of await rest(`carts?select=user_id,items&user_id=in.${list}`) || []) carts.set(c.user_id, c.items || []);
-    for (const l of await rest(`alert_log?select=user_id,ticker,report_date&report_date=gte.${today}&user_id=in.${list}`) || []) {
+    for (const c of await restAll(`carts?select=user_id,items&user_id=in.${list}&order=user_id`)) carts.set(c.user_id, c.items);
+    for (const l of await restAll(`alert_log?select=user_id,ticker,report_date&report_date=gte.${today}&user_id=in.${list}&order=user_id,ticker,report_date`)) {
       logged.add(`${l.user_id}|${l.ticker}|${l.report_date}`);
     }
   }
@@ -175,27 +203,48 @@ async function main() {
     return details[t];
   }
 
+  /* One person at a time, each in its own try: a bad cart, a missing address
+     or a failed send is that person's problem tonight, never everyone's. */
   let sent = 0, companies = 0, failed = 0;
   for (const p of prefs) {
-    const items = carts.get(p.user_id) || [];
-    const due = upcoming(items, byTicker, { days: p.days_before || 7 })
-      .filter((u) => !logged.has(`${p.user_id}|${u.t}|${u.date}`));
-    if (!due.length) continue;
+    try {
+      const days = p.days_before || 7;
+      let due = upcoming(cartItems(carts.get(p.user_id)), byTicker, { days })
+        .filter((u) => !logged.has(`${p.user_id}|${u.t}|${u.date}`));
+      if (!due.length) continue;
 
-    const to = await emailOf(p.user_id);
-    if (!to) { console.warn(`  ! no email address for a user with alerts on`); continue; }
-    for (const u of due) await detail(u.t);
+      const to = await emailOf(p.user_id);
+      if (!to) { console.warn(`  ! no email address for a user with alerts on`); continue; }
+      for (const u of due) await detail(u.t);
 
-    if (await send(to, compose(due, details, p.days_before || 7))) {
-      sent++; companies += due.length;
-      if (!DRY) {
-        await rest("alert_log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Prefer: "resolution=ignore-duplicates,return=minimal" },
-          body: JSON.stringify(due.map((u) => ({ user_id: p.user_id, ticker: u.t, report_date: u.date })))
-        });
+      if (DRY) { await send(to, compose(due, details, days)); sent++; companies += due.length; continue; }
+
+      /* Claim before sending. The log row goes in first and only the rows
+         actually inserted are emailed, so a run that dies after sending, or
+         two runs at once, can never email the same report twice. */
+      const rows = due.map((u) => ({ user_id: p.user_id, ticker: u.t, report_date: u.date }));
+      const claimed = await rest("alert_log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Prefer: "resolution=ignore-duplicates,return=representation" },
+        body: JSON.stringify(rows)
+      }) || [];
+      const mine = new Set(claimed.map((r) => `${r.ticker}|${r.report_date}`));
+      due = due.filter((u) => mine.has(`${u.t}|${u.date}`));
+      if (!due.length) continue;
+
+      if (await send(to, compose(due, details, days))) {
+        sent++; companies += due.length;
+      } else {
+        failed++;
+        /* not sent: release the claim so tomorrow's run tries again */
+        await Promise.all(due.map((u) => rest(
+          `alert_log?user_id=eq.${p.user_id}&ticker=eq.${encodeURIComponent(u.t)}&report_date=eq.${u.date}`,
+          { method: "DELETE" }).catch(() => null)));
       }
-    } else failed++;
+    } catch (err) {
+      failed++;
+      console.warn(`  ! alert for one user failed: ${err.message}`);
+    }
   }
   console.log(`Earnings alerts: ${sent} email${sent === 1 ? "" : "s"} covering ${companies} report${companies === 1 ? "" : "s"}` +
     (failed ? `, ${failed} failed` : "") + (DRY ? " (dry run, nothing sent)" : "") + ".");

@@ -23,6 +23,18 @@ import { pathToFileURL } from "node:url";
 const ROOT = path.resolve(import.meta.dirname, "..");
 const PORT = Number(process.env.PORT) || 8080;
 
+/* The response headers vercel.json declares (the Content-Security-Policy
+   among them), applied here too so a page that breaks under them breaks
+   locally first. Sources use Vercel's "(.*)" wildcard; later matches win. */
+const HEADER_RULES = JSON.parse(await fs.readFile(path.join(ROOT, "vercel.json"), "utf8")).headers || [];
+const headerRules = HEADER_RULES.map((r) => ({
+  re: new RegExp("^" + r.source.split("(.*)").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("(.*)") + "$"),
+  headers: r.headers
+}));
+function applyHeaders(res, pathname) {
+  for (const r of headerRules) if (r.re.test(pathname)) for (const h of r.headers) res.setHeader(h.key, h.value);
+}
+
 const TYPES = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -41,8 +53,15 @@ async function serveFile(res, file) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, "http://localhost");
-  let p = decodeURIComponent(url.pathname);
+  let url, p;
+  try {
+    url = new URL(req.url, "http://localhost");
+    p = decodeURIComponent(url.pathname);
+  } catch {
+    /* "/%ff" or "//": answer it rather than let the rejection end the process */
+    res.writeHead(400); return res.end();
+  }
+  applyHeaders(res, p);
 
   if (p.startsWith("/api/")) {
     const name = p.slice(5).replace(/\/+$/, "");

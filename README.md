@@ -70,6 +70,12 @@ into orders: market orders in dollars (fractional shares) or limit orders in who
 shares, checked against the account's buying power, confirmed, then placed.
 
 The cart lives in `localStorage`, and follows you between devices if you sign in.
+Every edit is stamped, and a removal leaves a small marker instead of vanishing,
+so copies in other tabs, other devices and the account merge by whichever change
+came last (`lib/cart.mjs`): a company removed on your phone stays removed on your
+laptop. Signing in with a cart the account does not have asks before adding it,
+naming the account. Signing out saves one last time, then clears the cart and its
+notes from that browser.
 
 > **While StockOrNot is in development there are no limits.** `DEV_UNLIMITED` in
 > `lib/tier.mjs` gives every visitor unlimited companies and cart slots. Set it to
@@ -88,7 +94,17 @@ The page never talks to the brokerage directly. It calls `/api/broker` on this
 site (a Vercel serverless function), which keeps the credentials sealed with
 AES-GCM in an **HttpOnly cookie** in your own browser: nothing is stored on the
 server, the page's scripts cannot read the keys back, and *Disconnect* deletes
-them. Orders carry a unique client ID, so a double-tap cannot buy twice.
+them. The sealed value also carries its own 30-day expiry, so a copy lifted from
+a browser stops working on its own. To cut off access everywhere, revoke the key
+(or the app) in the Alpaca dashboard as well.
+
+Each cart row keeps one client order ID per planned order, stored with the cart.
+The brokerage refuses an ID it has already seen, so a double-tap, reopening the
+review, retrying after an answer that never arrived, or placing the same row
+from a second device cannot buy twice; a repeat comes back as "already placed".
+A row that went through has its amount cleared and shows what was sent. Orders
+are only ever placed under the account type (paper or live) the review showed:
+if the connection changes in another tab, the batch is refused.
 
 Set these in **Vercel → Project → Settings → Environment Variables**:
 
@@ -97,7 +113,7 @@ Set these in **Vercel → Project → Settings → Environment Variables**:
 | `BROKER_SECRET` | everything | 32+ random characters, e.g. `openssl rand -hex 32`. Encrypts the cookie. Changing it disconnects everyone. |
 | `ALPACA_CLIENT_ID`, `ALPACA_CLIENT_SECRET` | "Connect with Alpaca" | Register an OAuth app with Alpaca and set its redirect URI to `https://<your site>/api/broker-oauth`. Without these, people paste API keys instead. |
 | `BROKER_ALLOW_LIVE` | real money | Leave unset during development. `1` allows live accounts. |
-| `BROKER_MAX_ORDER_USD` | real money | Per-order cap on live accounts. Defaults to 5000. |
+| `BROKER_MAX_ORDER_USD` | real money | Per-order cap on live accounts. Defaults to 5000 when unset. `2000` and `$2,000` both work; `0` or anything unreadable refuses every live order. |
 | `FINNHUB_TOKEN` | headlines | The same key the Action uses. Powers `/api/news`, cached at the edge for 30 minutes per ticker. |
 
 To try it: open a paper account at alpaca.markets, create API keys on the paper
@@ -123,7 +139,7 @@ revenue. Three ways to hear about it:
 3. **By email.** Signed-in users can switch on *Email me seven days before…*. The
    nightly Action runs `scripts/earnings-alerts.mjs` after publishing the data,
    and sends each company once per report date. To enable it:
-   - run the new tables at the end of `supabase/schema.sql` in the Supabase SQL editor
+   - run `supabase/schema.sql` again in the Supabase SQL editor (it is safe to re-run; it adds the alert tables and a check that each saved cart is a list)
    - add repository secrets `SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` ([resend.com](https://resend.com))
    - optionally set a repository variable `ALERT_FROM`, e.g. `StockOrNot <alerts@stockornot.com>`, on a domain Resend has verified
 
@@ -201,8 +217,10 @@ BROKER_SECRET=$(openssl rand -hex 32) node scripts/dev-server.mjs
 # open http://localhost:8080
 ```
 
-`scripts/dev-server.mjs` serves the static files the way Vercel does and runs the
-functions under `api/`, so the brokerage connection works locally. Pass any of the
+`scripts/dev-server.mjs` serves the static files the way Vercel does, with the
+response headers from `vercel.json` (the Content-Security-Policy included, so a
+page that breaks under it breaks locally first), and runs the functions under
+`api/`, so the brokerage connection works locally. Pass any of the
 environment variables above the same way. `python3 -m http.server 8080` still
 works for the deck alone, but the cart will say placing orders needs the live site.
 

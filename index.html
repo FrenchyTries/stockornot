@@ -199,12 +199,31 @@
       <div class="auth-step" id="authSignedIn" hidden>
         <p class="auth-blurb">
           Signed in as <b id="authWho"></b>. Your cart saves automatically and will be
-          here on any device you sign in from.
+          here on any device you sign in from. Signing out saves it one last time,
+          then clears it from this browser.
         </p>
         <button type="button" class="ghost-btn wide" id="authSignOut">Sign out</button>
       </div>
 
       <p class="auth-error" id="authError" role="alert" hidden></p>
+    </div>
+  </div>
+</dialog>
+
+<!-- signing in with a cart this account does not have yet -->
+<dialog class="sheet" id="dlgOwner" aria-labelledby="ownerTitle">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="ownerTitle">Add this cart?</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Decide later">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <p class="auth-blurb" id="ownerBody"></p>
+      <button type="button" class="primary-btn wide" id="ownerAdd">Add them to this account</button>
+      <button type="button" class="ghost-btn wide" id="ownerLeave">Leave them out and clear them here</button>
+      <p class="auth-fine">If you did not just sign in to this account yourself, leave them out and sign out.</p>
     </div>
   </div>
 </dialog>
@@ -268,6 +287,7 @@
           <button type="button" class="ghost-btn" id="brokerRefresh">Refresh</button>
           <button type="button" class="link-btn danger" id="brokerDisconnect">Disconnect</button>
         </div>
+        <p class="block-note">Disconnect makes this browser forget the connection. To cut off access everywhere, also revoke the API key (or the StockOrNot app) in your Alpaca dashboard.</p>
       </div>
 
       <!-- no functions on this host -->

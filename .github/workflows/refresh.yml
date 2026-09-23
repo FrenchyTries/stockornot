@@ -60,18 +60,27 @@ jobs:
         run: node scripts/build-pages.mjs
 
       - name: Commit if anything changed
+        env:
+          BUILT: data/snapshot.json data/audit.json data/filings data/detail data/fundamentals stock sitemap.xml robots.txt
         run: |
           git config user.name  "stockornot-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Rebasing loses to a conflict whenever someone else touched the same
-          # data file mid-run. Instead: fetch the tip, move HEAD onto it keeping
-          # our freshly built files staged, and commit on top. The run that just
-          # spent an hour fetching wins, and no merge is ever attempted.
+          # Other commits can land on the branch while this job runs. Move onto
+          # the tip with a clean checkout of it, so nothing anyone else changed
+          # is undone, then lay only the files this job generates over it and
+          # commit those. No merge is attempted, and on its own files the run
+          # that just did the work wins. Files the job deleted (a company that
+          # left the index) stay deleted.
           git fetch origin "${GITHUB_REF_NAME}"
-          git add data/snapshot.json data/audit.json data/filings data/detail data/fundamentals stock sitemap.xml robots.txt
-          git reset --soft FETCH_HEAD
-          git add data/snapshot.json data/audit.json data/filings data/detail data/fundamentals stock sitemap.xml robots.txt
+          paths=""
+          for p in $BUILT; do [ -e "$p" ] && paths="$paths $p"; done
+          keep="$RUNNER_TEMP/built.tar"
+          tar -cf "$keep" $paths
+          git reset -q --hard FETCH_HEAD
+          rm -rf $paths
+          tar -xf "$keep"
+          git add -A $paths
 
           if git diff --cached --quiet; then
             echo "Nothing changed."

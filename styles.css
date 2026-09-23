@@ -723,7 +723,8 @@ body.docpage .ghost-btn { text-decoration: none; }
 }
 .auth-input.code::placeholder { letter-spacing: .38em; color: var(--ink-muted); opacity: .5; }
 
-.primary-btn.wide, .ghost-btn.wide { width: 100%; justify-content: center; }
+.primary-btn.wide, .ghost-btn.wide { width: 100%; max-width: none; justify-content: center; }
+#dlgOwner .sheet-body > button + button { margin-top: 10px; }
 
 .auth-fine {
   margin: 2px 0 0;
@@ -1114,6 +1115,10 @@ body.docpage .ghost-btn { text-decoration: none; }
   border: 1px solid var(--line-strong); background: var(--surface-1); color: var(--ink); text-align: right;
 }
 .or-result { grid-column: 1 / -1; font-size: 12.5px; }
+.or-warn { color: var(--warning); text-align: right; max-width: 34ch; }
+.or-lim input:disabled, #orderType .chip:disabled { opacity: .55; cursor: not-allowed; }
+.ci-sent { color: var(--good-ink, var(--ink-2)); }
+.link-btn.danger.is-armed { font-weight: 700; text-decoration: underline; }
 .confirm-live { margin-top: 14px; padding: 10px 12px; border: 1px solid rgba(230, 103, 103, .5); border-radius: 10px; }
 #dlgOrders .sheet-foot .ob-total b { font-size: 18px; }
 

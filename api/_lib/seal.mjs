@@ -19,10 +19,14 @@ function key() {
   return crypto.createHash("sha256").update(String(process.env.BROKER_SECRET)).digest();
 }
 
-export function seal(obj) {
+/* Every sealed value carries its own expiry, checked on the way back in. The
+   cookie's Max-Age only asks the browser to forget it; a copy lifted from the
+   browser would otherwise keep working until the keys were revoked. */
+export function seal(obj, maxAgeSeconds) {
   const iv = crypto.randomBytes(12);
   const c = crypto.createCipheriv("aes-256-gcm", key(), iv);
-  const body = Buffer.concat([c.update(JSON.stringify(obj), "utf8"), c.final()]);
+  const payload = { ...obj, exp: Math.floor(Date.now() / 1000) + maxAgeSeconds };
+  const body = Buffer.concat([c.update(JSON.stringify(payload), "utf8"), c.final()]);
   return Buffer.concat([iv, c.getAuthTag(), body]).toString("base64url");
 }
 
@@ -32,9 +36,10 @@ export function unseal(token) {
     const raw = Buffer.from(token, "base64url");
     const d = crypto.createDecipheriv("aes-256-gcm", key(), raw.subarray(0, 12));
     d.setAuthTag(raw.subarray(12, 28));
-    const out = Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString("utf8");
-    return JSON.parse(out);
+    const out = JSON.parse(Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString("utf8"));
+    if (!out || typeof out.exp !== "number" || out.exp < Date.now() / 1000) return null;
+    return out;
   } catch {
-    return null;              /* tampered, truncated, or sealed under an old secret */
+    return null;              /* tampered, truncated, expired, or sealed under an old secret */
   }
 }

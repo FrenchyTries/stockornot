@@ -427,7 +427,8 @@ async function main() {
      unless the actuals are already in. */
   const afterClose = today.getUTCHours() >= 21;
   const remember = (row) => {
-    if (!row?.date || row.date < todayStr) return;
+    /* Vendor text ends up on the page, so only well-formed values get in. */
+    if (typeof row?.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(row.date) || row.date < todayStr) return;
     if (row.date === todayStr && (afterClose || numOrNull(row.epsActual) !== null)) return;
     const held = earnings.get(row.symbol);
     if (held && held.date <= row.date) return;
@@ -435,7 +436,7 @@ async function main() {
       date: row.date,
       epsEst: numOrNull(row.epsEstimate),
       revEst: numOrNull(row.revenueEstimate),
-      hour: row.hour || null,
+      hour: ["bmo", "amc", "dmh"].includes(row.hour) ? row.hour : null,
       /* the fiscal quarter being reported, e.g. Q3 2026 — not the calendar one */
       q: numOrNull(row.quarter), fy: numOrNull(row.year)
     });
