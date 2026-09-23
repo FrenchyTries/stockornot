@@ -277,14 +277,19 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
 
 ## Design notes
 
-Dark, one accent hue. Up and down moves carry a ▲/▼ glyph and a signed number as
-well as colour, so nothing depends on colour alone. `prefers-reduced-motion` and
-`forced-colors` are honoured. The swipe gesture locks to an axis on the first
-8px of movement, so dragging sideways swipes and dragging vertically scrolls the
-card.
+One system for every page, in `styles.css`: the deck, the dialogs, the company
+pages, the method and pricing pages. Dark and quiet, set in
+[Inter](https://rsms.me/inter/) (served from `fonts/`, SIL Open Font License),
+with hairline rules instead of boxes inside boxes, one accent colour, and the
+five financial checks marked with small line icons (`lib/icons.mjs`). Up and down
+moves carry a ▲/▼ glyph and a signed number as well as colour, so nothing depends
+on colour alone. `prefers-reduced-motion` and `forced-colors` are honoured. The
+swipe gesture locks to an axis on the first 8px of movement, so dragging sideways
+swipes and dragging vertically scrolls the card.
 
-No framework, no build step. Three files, some JSON, and three small serverless
-functions under `api/` for the parts that need a secret: the brokerage and the news.
+No framework, no build step. Plain HTML, CSS and JavaScript, some JSON, and three
+small serverless functions under `api/` for the parts that need a secret: the
+brokerage and the news.
 
 ## Licence
 

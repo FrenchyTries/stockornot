@@ -25,6 +25,7 @@ import * as insight from "./lib/insight.mjs";
 import * as broker from "./lib/broker.mjs";
 import * as earn from "./lib/earnings.mjs";
 import * as cartLib from "./lib/cart.mjs";
+import { CHECK_ICONS } from "./lib/icons.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
@@ -120,6 +121,7 @@ function loadSnapshot() {
       if (!snap || !Array.isArray(snap.stocks) || !snap.stocks.length) throw new Error("empty");
       state.all = snap.stocks;
       state.updated = snap.updated;
+      state.session = snap.session || null;
       state.all.forEach(function (s) { state.byTicker[s.t] = s; });
       state.sectors = insight.buildSectorStats(state.all);
       state.scoreCtx = buildScoreContext(state.all);
@@ -300,28 +302,21 @@ function stackTransform(depth) {
 /* The score as a ring. Deliberately small on the card — it sits beside the
    numbers rather than on top of them, and the factor bars behind it are one
    tap away in the detail sheet. */
+/* The score as a number out of 100, a thin meter and the word for it. */
 function scoreRing(res, big) {
   var v = res.overall;
   var lab = scoreLabel(v);
-  var wrap = el("div", "score-ring" + (big ? " is-big" : "") + " tone-" + lab.tone);
-  var C = 2 * Math.PI * 19;
-
-  wrap.innerHTML =
-    '<svg viewBox="0 0 44 44" aria-hidden="true">' +
-      '<circle class="sr-track" cx="22" cy="22" r="19"></circle>' +
-      '<circle class="sr-arc" cx="22" cy="22" r="19"></circle>' +
-    '</svg>' +
-    '<span class="sr-num"></span>';
-
-  $(".sr-num", wrap).textContent = num(v) ? v : "—";
-  var arc = $(".sr-arc", wrap);
-  arc.style.strokeDasharray = C.toFixed(1);
-  arc.style.strokeDashoffset = (C * (1 - clamp((v || 0) / 100, 0, 1))).toFixed(1);
-
-  var cap2 = el("span", "sr-label", lab.word);
-  var box = el("div", "score-box");
-  box.appendChild(wrap);
-  box.appendChild(cap2);
+  var box = el("div", "score-box" + (big ? " is-big" : "") + " tone-" + lab.tone);
+  var n = el("div", "score-num");
+  n.appendChild(el("b", "", num(v) ? String(v) : "—"));
+  n.appendChild(el("span", "", "/100"));
+  box.appendChild(n);
+  var meter = el("div", "score-meter");
+  var fill = el("i", "");
+  fill.style.width = clamp(v || 0, 0, 100) + "%";
+  meter.appendChild(fill);
+  box.appendChild(meter);
+  box.appendChild(el("span", "sr-label", lab.word));
   box.title = num(v)
     ? "Fundamentals score " + v + " out of 100, " + lab.word.toLowerCase()
     : "Not enough reported data to score this one";
@@ -371,7 +366,8 @@ function checksBlock(s, score) {
   insight.financialChecks(s, score).forEach(function (g) {
     var box = el("div", "check");
     var head = el("div", "check-head");
-    var icon = el("span", "check-icon", g.icon);
+    var icon = el("span", "check-icon");
+    icon.innerHTML = CHECK_ICONS[g.icon] || "";      /* a constant from lib/icons.mjs */
     icon.setAttribute("aria-hidden", "true");
     head.appendChild(icon);
     var q = el("div", "check-q");
@@ -522,12 +518,10 @@ function makeCard(s, depth) {
 
   /* ---------- identity ---------- */
   var top = el("header", "c-top");
-  var mark = el("div", "c-mark", (s.n || s.t).trim().charAt(0).toUpperCase());
   var idb = el("div", "c-id");
   idb.appendChild(el("h2", "c-ticker", s.t));
   idb.appendChild(el("p", "c-name", s.n));
   idb.appendChild(el("span", "c-sector", s.s));
-  top.appendChild(mark);
   top.appendChild(idb);
   var res = scoreStock(s, state.scoreCtx);
   top.appendChild(scoreRing(res, false));
@@ -1308,7 +1302,7 @@ var envName = function (env) { return env === "live" ? "Live" : "Paper"; };
 function usd(v) {
   if (!num(v)) return "—";
   var a = Math.abs(v);
-  return (v < 0 ? "-$" : "$") + a.toLocaleString("en-US", {
+  return (v < 0 ? "\u2212$" : "$") + a.toLocaleString("en-US", {
     minimumFractionDigits: Math.round(a * 100) % 100 ? 2 : 0, maximumFractionDigits: 2
   });
 }
@@ -1320,16 +1314,10 @@ function renderBrokerPanel() {
   var b = state.broker;
   box.className = "broker-panel";
 
-  if (!b) { box.appendChild(el("p", "bp-line muted", "Checking for a brokerage connection…")); return; }
-  if (b.unavailable) {
-    box.appendChild(el("p", "bp-line muted", "Placing orders needs the live site, which runs a small server function. This copy is static files only."));
-    return;
-  }
-  if (b.error) { box.appendChild(el("p", "bp-line muted", b.error)); return; }
-  if (!b.configured) {
-    box.appendChild(el("p", "bp-line muted", "Brokerage connections are not switched on for this site yet. The server needs BROKER_SECRET set (see README)."));
-    return;
-  }
+  /* Nothing to offer (still checking, or ordering is not switched on for this
+     site): say nothing rather than explain the plumbing to a visitor. */
+  if (!b || b.unavailable || b.configured === false) return;
+  if (b.error) { box.appendChild(el("p", "bp-line", "Your brokerage could not be reached just now.")); return; }
 
   var line = el("div", "bp-row");
   var icon = el("span", "bp-dot" + (b.connected ? " is-on" : ""));
@@ -1373,15 +1361,15 @@ function renderOrderBar() {
   bpEl.classList.toggle("is-over", num(bp) && total > bp);
 
   var btn = $("#btnReview");
+  /* no brokerage on this site: the amounts are still a plan worth keeping,
+     but there is no button to press */
+  btn.hidden = !(b && (b.connected || b.configured));
   if (b && b.connected) {
     btn.textContent = "Review orders";
     btn.disabled = !(total > 0);
   } else if (b && b.configured) {
     btn.textContent = "Connect to place orders";
     btn.disabled = false;
-  } else {
-    btn.textContent = "Review orders";
-    btn.disabled = true;
   }
 }
 
@@ -1419,8 +1407,8 @@ function renderAccount() {
   var un = $("#brokerUnavailable");
   un.hidden = !(b.unavailable || (b.configured === false));
   un.textContent = b.unavailable
-    ? "Placing orders needs the live site, which runs a small server function. This copy is static files only."
-    : "Brokerage connections are not switched on for this site yet. Set BROKER_SECRET on the server (see the README).";
+    ? "Placing orders is not available on this copy of the site."
+    : "Placing orders is not available yet.";
   $("#brokerEnvNote").textContent = connected ? b.broker + " · " + envName(b.env) + (b.via === "oauth" ? " · via sign-in" : " · via API keys") : "";
   if (b.lost) brokerError("The saved connection stopped working (" + b.lost + ") and has been removed. Connect again.");
   if (b.error) brokerError(b.error);
@@ -2152,7 +2140,8 @@ function buildHistory(deep) {
     var gh = el("th", "");
     gh.colSpan = hc.years.length + 1;
     gh.scope = "colgroup";
-    var ic = el("span", "check-icon", g.icon);
+    var ic = el("span", "check-icon");
+    ic.innerHTML = CHECK_ICONS[g.icon] || "";
     ic.setAttribute("aria-hidden", "true");
     gh.appendChild(ic);
     gh.appendChild(document.createTextNode(" " + g.title));
@@ -2591,11 +2580,19 @@ function openDetail(s) {
 function openDialog(dlg) { if (!dlg.open) dlg.showModal(); }
 function closeDialog(dlg) { if (dlg.open) dlg.close(); }
 
+/* "Prices at the Sep 22 close": the session the figures describe, which is
+   what matters, rather than how long ago a job ran. */
 function renderDataAge() {
-  var el2 = $("#dataAge");
-  if (!state.updated) { el2.textContent = "no data yet"; return; }
-  el2.textContent = "data " + relTime(state.updated);
-  el2.title = "Snapshot built " + new Date(state.updated).toLocaleString();
+  var text = !state.updated ? "No data yet"
+    : state.session ? "Prices at the " + dateShort(state.session).replace(/, \d{4}$/, "") + " close"
+    : "Updated " + relTime(state.updated);
+  var title = state.updated ? "Snapshot built " + new Date(state.updated).toLocaleString() : "";
+  ["#dataAge", "#footAge"].forEach(function (sel) {
+    var n = $(sel);
+    if (!n) return;
+    n.textContent = text;
+    n.title = title;
+  });
 }
 
 function setupScreen(reason) {
