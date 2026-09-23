@@ -13,10 +13,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { sessionDate } from "./dates.mjs";
 import {
-  num, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
-  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext, inputs,
-  splitAdjustShares, shareCountNote
+  num, money, cap, price, pct, pctPlain, x, dateShort, rangeSummary,
+  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext, inputs
 } from "../lib/analysis.mjs";
+import { financialChecks, historyChecks } from "../lib/insight.mjs";
 
 const ROOT   = path.resolve(import.meta.dirname, "..");
 const DATA   = path.join(ROOT, "data");
@@ -93,51 +93,26 @@ function statTable(rows) {
     .join("")}</tbody></table>`;
 }
 
-function historyTable(history, restated = false) {
-  if (!history || !Object.values(history).some((r) => r && typeof r === "object")) return "";
-  /* every year any row has, not just revenue's: a company whose revenue
-     tag changed would otherwise lose its latest years from the table */
-  const years = [...new Set(Object.values(history).filter((r) => r && typeof r === "object")
-    .flatMap((r) => Object.keys(r)))].map(Number).sort((a, b) => b - a).slice(0, 5);
-  if (!years.length) return "";
-
-  const rows = [
-    ["revenue", "Revenue"], ["grossProfit", "Gross profit"], ["opIncome", "Operating income"],
-    ["netIncome", "Net income"], ["ocf", "Operating cash flow"], ["capex", "Capital expenditure"],
-    ["assets", "Total assets"], ["liabs", "Total liabilities"], ["equity", "Shareholder equity"],
-    ["cash", "Cash"], ["debt", "Long-term debt"]
-  ].filter(([k]) => history[k]);
-
-  const body = rows.map(([k, label]) =>
-    `<tr><th scope="row">${esc(label)}</th>${years
-      .map((y) => `<td>${esc(money(history[k][y]))}</td>`).join("")}</tr>`).join("");
-
-  let derived = "";
-  if (history.ocf && history.capex) {
-    derived += `<tr class="is-derived"><th scope="row">Free cash flow</th>${years.map((y) => {
-      const o = history.ocf[y], c = history.capex[y];
-      return `<td>${esc(num(o) && num(c) ? money(o - c) : "—")}</td>`;
-    }).join("")}</tr>`;
-  }
-  for (const [k, label] of [["grossProfit", "Gross margin"], ["opIncome", "Operating margin"], ["netIncome", "Net margin"]]) {
-    if (!history[k]) continue;
-    derived += `<tr class="is-derived"><th scope="row">${esc(label)}</th>${years.map((y) => {
-      const v = history[k][y], r = history.revenue ? history.revenue[y] : null;
-      return `<td>${esc(num(v) && num(r) && r !== 0 ? ((v / r) * 100).toFixed(1) + "%" : "—")}</td>`;
-    }).join("")}</tr>`;
-  }
-  const adjShares = splitAdjustShares(history.shares, { restated }).shares;
-  if (adjShares) {
-    derived += `<tr><th scope="row">Diluted shares</th>${years
-      .map((y) => `<td>${esc(num(adjShares[y]) ? money(adjShares[y], false) : "—")}</td>`).join("")}</tr>`;
-  }
-
-  const note = shareCountNote(history.shares, { restated });
-
+/* Five years of the filings under the same checks as the card. */
+function historyTable(history) {
+  const hc = historyChecks(history);
+  if (!hc) return "";
+  const body = hc.groups.map((g) =>
+    `<tr class="fin-group"><th scope="colgroup" colspan="${hc.years.length + 1}"><span aria-hidden="true">${g.icon}</span> ${esc(g.title)}</th></tr>` +
+    g.rows.map((r) => `<tr${r.derived ? ' class="is-derived"' : ""}><th scope="row">${esc(r.label)}</th>${r.cells.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")
+  ).join("");
   return `<div class="table-scroll"><table class="fin-table">
-<thead><tr><th></th>${years.map((y) => `<th>FY${y}</th>`).join("")}</tr></thead>
-<tbody>${body}${derived}</tbody></table></div>` +
-    (note ? `<p class="fin-note">${esc(note)}</p>` : "");
+<thead><tr><th></th>${hc.years.map((y) => `<th>FY${y}</th>`).join("")}</tr></thead>
+<tbody>${body}</tbody></table></div>`;
+}
+
+/* The financials as five questions, each answered, with the figures behind it. */
+function checksHtml(s, res) {
+  return financialChecks(s, res).map((g) => `<section class="doc-check">
+<h3><span aria-hidden="true">${g.icon}</span> ${esc(g.title)}</h3>
+<p class="doc-q">${esc(g.question)}${g.answer ? ` <b class="check-a is-${g.answer.tone}">${esc(g.answer.text)}</b>` : ""}</p>
+${g.rows.length ? statTable(g.rows.map((r) => [r[0], r[1]])) : ""}
+</section>`).join("\n");
 }
 
 /* ------------------------------------------------------------- one company */
@@ -151,10 +126,8 @@ function companyPage(s, filing, deep, siblings, updated, session) {
   const label = scoreLabel(res.overall);
   const pc = prosAndCons(s, CTX);
   const k = inputs(s);
-  const pos = rangePos(s);
+  const range = rangeSummary(s);
   const url = `${SITE}/stock/${slug(s.t)}`;
-  /* the same "not meaningful" rules the score and the app use */
-  const nmEq = k.negEquity ? "n/m (negative equity)" : "n/m (equity a sliver of assets)";
 
   const title = `${s.n} (${s.t}): financials, earnings date and 10-K summary`;
   const description =
@@ -230,6 +203,7 @@ function companyPage(s, filing, deep, siblings, updated, session) {
 </div>
 
 ${earnings}
+${range ? `<p class="doc-lead">52-week range ${esc(price(s.lo))} to ${esc(price(s.hi))}. ${esc(range.text)}</p>` : ""}
 
 <h2>The case for ${esc(s.t)}</h2>
 ${list(pc.pros, "pro")}
@@ -244,31 +218,12 @@ blended by weight. It describes the last filing and the current price. It is not
 <table class="doc-table factor-table"><tbody>${factorRows}</tbody></table>
 ${res.notes.length ? `<ul class="score-notes">${res.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
 
-<h2>Key numbers</h2>
-${statTable([
-  ["Price / earnings", num(s.pe) && s.pe > 0 ? x(s.pe) : "n/a"],
-  ["Price / book", k.pbOk ? x(s.pb, 2) : num(s.pb) && s.pb > 0 && (k.negEquity || k.thinEquity) ? nmEq : "n/a"],
-  ["Price / sales", num(s.ps) && s.ps > 0 ? x(s.ps, 1) : "n/a"],
-  ["Revenue growth (YoY)", k.rgSuspect ? `${pct(s.rg)} (not used: out of line with the five-year ${pct(s.rg5)} a year)` : pct(s.rg)],
-  ["EPS growth (YoY)", pct(s.eg)],
-  ["Gross margin", pctPlain(s.gm, 0)],
-  ["Operating margin", pctPlain(s.om, 0)],
-  ["Net margin", pctPlain(s.nm, 0)],
-  k.roeOk || !num(s.roe) ? ["Return on equity", pctPlain(s.roe, 0)]
-    : ["Return on assets", `${pctPlain(s.roa, 1)} (ROE not meaningful: ${k.negEquity ? "negative equity" : "equity a sliver of assets"})`],
-  ["Debt / equity", num(s.de) && (k.negEquity || k.thinEquity) ? nmEq : num(s.de) ? x(s.de, 2) : "n/a"],
-  ["Current ratio", num(s.cr) ? s.cr.toFixed(2) : "n/a"],
-  ["Dividend yield", num(s.dy) && s.dy > 0 ? pctPlain(s.dy, 2) : "none"],
-  ["Beta", num(s.beta) ? s.beta.toFixed(2) : "n/a"],
-  ["52-week range", num(s.lo) && num(s.hi) ? `${price(s.lo)} – ${price(s.hi)}` : "n/a"],
-  ["Position in that range", pos === null ? "n/a" : Math.round(pos * 100) + "% of the way up"],
-  ["3-month return", pct(s.r13)],
-  ["1-year return", pct(s.r52)]
-])}
+<h2>The financials</h2>
+${checksHtml(s, res)}
 
-${deep && deep.history && Object.keys(deep.history).length ? `<h2>Five years of financials, as filed</h2>
-<p class="block-note">Pulled from ${esc(s.n)}'s XBRL filings on SEC EDGAR. Italic rows are derived from the rows above.</p>
-${historyTable(deep.history, !!deep.sharesRestated)}` : ""}
+${deep && historyChecks(deep.history) ? `<h2>The financials, five years deep</h2>
+<p class="block-note">Pulled from ${esc(s.n)}'s XBRL filings on SEC EDGAR. Italic rows are worked out from the others.</p>
+${historyTable(deep.history)}` : ""}
 
 ${filing && filing.business ? `<h2>What ${esc(s.n)} says it does</h2>
 <p class="doc-quote">${esc(filing.business)}</p>` : ""}

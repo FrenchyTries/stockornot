@@ -16,9 +16,8 @@
    this site), and, for someone signed in, Supabase for the saved cart.
    ========================================================================== */
 import {
-  num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
-  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext,
-  splitAdjustShares, shareCountNote
+  num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos, rangeSummary,
+  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext
 } from "./lib/analysis.mjs";
 import * as auth from "./lib/auth.mjs";
 import * as tier from "./lib/tier.mjs";
@@ -364,18 +363,41 @@ function streetExpects(e) {
   return parts.length ? " · street expects " + parts.join(" on ") : "";
 }
 
-/* The numbers in labelled groups. Each figure carries a one-line explanation
-   as its tooltip, because "PEG 0.84" means nothing to someone who has not
-   met a PEG before. */
-function numberGrids(s) {
-  var out = [];
-  insight.numberGroups(s).forEach(function (g) {
-    out.push(el("h4", "sub-h stat-group-h", g.title));
-    var grid = el("dl", "c-stats");
-    g.rows.forEach(function (r) { grid.appendChild(statRow(r[0], r[1], r[2])); });
-    out.push(grid);
+/* The financials as five questions, each with a one-line answer and only the
+   figures behind it (lib/insight.mjs financialChecks). Every figure carries a
+   one-line explanation as its tooltip. */
+function checksBlock(s, score) {
+  var wrap = el("div", "checks");
+  insight.financialChecks(s, score).forEach(function (g) {
+    var box = el("div", "check");
+    var head = el("div", "check-head");
+    var icon = el("span", "check-icon", g.icon);
+    icon.setAttribute("aria-hidden", "true");
+    head.appendChild(icon);
+    var q = el("div", "check-q");
+    q.appendChild(el("b", "", g.title));
+    var line = el("p", "check-line");
+    line.appendChild(el("span", "", g.question));
+    if (g.answer) {
+      var a = el("span", "check-a is-" + g.answer.tone, g.answer.text);
+      if (g.note) a.title = g.note;
+      line.appendChild(a);
+    }
+    q.appendChild(line);
+    head.appendChild(q);
+    box.appendChild(head);
+    if (g.rows.length) {
+      var grid = el("dl", "c-stats");
+      g.rows.forEach(function (r) {
+        var st = statRow(r[0], r[1], r[2]);
+        if (r[3]) st.classList.add("is-wide");
+        grid.appendChild(st);
+      });
+      box.appendChild(grid);
+    }
+    wrap.appendChild(box);
   });
-  return out;
+  return wrap;
 }
 
 /* Where the company sits among the rest of its sector, metric by metric. The
@@ -523,13 +545,15 @@ function makeCard(s, depth) {
   pr.appendChild(mcTag);
   body.appendChild(pr);
 
-  /* ---------- 52-week range ---------- */
-  var pos = rangePos(s);
-  if (pos !== null) {
+  /* ---------- 52-week range ----------
+     Said the way people say it: how far off the high, how far above the low. */
+  var range = rangeSummary(s);
+  if (range) {
+    var pos = range.pos;
     var rw = el("div", "c-range");
     var head = el("div", "c-range-head");
     head.appendChild(el("span", "", "52-week range"));
-    head.appendChild(el("span", "", Math.round(pos * 100) + "% of the way up"));
+    head.appendChild(el("span", "c-range-zone", range.zone));
     rw.appendChild(head);
     var bar = el("div", "rangebar");
     bar.innerHTML = '<div class="rangebar-track"></div><div class="rangebar-fill"></div>' +
@@ -538,9 +562,10 @@ function makeCard(s, depth) {
     $(".rangebar-marker", bar).style.left = (pos * 100) + "%";
     rw.appendChild(bar);
     var ends = el("div", "c-range-ends");
-    ends.appendChild(el("span", "", price(s.lo)));
-    ends.appendChild(el("span", "", price(s.hi)));
+    ends.appendChild(el("span", "", "Low " + price(s.lo)));
+    ends.appendChild(el("span", "", "High " + price(s.hi)));
     rw.appendChild(ends);
+    rw.appendChild(el("p", "c-range-text", range.text));
     body.appendChild(rw);
   }
 
@@ -588,10 +613,10 @@ function makeCard(s, depth) {
     if (!fillStreet(streetSlot, deep)) street.remove();
   });
 
-  /* ---------- the numbers ---------- */
-  var sec1 = el("section", "c-block");
-  sec1.appendChild(el("h3", "block-h", "The numbers"));
-  numberGrids(s).forEach(function (n) { sec1.appendChild(n); });
+  /* ---------- the financials: five questions ---------- */
+  var sec1 = el("section", "c-block c-checks");
+  sec1.appendChild(el("h3", "block-h", "The financials"));
+  sec1.appendChild(checksBlock(s, res));
   body.appendChild(sec1);
 
   /* ---------- against its sector ---------- */
@@ -601,29 +626,6 @@ function makeCard(s, depth) {
     secV.appendChild(el("h3", "block-h", "Against " + vs.view.sector + " (" + vs.view.count + ")"));
     secV.appendChild(vs.node);
     body.appendChild(secV);
-  }
-
-  /* ---------- from the annual report ---------- */
-  var f = s.fin || {};
-  if (num(f.revenue) || num(f.assets)) {
-    var sec2 = el("section", "c-block");
-    sec2.appendChild(el("h3", "block-h", "Last full year, as filed (FY" + f.fy + ")"));
-    var g2 = el("dl", "c-stats");
-    var revDelta = num(f.revenue) && num(f.revenuePrev) && f.revenuePrev !== 0
-      ? ((f.revenue - f.revenuePrev) / Math.abs(f.revenuePrev)) * 100 : null;
-    [
-      ["Revenue",        money(f.revenue) + (revDelta !== null ? "  (" + pct(revDelta, 0) + ")" : "")],
-      ["Net income",     money(f.netIncome)],
-      ["Operating cash", money(f.ocf)],
-      ["Capex",          money(f.capex)],
-      ["Free cash flow", money(f.fcf)],
-      ["Cash on hand",   money(f.cash)],
-      ["Long-term debt", money(f.debt)],
-      ["Total equity",   money(f.equity)]
-    ].forEach(function (p) { g2.appendChild(statRow(p[0], p[1])); });
-    sec2.appendChild(g2);
-    sec2.appendChild(el("p", "block-note", "Taken from the company's own filings at SEC EDGAR."));
-    body.appendChild(sec2);
   }
 
   /* ---------- the 10-K itself ---------- */
@@ -2126,94 +2128,50 @@ function buildChart(points, months) {
 
 /* ------------------------------------------------ financials, as filed */
 
-var HISTORY_ROWS = [
-  { key: "revenue",     label: "Revenue" },
-  { key: "grossProfit", label: "Gross profit" },
-  { key: "opIncome",    label: "Operating income" },
-  { key: "netIncome",   label: "Net income" },
-  { key: "ocf",         label: "Operating cash flow" },
-  { key: "capex",       label: "Capital expenditure" },
-  { key: "assets",      label: "Total assets" },
-  { key: "liabs",       label: "Total liabilities" },
-  { key: "equity",      label: "Shareholder equity" },
-  { key: "cash",        label: "Cash" },
-  { key: "debt",        label: "Long-term debt" }
-];
-
+/* Five years of the filings, under the same four checks as the card
+   (valuation has no history in a filing). */
 function buildHistory(deep) {
   var box = el("div", "");
-  var h = deep && deep.history;
-  if (!h || !Object.keys(h).some(function (k) { return h[k] && typeof h[k] === "object"; })) {
+  var hc = insight.historyChecks(deep && deep.history);
+  if (!hc) {
     box.appendChild(el("p", "block-note", "This company files its numbers in a shape this reader could not follow, so there is no year-by-year history."));
     return box;
   }
-
-  /* every year any row reports, not just revenue's */
-  var yearSet = {};
-  Object.keys(h).forEach(function (k) {
-    if (h[k] && typeof h[k] === "object") Object.keys(h[k]).forEach(function (y) { yearSet[y] = true; });
-  });
-  var years = Object.keys(yearSet).map(Number).sort(function (a, b) { return b - a; }).slice(0, 5);
 
   var table = el("table", "fin-table");
   var thead = el("thead");
   var hr = el("tr");
   hr.appendChild(el("th", "", ""));
-  years.forEach(function (y) { hr.appendChild(el("th", "", "FY" + y)); });
+  hc.years.forEach(function (y) { hr.appendChild(el("th", "", "FY" + y)); });
   thead.appendChild(hr);
   table.appendChild(thead);
 
   var tb = el("tbody");
-  HISTORY_ROWS.forEach(function (row) {
-    if (!h[row.key]) return;
-    var tr = el("tr");
-    var th = el("th", "", row.label); th.scope = "row";
-    tr.appendChild(th);
-    years.forEach(function (y) { tr.appendChild(el("td", "", money(h[row.key][y]))); });
-    tb.appendChild(tr);
+  hc.groups.forEach(function (g) {
+    var gr = el("tr", "fin-group");
+    var gh = el("th", "");
+    gh.colSpan = hc.years.length + 1;
+    gh.scope = "colgroup";
+    var ic = el("span", "check-icon", g.icon);
+    ic.setAttribute("aria-hidden", "true");
+    gh.appendChild(ic);
+    gh.appendChild(document.createTextNode(" " + g.title));
+    gr.appendChild(gh);
+    tb.appendChild(gr);
+    g.rows.forEach(function (row) {
+      var tr = el("tr", row.derived ? "is-derived" : "");
+      var th = el("th", "", row.label); th.scope = "row";
+      tr.appendChild(th);
+      row.cells.forEach(function (c) { tr.appendChild(el("td", "", c)); });
+      tb.appendChild(tr);
+    });
   });
-
-  /* free cash flow and the margins are derived, so mark them as such */
-  if (h.ocf && h.capex) {
-    var tr = el("tr", "is-derived");
-    var th = el("th", "", "Free cash flow"); th.scope = "row";
-    tr.appendChild(th);
-    years.forEach(function (y) {
-      var o = h.ocf[y], c = h.capex[y];
-      tr.appendChild(el("td", "", num(o) && num(c) ? money(o - c) : "—"));
-    });
-    tb.appendChild(tr);
-  }
-  [["grossProfit", "Gross margin"], ["opIncome", "Operating margin"], ["netIncome", "Net margin"]]
-    .forEach(function (pair) {
-      if (!h[pair[0]]) return;
-      var tr2 = el("tr", "is-derived");
-      var th2 = el("th", "", pair[1]); th2.scope = "row";
-      tr2.appendChild(th2);
-      years.forEach(function (y) {
-        var v = h[pair[0]][y], r = h.revenue ? h.revenue[y] : null;
-        tr2.appendChild(el("td", "", num(v) && num(r) && r !== 0 ? ((v / r) * 100).toFixed(1) + "%" : "—"));
-      });
-      tb.appendChild(tr2);
-    });
-  var shareOpts = { restated: !!(deep && deep.sharesRestated) };
-  var adjShares = splitAdjustShares(h.shares, shareOpts).shares;
-  if (adjShares) {
-    var trS = el("tr");
-    var thS = el("th", "", "Diluted shares"); thS.scope = "row";
-    trS.appendChild(thS);
-    years.forEach(function (y) { trS.appendChild(el("td", "", num(adjShares[y]) ? money(adjShares[y], false) : "—")); });
-    tb.appendChild(trS);
-  }
-
   table.appendChild(tb);
-  box.appendChild(el("p", "block-note", "Taken from the company's own filings. Italic rows are worked out from the rows above them."));
+
+  box.appendChild(el("p", "block-note", "Taken from the company's own filings. Italic rows are worked out from the others."));
   var scroll = el("div", "table-scroll");
   scroll.appendChild(table);
   box.appendChild(scroll);
-
-  var note = shareCountNote(h.shares, shareOpts);
-  if (note) box.appendChild(el("p", "fin-note", note));
   return box;
 }
 
@@ -2565,7 +2523,7 @@ function openDetail(s) {
     }
     body.appendChild(section("Price", chartBox));
 
-    body.appendChild(section("The books, five years deep", buildHistory(deep)));
+    body.appendChild(section("The financials, five years deep", buildHistory(deep)));
 
     var vsFull = sectorBlock(s);
     var peers = insight.nearestPeers(s, state.sectors, 5);

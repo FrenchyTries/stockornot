@@ -40,24 +40,21 @@ the raw number is in the table below it.
 
 | Section | What it holds |
 |---|---|
-| **Header** | Price, day move, market cap, position in the 52-week range, and the score with its label |
+| **Header** | Price, day move, market cap and the score with its label |
+| **52-week range** | Where the price sits, in words: "12% below its 52-week high and 39% above its low", with a bar between the low and the high |
 | **Earnings** | Next reporting date, before/after the bell, consensus EPS |
 | **For / against** | Up to six of each, derived from thresholds on the real figures and ranks within the sector. The card shows four of each; the full record shows them all |
-| **The numbers** | P/E, P/B, P/S, revenue and EPS growth, three margin lines, ROE, debt/equity, current ratio, yield, beta, 3-month and 1-year returns |
-| **Last full year, as filed** | Revenue, net income, operating cash flow, capex, free cash flow, cash, long-term debt, equity — straight from XBRL |
+| **The financials** | Five questions, each answered in a word or two with only the figures behind it: 📈 **revenue growth** (is the business growing?), 💰 **free cash flow** (is it generating real cash?), 🧮 **profit margins** (is profitability improving?), 🏦 **debt vs. cash** (is the balance sheet healthy?) and 📊 **valuation** (is the price reasonable? P/E, P/FCF, PEG, price/sales) |
 | **Straight from the 10-K** | The company's own description of what it does, the risk factors it lists, and links to the filing itself |
 | **What the street says** | Share of analysts rating it buy / hold / sell and how that moved on the month, how often it has beaten the EPS estimate, and whether insiders are net buying or selling |
 | **Against its sector** | The first six of P/E, price/sales, FCF yield, revenue growth, net margin, ROE (ROA where equity is negative or tiny), debt/equity, dividend yield and 1-year return that the company reports, beside the sector median, with where it ranks among the other companies in the sector ("cheaper than 63%"). The full record shows every row |
 
-"The numbers" is grouped into valuation, growth, profitability, balance sheet,
-dividend and price, and now includes PEG, free-cash-flow yield, ROA, net cash or
-net debt, payout ratio, five-year revenue growth and the six-month return. Hover
-any figure for a one-line explanation. Forward P/E, price/FCF, EV/EBITDA, quick
-ratio, interest cover, five-year EPS and dividend growth, year-to-date, return
-against the S&P 500 and average volume appear once the nightly refresh has
-collected them.
+The answers use the same rules as the score: a bank's revenue jump, cash flow and
+debt are never judged, and "is the price reasonable?" is the value part of the
+score, sector half included. Hover any figure for a one-line explanation.
 
-Tapping a card opens the full record, which adds the **next report** (EPS and
+Tapping a card opens the full record, which adds five years of the filings under
+the same checks, the **next report** (EPS and
 revenue expected, last quarter's result, the beat record, a calendar button),
 trend and drawdown under the price chart, the **closest peers** by size,
 month-by-month **insider sentiment**, and the last ten days of **headlines**.
@@ -264,8 +261,9 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
   consistent markup across 500 filers means some companies parse cleanly and
   others don't. When parsing fails the card says so and links to the filing.
 - **Ratios come from Finnhub, financials from SEC.** They cover different periods
-  (trailing twelve months vs last fiscal year), so a margin in "The numbers"
-  won't always reconcile with "Last full year, as filed". Both are labelled.
+  (trailing twelve months vs last fiscal year), so a trailing margin won't
+  always reconcile with the fiscal-year figures beside it. Every figure says
+  which period it covers.
 - **The pros and cons are thresholds, not analysis.** They have no view on
   management, competition, or anything that happened after the last filing.
 - **Financials are one bucket.** Debt, free cash flow and cash conversion are
