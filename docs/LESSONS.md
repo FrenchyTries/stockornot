@@ -56,11 +56,12 @@ account run by a bot.
 - **There is a way to deploy without GitHub**: "Deploying without GitHub" in
   the README.
 
-Still to do when the repositories move (see the end of this page):
-- Btc15's installer becomes plain files with no blob, and that repository
-  goes private.
-- sentinel's commit name comes from a setting instead of being written into
-  the file.
+- **Btc15 was deleted** and is not coming to the new account. A copy of its
+  code was kept outside GitHub, and the paper trader on its own server is
+  unaffected.
+
+Still to do when the repositories move (see the end of this page): sentinel's
+commit name comes from a setting instead of being written into the file.
 
 ## Rules from now on
 
@@ -95,7 +96,8 @@ Still to do when the repositories move (see the end of this page):
 
 ## Moving the repositories to a new home
 
-What has to come across, whichever host it is.
+Two repositories move: **tikstock** and **sentinel-x-site**. Btc15 does not.
+What has to come across, whichever host it is:
 
 **Code.** Push each repository with its full history from a working copy. The
 host's "import" tools cannot read a flagged account.
@@ -115,7 +117,6 @@ connect the new one. The domain and the environment variables stay as they are.
 the new repositories.
 
 **Fix on the way:**
-- Btc15's installer, and make that repository private.
 - sentinel's commit identity. Vercel's free plan only deploys a private
   repository's commits when the account owner wrote them.
 - The README's clone link.
