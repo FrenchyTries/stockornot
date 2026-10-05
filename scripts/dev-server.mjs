@@ -98,8 +98,12 @@ const server = http.createServer(async (req, res) => {
   res.end("Not found");
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`StockOrNot on http://localhost:${PORT}`);
+  /* the company pages are build output, not in git: Vercel builds them on deploy */
+  if (!(await fs.stat(path.join(ROOT, "stock", "index.html")).catch(() => null))) {
+    console.log("  The company pages are not built yet, so /stock will 404. Run: node scripts/build-pages.mjs");
+  }
   if (!process.env.BROKER_SECRET) console.log("  BROKER_SECRET is not set, so the brokerage connection will say it is not configured.");
   if (!process.env.FINNHUB_TOKEN) console.log("  FINNHUB_TOKEN is not set, so the news panel will stay empty.");
 });

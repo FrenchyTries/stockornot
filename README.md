@@ -193,20 +193,30 @@ Which does:
 
 Output lands in `data/snapshot.json` (market data, ~0.6MB), `data/detail/*.json`
 (history, daily closes, analysts), `data/filings/*.json` (10-K prose, lazy-loaded
-per card), `data/fundamentals/` (the cached XBRL figures) and one static page per
-company under `stock/` with a `sitemap.xml`. `scripts/audit.mjs` checks the
-result before anything is committed, and refuses to publish a snapshot that is
-worse than yesterday's. The site itself is served by Vercel, which also runs the
-functions under `api/`.
+per card) and `data/fundamentals/` (the cached XBRL figures). `scripts/audit.mjs`
+checks the result before anything is committed, and refuses to publish a
+snapshot that is worse than yesterday's. Only data is committed.
 
-A second workflow, `pages.yml`, rebuilds only the company pages whenever the
-code or data they are built from changes on `main`. Both need GitHub Actions
-enabled on the repository. Without it, the same pages can be built by hand, and
-come out byte for byte what the Action would have committed:
+The site itself is served by Vercel, which also runs the functions under `api/`.
+**Vercel builds the 500 company pages, the sitemap and robots.txt on every
+deploy** (`buildCommand` in `vercel.json`), from whatever data is committed.
+They are build output and are never committed; `.gitignore` keeps them out.
+The nightly job builds them too, but only to check they still build.
+[docs/LESSONS.md](docs/LESSONS.md) explains why.
+
+### Deploying without GitHub
+
+If GitHub is ever unavailable, Vercel can be deployed to directly from any copy
+of the code. Vercel runs the same build, so the result is identical:
 
 ```bash
-SITE_ORIGIN=https://stockornot.com node scripts/build-pages.mjs
+npx vercel link --yes --project stockornot --scope moneymoney2 --token "$VERCEL_TOKEN"
+npx vercel deploy --prod --token "$VERCEL_TOKEN"
 ```
+
+`VERCEL_TOKEN` comes from vercel.com/account/tokens. The environment variables
+the functions need live on the Vercel project, not in the code, so nothing else
+has to be set.
 
 ### Setting it up on your own fork
 
@@ -234,6 +244,7 @@ companies) and `skip_filings` (set to `1` to skip 10-K downloads).
 ```bash
 git clone https://github.com/respectking/tikstock.git
 cd tikstock
+node scripts/build-pages.mjs        # the company pages, as Vercel builds them
 BROKER_SECRET=$(openssl rand -hex 32) node scripts/dev-server.mjs
 # open http://localhost:8080
 ```

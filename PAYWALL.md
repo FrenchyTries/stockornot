@@ -53,8 +53,10 @@ Three things, in order:
 
 3. **Make the repository private.** Otherwise the full snapshot stays readable
    at `raw.githubusercontent.com` and steps 1 and 2 achieve nothing. Vercel
-   deploys private repositories without complaint; the GitHub Pages mirror at
-   `respectking.github.io/tikstock/` would stop working and should be retired.
+   deploys private repositories, but on the free plan only commits authored by
+   the Vercel account's owner, so the nightly data commit would need to be made
+   under the owner's identity. GitHub Pages stays off whatever the visibility
+   (see docs/LESSONS.md).
 
 Roughly a day of work. None of it is hard, and all of it must be done before the
 first charge.

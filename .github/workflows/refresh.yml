@@ -54,14 +54,17 @@ jobs:
       - name: Audit before publishing
         run: node scripts/audit.mjs
 
-      - name: Build the static company pages
+      # Only a check that the new data still builds. The pages themselves are
+      # built by Vercel on every deploy (vercel.json buildCommand) and are never
+      # committed: see docs/LESSONS.md.
+      - name: Check the company pages still build
         env:
           SITE_ORIGIN: https://stockornot.com
         run: node scripts/build-pages.mjs
 
       - name: Commit if anything changed
         env:
-          BUILT: data/snapshot.json data/audit.json data/filings data/detail data/fundamentals stock sitemap.xml robots.txt
+          BUILT: data/snapshot.json data/audit.json data/filings data/detail data/fundamentals
         run: |
           git config user.name  "stockornot-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

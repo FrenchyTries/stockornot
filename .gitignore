@@ -1,2 +1,9 @@
 .DS_Store
 node_modules/
+
+# Built on every deploy by `node scripts/build-pages.mjs` (vercel.json
+# buildCommand). Never commit them: 500 machine-written pages changing every
+# night is exactly the pattern that got the old GitHub account flagged.
+/stock/
+/sitemap.xml
+/robots.txt
