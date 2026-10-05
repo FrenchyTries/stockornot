@@ -242,8 +242,8 @@ companies) and `skip_filings` (set to `1` to skip 10-K downloads).
 ## Running locally
 
 ```bash
-git clone https://github.com/respectking/tikstock.git
-cd tikstock
+git clone https://github.com/FrenchyTries/stockornot.git
+cd stockornot
 node scripts/build-pages.mjs        # the company pages, as Vercel builds them
 BROKER_SECRET=$(openssl rand -hex 32) node scripts/dev-server.mjs
 # open http://localhost:8080
