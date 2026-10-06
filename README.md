@@ -59,10 +59,11 @@ revenue expected, last quarter's result, the beat record, a calendar button),
 trend and drawdown under the price chart, the **closest peers** by size,
 month-by-month **insider sentiment**, and the last ten days of **headlines**.
 
-Scroll the card to read it all. Drag it sideways or use <kbd>←</kbd> / <kbd>→</kbd>;
-without a pointer or keyboard, *Open the full record* has **Add to cart** and
-**Not for me** buttons. <kbd>↑</kbd> / <kbd>↓</kbd> scroll, and <kbd>Enter</kbd>
-opens the full record.
+Scroll the card to read it all. Drag it sideways, press **Not for me** or
+**Add to cart** under the deck, or use <kbd>←</kbd> / <kbd>→</kbd>. The round
+button between them, or <kbd>Z</kbd>, takes back the last swipe: the company
+returns to the top, and leaves the cart again if that swipe put it there.
+<kbd>↑</kbd> / <kbd>↓</kbd> scroll, and <kbd>Enter</kbd> opens the full record.
 
 ## The cart
 
@@ -307,6 +308,13 @@ moves carry a ▲/▼ glyph and a signed number as well as colour, so nothing de
 on colour alone. `prefers-reduced-motion` and `forced-colors` are honoured. The
 swipe gesture locks to an axis on the first 8px of movement, so dragging sideways
 swipes and dragging vertically scrolls the card.
+
+Motion is there to say what just happened, and nothing moves on its own:
+the next two cards show at the bottom of the deck, the button on the side a card
+is dragged towards lights up with it, an undone card flies back in from the side
+it left by, a company's score counts up the first time it reaches the top, and
+a removal from the cart folds the row away and offers an **Undo**. With reduced
+motion all of it is instant.
 
 The link preview (`og.png`), the home-screen icon and the store screenshots
 are all captured from the running site by `marketing/capture.cjs`, so they

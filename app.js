@@ -60,6 +60,7 @@ var state = {
   viewed:  null,          /* distinct companies opened, counted against the allowance */
   authPending: false,     /* true while we are still finding out */
   busy:    false,
+  history: [],            /* recent swipes, newest last: { t, action, added } */
   sectors: null,          /* per-sector sorted metrics, built once per snapshot */
   scoreCtx: null,         /* the same, for the score's sector half */
   broker:  null,          /* last /api/broker status; null until asked */
@@ -157,8 +158,13 @@ function loadDetail(ticker) {
 
 var deckEl   = $("#deckEl");
 var deckMsg  = $("#deckMsg");
-var VISIBLE  = 2;
+var deckBar  = $("#deckBar");
+var VISIBLE  = 3;           /* the top card, the next, and the edge of a third */
 var cards    = [];          /* [{node, ticker, depth}], top first */
+var HISTORY_MAX = 25;       /* swipes Undo can walk back */
+var counted  = null;        /* the last company whose score counted up */
+var calm     = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+function stillMotion() { return Boolean(calm && calm.matches); }
 
 function buildDeck() {
   /* The only rule left: a company you have already swiped does not come back
@@ -168,6 +174,7 @@ function buildDeck() {
   });
   state.deck = shuffle(pool.map(function (s) { return s.t; }));
   state.cursor = 0;
+  state.history = [];
 }
 
 function showMessage(title, body, actions) {
@@ -207,6 +214,7 @@ function renderDeck() {
         } }
       ]
     );
+    renderDeckBar();
     return;
   }
 
@@ -215,7 +223,7 @@ function renderDeck() {
      to be rendered, not when it is swiped, because looking is the thing
      being metered. */
   var next = state.deck[state.cursor];
-  if (!tier.withinAllowance(state.viewed, next, state.tier)) { showWall(); return; }
+  if (!tier.withinAllowance(state.viewed, next, state.tier)) { showWall(); renderDeckBar(); return; }
   tier.recordViewed(state.viewed, next);
 
   deckMsg.hidden = true;
@@ -227,12 +235,58 @@ function renderDeck() {
        is a blurred placeholder rather than a real card, so nothing readable
        is ever put in the DOM for a company this person has not paid to see. */
     var allowed = tier.withinAllowance(state.viewed, ticker, state.tier);
-    var node = allowed ? makeCard(state.byTicker[ticker], depth) : makeLockedCard(depth);
+    var node = depth >= 2 ? makeGhostCard(depth)
+      : allowed ? makeCard(state.byTicker[ticker], depth) : makeLockedCard(depth);
     deckEl.appendChild(node);
     cards.unshift({ node: node, ticker: ticker, depth: depth, locked: !allowed });
   }
   attachDrag(cards[0]);
+  countUp(cards[0]);
   renderAllowance();
+  renderDeckBar();
+}
+
+/* Pass, Undo and Add under the deck: for anyone who would rather press than
+   swipe, and so a first visit shows what the deck is for. Undo stays while
+   there is a swipe to take back, even after the deck runs out. */
+function renderDeckBar() {
+  var live = cards.length > 0 && !cards[0].locked;
+  deckBar.hidden = !live && !state.history.length;
+  $("#btnPass").disabled = $("#btnKeep").disabled = !live;
+  $("#btnUndo").disabled = !state.history.length;
+}
+
+/* Third in the pile: only its edge shows, so it is an empty shell. */
+function makeGhostCard(depth) {
+  var art = el("article", "card is-behind is-ghost");
+  art.style.transform = stackTransform(depth);
+  art.style.zIndex = String(50 - depth);
+  art.setAttribute("aria-hidden", "true");
+  return art;
+}
+
+/* The score counts up and its meter fills when a company comes to the top,
+   once per company, so redrawing the same card leaves it still. */
+function countUp(entry) {
+  if (!entry || entry.locked || entry.ticker === counted) return;
+  counted = entry.ticker;
+  if (stillMotion()) return;
+  var b = $(".score-num b", entry.node), fill = $(".score-meter i", entry.node);
+  var to = b ? parseInt(b.textContent, 10) : NaN;
+  if (!isFinite(to) || !fill) return;
+  var width = fill.style.width;
+  fill.style.transition = "none";
+  fill.style.width = "0";
+  void fill.offsetWidth;
+  fill.style.transition = "";
+  fill.style.width = width;
+  var t0 = performance.now();
+  b.textContent = "0";
+  requestAnimationFrame(function step(now) {
+    var k = Math.min(1, Math.max(0, now - t0) / 650);
+    b.textContent = String(Math.round(to * (1 - Math.pow(1 - k, 3))));
+    if (k < 1) requestAnimationFrame(step);
+  });
 }
 
 /* What a visitor sees when the allowance runs out. Two different messages:
@@ -274,6 +328,7 @@ function showWall() {
 function makeLockedCard(depth) {
   var art = el("article", "card is-locked" + (depth ? " is-behind" : ""));
   art.style.transform = stackTransform(depth);
+  art.style.zIndex = String(50 - depth);
   art.setAttribute("aria-hidden", "true");
   art.appendChild(el("div", "lock-mark"));
   return art;
@@ -293,8 +348,10 @@ function renderAllowance() {
   box.classList.toggle("is-low", left <= 3);
 }
 
+/* Cards behind sit lower and narrower, scaled from their bottom edge, so a
+   strip of each shows under the one in front. */
 function stackTransform(depth) {
-  return "translateY(" + (depth * -10) + "px) scale(" + (1 - depth * 0.03) + ")";
+  return "translateY(" + (depth * 11) + "px) scale(" + (1 - depth * 0.045) + ")";
 }
 
 /* --------------------------------------------------------- card contents */
@@ -746,6 +803,7 @@ function attachDrag(entry) {
     var t = clamp(Math.abs(dx) / 120, 0, 1);
     stampAdd.style.opacity = dx > 0 ? t : 0;
     stampPass.style.opacity = dx < 0 ? t : 0;
+    pull(dx > 0 ? t : 0, dx < 0 ? t : 0);
   });
 
   function release(ev) {
@@ -755,6 +813,7 @@ function attachDrag(entry) {
     var speed = Math.abs(dx) / Math.max(1, held);
     var moved = Math.abs((ev.clientX || drag.x0) - drag.x0) + Math.abs((ev.clientY || drag.y0) - drag.y0);
     drag = null;
+    pull(0, 0);
     card.classList.remove("is-drag");
     scroller.style.overflowY = "";
 
@@ -793,7 +852,10 @@ function commit(action) {
   state.busy = true;
 
   var s = state.byTicker[entry.ticker];
-  if (action === "add") addToCart(s);
+  var added = action === "add" ? addToCart(s) : false;
+  state.history.push({ t: entry.ticker, action: action, added: added });
+  if (state.history.length > HISTORY_MAX) state.history.shift();
+  pressed(action === "add" ? "#btnKeep" : "#btnPass");
 
   markSeen(entry.ticker);
 
@@ -818,6 +880,62 @@ function commit(action) {
     state.cursor += 1;
     renderDeck();
   }, 300);
+}
+
+/* Takes back the last swipe: the company returns to the top of the pile, out
+   of the seen list, and out of the cart if that swipe is what put it there. */
+function undo() {
+  if (state.busy) return;
+  var last = state.history.pop();
+  if (!last) return;
+  if (last.added && cartItem(last.t)) {
+    removeFromCart(last.t);
+    persistCart();
+    renderCartCount(); renderEarnNotice();
+  }
+  unmarkSeen(last.t);
+  var idx = state.deck.indexOf(last.t);
+  if (idx === state.cursor - 1) state.cursor -= 1;
+  else {
+    if (idx >= 0) { state.deck.splice(idx, 1); if (idx < state.cursor) state.cursor -= 1; }
+    state.deck.splice(state.cursor, 0, last.t);
+  }
+  counted = last.t;                /* it counted up the first time round */
+  pressed("#btnUndo");
+  renderDeck();
+
+  /* fly back in from the side it left by */
+  var top = cards[0];
+  if (!top || top.ticker !== last.t || stillMotion()) return;
+  var node = top.node, dir = last.action === "add" ? 1 : -1;
+  node.style.transform = "translate(" + (dir * (window.innerWidth * 0.6 + 120)) + "px, 30px) rotate(" + (dir * 14) + "deg)";
+  void node.offsetWidth;
+  node.classList.add("is-returning");
+  node.style.transform = stackTransform(0);
+  setTimeout(function () { node.classList.remove("is-returning"); }, 450);
+}
+
+function unmarkSeen(t) {
+  if (!seenSet.has(t)) return;
+  seenSet.delete(t);
+  state.seen = state.seen.filter(function (x) { return x !== t; });
+  save(LS.seen, state.seen);
+}
+
+/* A press on the matching button, whichever way the choice was made. */
+function pressed(sel) {
+  var b = $(sel);
+  if (!b) return;
+  b.classList.remove("is-pressed");
+  void b.offsetWidth;
+  b.classList.add("is-pressed");
+  setTimeout(function () { b.classList.remove("is-pressed"); }, 240);
+}
+
+/* While a card is dragged, the button on that side lights up with it. */
+function pull(add, pass) {
+  $("#btnKeep").style.setProperty("--pull", add);
+  $("#btnPass").style.setProperty("--pull", pass);
 }
 
 /* ============================================================== CART ===== */
@@ -856,6 +974,47 @@ function removeFromCart(t) {
   if (!cartItem(t)) return;
   state.cart = state.cart.filter(function (i) { return i.t !== t; });
   state.cartGone = state.cartGone.filter(function (g) { return g.t !== t; }).concat([cartLib.tombstone(t)]);
+}
+
+/* Undo for a removal: the record comes back as it was, note and amount
+   included, stamped now so it outranks its own tombstone on every copy of
+   the cart. It sorts back into place by when it was first added. */
+function restoreToCart(item) {
+  if (cartItem(item.t)) return;
+  state.cartGone = state.cartGone.filter(function (g) { return g.t !== item.t; });
+  state.cart.push(touch(item));
+  state.cart.sort(function (a, b) { return String(b.addedAt || "").localeCompare(String(a.addedAt || "")); });
+  persistCart();
+  renderCartCount(); renderEarnNotice();
+  if ($("#dlgCart").open) renderCart();
+}
+
+/* ---------------------------------------------------------------- toast */
+
+var toastTimer = null;
+
+/* One line, and a way back. A modal dialog covers everything outside it, so
+   the toast moves into whichever dialog is open. */
+function showToast(text, label, onAction) {
+  var box = $("#toast");
+  var host = document.querySelector("dialog[open]") || document.body;
+  if (box.parentNode !== host) host.appendChild(box);
+  $("#toastText").textContent = text;
+  var btn = $("#toastAction");
+  btn.hidden = !onAction;
+  btn.textContent = label || "Undo";
+  btn.onclick = function () { hideToast(); if (onAction) onAction(); };
+  box.hidden = false;
+  box.classList.remove("is-in");
+  void box.offsetWidth;
+  box.classList.add("is-in");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 6000);
+}
+
+function hideToast() {
+  clearTimeout(toastTimer);
+  $("#toast").hidden = true;
 }
 
 function setCartOwner(owner) {
@@ -1023,10 +1182,11 @@ function signOutAndForget() {
   }, function () { return false; });
 }
 
+/* true when this call put it in the cart */
 function addToCart(s) {
-  if (!s) return;
+  if (!s) return false;
   var existing = state.cart.filter(function (c) { return c.t === s.t; })[0];
-  if (existing) { flashCart(); return; }
+  if (existing) { flashCart(); return false; }
 
   var cap = tier.featuresFor(state.tier).cart;
   if (state.cart.length >= cap) {
@@ -1042,7 +1202,7 @@ function addToCart(s) {
           onClick: openCart }
       ]
     );
-    return;
+    return false;
   }
   var now = new Date().toISOString();
   state.cartGone = state.cartGone.filter(function (g) { return g.t !== s.t; });
@@ -1057,6 +1217,7 @@ function addToCart(s) {
   renderCartCount();
   renderEarnNotice();
   flashCart();
+  return true;
 }
 
 function flashCart() {
@@ -1122,9 +1283,21 @@ function renderCart() {
     rm.setAttribute("aria-label", "Remove " + item.t + " from cart");
     rm.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     rm.addEventListener("click", function () {
-      removeFromCart(t);
-      persistCart();
-      renderCart(); renderCartCount(); renderEarnNotice();
+      var it = cartItem(t);
+      if (!it) return;
+      var copy = Object.assign({}, it);
+      rm.disabled = true;
+      function finish() {
+        removeFromCart(t);
+        persistCart();
+        renderCart(); renderCartCount(); renderEarnNotice();
+        showToast(t + " is out of your cart", "Undo", function () { restoreToCart(copy); });
+      }
+      if (stillMotion()) { finish(); return; }
+      row.style.height = row.offsetHeight + "px";
+      void row.offsetWidth;
+      row.classList.add("is-leaving");
+      setTimeout(finish, 220);
     });
     head.appendChild(rm);
     row.appendChild(head);
@@ -1191,7 +1364,18 @@ function renderCart() {
       touch(it);
       persistCart();
     });
-    row.appendChild(note);
+    if (item.note) row.appendChild(note);
+    else {
+      /* most rows have no note; a box per row made the cart a form */
+      var addNote = el("button", "link-btn ci-add-note", "Add a note");
+      addNote.type = "button";
+      addNote.addEventListener("click", function () {
+        note.classList.add("is-new");
+        addNote.replaceWith(note);
+        note.focus();
+      });
+      row.appendChild(addNote);
+    }
 
     list.appendChild(row);
   });
@@ -2744,6 +2928,9 @@ function wire() {
     }
   }
   $("#detailAdd").addEventListener("click", function () { detailAct("add"); });
+  $("#btnKeep").addEventListener("click", function () { commit("add"); });
+  $("#btnPass").addEventListener("click", function () { commit("pass"); });
+  $("#btnUndo").addEventListener("click", undo);
   $("#detailSkip").addEventListener("click", function () { detailAct("pass"); });
 
   document.addEventListener("keydown", function (ev) {
@@ -2762,6 +2949,7 @@ function wire() {
     }
     if (ev.key === "ArrowRight") { ev.preventDefault(); commit("add"); }
     else if (ev.key === "ArrowLeft") { ev.preventDefault(); commit("pass"); }
+    else if (ev.key === "z" || ev.key === "Z") { ev.preventDefault(); undo(); }
     else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
       var sc = cards[0] && $(".card-scroll", cards[0].node);
       if (sc) { ev.preventDefault(); sc.scrollBy({ top: ev.key === "ArrowDown" ? 220 : -220, behavior: "smooth" }); }
