@@ -297,3 +297,18 @@ test("a gap in the filings is named, not shown as n/a", () => {
   assert.ok(!cash.rows.some((r) => r[1] === "n/a"), JSON.stringify(cash.rows));
   assert.ok(scoreStock(s).notes.some((n) => /Capital spending is missing/.test(n)));
 });
+
+test("a dividend yield its own payout ratio contradicts is not counted", () => {
+  /* a 4.3% yield on a 13% payout at 14× earnings: about 0.9% implied */
+  const s = base({ pe: 14.3, dy: 4.26, payout: 12.84 });
+  const k = inputs(s);
+  assert.equal(k.dyDisputed, true);
+  assert.equal(k.dy, null);
+  assert.equal(valuation(s).dy, 0);
+  assert.doesNotMatch(prosAndCons(s).pros.join(" "), /dividend/);
+  assert.ok(scoreStock(s).notes.some((n) => /dividend figures disagree/.test(n)));
+  /* figures that agree are counted as they are */
+  const fine = base({ pe: 26.4, dy: 3.14, payout: 77.24 });
+  assert.equal(inputs(fine).dyDisputed, false);
+  assert.equal(inputs(fine).dy, 3.14);
+});
