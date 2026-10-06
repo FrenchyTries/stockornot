@@ -127,6 +127,7 @@ function checksHtml(s, res) {
 <h3><span class="check-icon" aria-hidden="true">${CHECK_ICONS[g.icon] || ""}</span>${esc(g.title)}</h3>
 <p class="doc-q">${esc(g.question)}${g.answer ? ` <b class="check-a is-${g.answer.tone}">${esc(g.answer.text)}</b>` : ""}</p>
 ${g.rows.length ? statTable(g.rows.map((r) => [r[0], r[1]])) : ""}
+${g.why ? `<p class="doc-why">${esc(g.why)}</p>` : ""}
 </section>`).join("\n");
 }
 
