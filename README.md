@@ -199,7 +199,8 @@ snapshot that is worse than yesterday's. Only data is committed.
 
 The site itself is served by Vercel, which also runs the functions under `api/`.
 **Vercel builds the 500 company pages, the sitemap and robots.txt on every
-deploy** (`buildCommand` in `vercel.json`), from whatever data is committed.
+deploy** (`buildCommand` in `vercel.json`, served from the repository root by
+`outputDirectory: "."`), from whatever data is committed.
 They are build output and are never committed; `.gitignore` keeps them out.
 The nightly job builds them too, but only to check they still build.
 [docs/LESSONS.md](docs/LESSONS.md) explains why.

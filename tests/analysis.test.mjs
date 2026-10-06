@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pct, pctPlain, inputs, rankAmong, scoreStock, prosAndCons, buildScoreContext, rangeSummary } from "../lib/analysis.mjs";
+import { pct, pctPlain, inputs, rankAmong, scoreStock, prosAndCons, buildScoreContext, rangeSummary, valuation } from "../lib/analysis.mjs";
 import { beatRecord, insiderSummary, financialChecks, historyChecks, buildSectorStats, sectorView, nearestPeers } from "../lib/insight.mjs";
 import { CHECK_ICONS } from "../lib/icons.mjs";
 
@@ -162,4 +162,68 @@ test("insider months say how many months had trades, not 'the last N'", () => {
   const s = insiderSummary({ months: [{ ym: "2026-08", mspr: -40 }, { ym: "2026-03", mspr: -30 }] });
   assert.equal(s.when, "in 2 months with trades since Mar 2026");
   assert.equal(insiderSummary({ months: [{ ym: "2026-08", mspr: 10 }] }).when, "in Aug 2026");
+});
+
+const valueCheck = (s) => financialChecks(s, scoreStock(s)).find((g) => g.id === "value");
+
+test("the same P/E is cheap for a fast grower and expensive for a slow one", () => {
+  const fin = { ...base().fin, fcf: 3.5e8 };
+  const fast = base({ pe: 30, rg: 25, rg5: 25, eg5: 25, dy: 0, fin });
+  const slow = base({ pe: 30, rg: 2, rg5: 2, eg5: 2, dy: 0, fin });
+  assert.equal(valuation(fast).fair, 8 + 1.5 * 25);
+  assert.equal(valuation(slow).fair, 8 + 1.5 * 2);
+  assert.equal(valueCheck(fast).answer.text, "Yes, it looks cheap");
+  assert.equal(valueCheck(slow).answer.text, "No, expensive");
+  assert.ok(scoreStock(fast).factors.value > scoreStock(slow).factors.value + 30);
+  assert.match(prosAndCons(fast).pros.join(" "), /Reasonably priced for its growth: 30\.0× earnings, where 25% a year of growth would justify about 46×/);
+  assert.match(prosAndCons(slow).cons.join(" "), /Expensive for its growth/);
+  /* growth past 25% a year counts as 25% */
+  assert.equal(valuation(base({ rg: 60, rg5: 50, eg5: 80, dy: 0 })).fair, 8 + 1.5 * 25);
+});
+
+test("a REIT is priced on operating cash flow, with its growth capped and no dividend counted", () => {
+  const v = valuation(base({ s: "Real Estate", pe: 40, rg: 20, rg5: 20, dy: 4, fin: { ...base().fin, ocf: 6e8 } }));
+  assert.equal(v.kind, "ocf");
+  assert.equal(v.growth, 8);
+  assert.equal(v.fair, 20);                       /* 8 + 1.5 × 8, the dividend left out */
+  assert.ok(v.cash.ratio < 1 && v.earnings.ratio === 2);
+  assert.ok(v.raw >= 48, "the cash lens carries a REIT: " + v.raw);
+});
+
+test("a bank is priced on book value against its return on equity; a payment network is not", () => {
+  const bank = base({ s: "Financials", pe: 12, roe: 15, pb: 1.5, fin: { ...base().fin, assets: 1e11, equity: 1e10 } });
+  const v = valuation(bank);
+  assert.equal(v.kind, "book");
+  assert.equal(v.book.fair, 1.5);
+  assert.equal(v.cash, null);
+  const rows = valueCheck(bank).rows.map((r) => r[0]);
+  assert.ok(rows.includes("Fair P/B for its ROE") && !rows.includes("P/FCF"), rows.join(", "));
+  /* little balance sheet and a 60% return on it: the franchise earns the money, not the book */
+  const network = base({ s: "Financials", pe: 30, roe: 60, pb: 18, rg5: 10, eg5: 12, fin: { ...base().fin, assets: 1e10, equity: 4e9 } });
+  assert.equal(valuation(network).book, null);
+  assert.equal(valuation(network).raw, valuation(network).earnings.score);
+  assert.match(valueCheck(network).why, /judged on earnings alone/);
+});
+
+test("a utility is priced on earnings alone, so its negative free cash flow is not held against it", () => {
+  const s = base({ s: "Utilities", pe: 18, fin: { ...base().fin, fcf: -5e8 } });
+  const v = valuation(s);
+  assert.equal(v.cash, null);
+  assert.equal(v.raw, v.earnings.score);
+  assert.equal(valueCheck(s).answer.text, "Yes, about fair");
+  assert.ok(!valueCheck(s).rows.some((r) => r[0] === "P/FCF"));
+});
+
+test("a loss has no earnings to price, and the check says so", () => {
+  const s = base({ pe: null, nm: -10 });
+  assert.equal(valuation(s).earnings.none, true);
+  const c = valueCheck(s);
+  assert.equal(c.answer.text, "Hard to say: no earnings to price");
+  assert.match(c.why, /At 25\.0× free cash flow it trades above the 19× that/);
+});
+
+test("when earnings and cash flow disagree, the check says which is which", () => {
+  const c = valueCheck(base({ pe: 40, fin: { ...base().fin, fcf: 2e9 } }));
+  assert.equal(c.answer.text, "Mixed: dear on earnings, cheap on cash");
+  assert.match(c.why, /well above the 19×.*well below that same mark/);
 });

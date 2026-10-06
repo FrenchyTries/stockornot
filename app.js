@@ -391,6 +391,7 @@ function checksBlock(s, score) {
       });
       box.appendChild(grid);
     }
+    if (g.why) box.appendChild(el("p", "check-why", g.why));
     wrap.appendChild(box);
   });
   return wrap;

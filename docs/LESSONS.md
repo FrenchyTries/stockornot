@@ -65,16 +65,44 @@ commit name comes from a setting instead of being written into the file.
 
 ## Rules from now on
 
-- **Never turn on GitHub Pages.** The site lives on Vercel only.
-- **Never commit generated files.** Build them where they are served.
-- **Keep automation small and boring**: one data commit a day, at most.
-- **Pace the work**: a few pull requests a day, not a burst of large ones.
-- **No hidden or encoded payloads** in any repository.
-- **Keep experiments private**, the trading bot included.
-- **Two-factor authentication on from day one**, with the recovery codes saved.
-- **Always keep a second way to deploy** (the Vercel token) and a second copy
-  of the code somewhere other than GitHub, so one company's spam filter can
-  never take the site down.
+The full list that Claude follows is in `CLAUDE.md`. In short:
+
+**Pace**
+- **One pull request a day, at most, across the account.** Everything for the
+  day goes into it; anything more waits for tomorrow.
+- **Nothing goes straight onto `main`** except the nightly data commit. Every
+  other change is a pull request you merge.
+- **Few, tested pushes**: no streams of fix-ups, no force-pushes, no empty
+  commits to kick a build.
+- **Small pull requests**: anything touching more than about 50 files, or
+  adding lots of images, gets your OK first.
+- **One Claude session at a time** on the account.
+
+**What gets published**
+- **GitHub Pages stays off**, on every repository.
+- **No generated files in git.** Build them where they're served.
+- **No hidden or encoded payloads.**
+- **No keys in repos, issues or chat.** Keys go in GitHub secrets and Vercel.
+
+**Automation**
+- **Scheduled jobs commit data only**, once per run, only when something changed.
+- **No bulk comments or issues from workflows**: one issue, updated, never a
+  comment per run.
+- **At most one manual workflow run a day.**
+
+**Your account (things only you can do)**
+- **Two-factor authentication on**, recovery codes saved, email verified.
+- **Make it look like a person runs it**: a profile picture, a name and a
+  line of bio.
+- **Keep connected apps to the minimum**, just Claude and Vercel, each limited
+  to the repos it needs.
+- **No mass starring, following or forking**, and no new repositories in
+  bursts.
+- **Keep experiments private.**
+- **Never link it to the old account**, and never make a third.
+- **Always keep a second way to deploy** (a Vercel token) and a second copy
+  of the code outside GitHub, so one company's spam filter can never take the
+  site down.
 
 ## If it happens again
 

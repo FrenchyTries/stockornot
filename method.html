@@ -41,7 +41,7 @@
 </header>
 <main class="doc">
 
-  <p class="eyebrow">How the score is built · Updated September 2026</p>
+  <p class="eyebrow">How the score is built · Updated October 2026</p>
 
   <h1>A number, and everything it doesn't know</h1>
 
@@ -67,7 +67,7 @@
     </thead>
     <tbody>
       <tr><td>Profitability</td><td>Margins, return on equity or assets, and how much profit arrives as cash</td><td class="num">0.24</td></tr>
-      <tr><td>Value</td><td>What you pay for the earnings (trailing and forward), sales, book value and free cash flow</td><td class="num">0.22</td></tr>
+      <tr><td>Value</td><td>What you pay for the earnings and cash flow, against the growth and dividend you get</td><td class="num">0.22</td></tr>
       <tr><td>Growth</td><td>Revenue and earnings this year, and revenue and earnings over five years</td><td class="num">0.22</td></tr>
       <tr><td>Momentum</td><td>How the price has behaved lately</td><td class="num">0.18</td></tr>
       <tr><td>Stability</td><td>How violently it moves, what it owes, how easily it covers its interest, and what it pays you</td><td class="num">0.14</td></tr>
@@ -83,20 +83,72 @@
 
   <p>Each input is mapped onto a 0&ndash;100 curve through fixed anchor points, with straight-line
   interpolation between them. The anchors were chosen to sit near long-run market norms, not fitted to
-  any historical return. Value, for instance, reads the price-to-earnings ratio like this:</p>
+  any historical return. Growth reads this year's revenue and earnings per share and the five-year
+  revenue and earnings trends, with five-year revenue counted twice because a single year is noisy.
+  Stability reads beta, the width of the 52-week range, dividend yield, the debt and interest cover.
+  Profitability and momentum work the same way. Value works differently, because a price only means
+  something next to what it buys.</p>
+
+  <h2>Value: the price against the growth</h2>
+
+  <p>Thirty times earnings is a lot for a business growing 3% a year and little for one growing 30%.
+  Earlier versions scored the P/E on one fixed scale, which marked down every fast grower and
+  flattered every slow one. Now each multiple is set against a fair multiple for the company's own
+  growth and dividend:</p>
+
+  <blockquote>fair multiple = 8 + 1.5 &times; (growth + dividend yield)</blockquote>
+
+  <p>That is a tempered form of Benjamin Graham's old rule of thumb, 8.5 + 2 &times; growth, which runs
+  hot at the growth rates of today's largest companies. Growth means the lasting kind: the five-year
+  revenue and earnings trends, with this year's revenue counted a third, floored at zero and capped at
+  25% a year, because almost nothing compounds faster than that for long. A company growing 10% a year
+  with a 2% dividend gets a fair P/E of 26; one growing 3% with no dividend, 12.5.</p>
+
+  <p>Where five years of revenue says little about what lasts, the cap is lower: 10% for Financials,
+  which grow about as fast as their capital; 8% for Utilities, whose growth follows the regulated rate
+  base; 8% for Real Estate, whose faster growth comes from issuing shares to buy property; and 8% for
+  Materials and 6% for Energy, whose five-year figures start from the 2020 trough.</p>
+
+  <p>The actual multiple divided by the fair one is what gets scored:</p>
 
   <table>
-    <caption>Price to earnings, mapped</caption>
-    <thead><tr><th class="num">P/E</th><th class="num">5</th><th class="num">10</th><th class="num">16</th><th class="num">25</th><th class="num">40</th><th class="num">70</th><th class="num">120</th></tr></thead>
-    <tbody><tr><th>Score</th><td class="num">92</td><td class="num">84</td><td class="num">70</td><td class="num">52</td><td class="num">34</td><td class="num">16</td><td class="num">8</td></tr></tbody>
+    <caption>Actual multiple &divide; fair multiple, mapped</caption>
+    <thead><tr><th class="num">Ratio</th><th class="num">0.4</th><th class="num">0.6</th><th class="num">0.75</th><th class="num">1.0</th><th class="num">1.25</th><th class="num">1.5</th><th class="num">2</th><th class="num">3</th><th class="num">5</th></tr></thead>
+    <tbody><tr><th>Score</th><td class="num">90</td><td class="num">76</td><td class="num">62</td><td class="num">55</td><td class="num">48</td><td class="num">42</td><td class="num">30</td><td class="num">16</td><td class="num">6</td></tr></tbody>
   </table>
 
-  <p>Forward P/E, price-to-book, price-to-sales and free-cash-flow yield are mapped the same way and
-  averaged in, with trailing earnings counted twice because it is the figure most people are actually
-  pricing. Growth reads this year's revenue and earnings per share and the five-year revenue and
-  earnings trends, with five-year revenue counted twice because a single year is noisy. Stability reads
-  beta, the width of the 52-week range, dividend yield, the debt and interest cover. Profitability and
-  momentum work the same way.</p>
+  <p>On the card, under 0.75 reads <strong>cheap</strong>, up to 1.25 <strong>about fair</strong>, up
+  to 1.5 <strong>a bit pricey</strong>, and above that <strong>expensive</strong>. Each business is
+  priced through the measures that fit it:</p>
+
+  <ul class="limits">
+    <li><b>Most companies.</b> The P/E, weighted 55%, and price to free cash flow, 45%, both against
+    the same fair multiple. A loss, or free cash flow at or below zero, counts as expensive on that
+    measure rather than being skipped.</li>
+
+    <li><b>Banks, insurers and brokers.</b> The P/E, 40%, and price to book against return on
+    equity, 60%. A bank earning 15% on its book is worth about 1.5 times book at a 10% cost of
+    capital, so its fair price-to-book is its return on equity divided by ten. The data has no
+    industry, so the balance sheet decides: a financial company counts as one of these when it
+    holds more than 3.2 times its equity in assets and earns between 0 and 25% on that equity.</li>
+
+    <li><b>Other financial companies.</b> The P/E alone. A payment network, exchange, ratings
+    agency or fund manager earns from its franchise, not its balance sheet, and its book is thin,
+    shrunk by buybacks or mostly goodwill.</li>
+
+    <li><b>Real Estate.</b> The P/E, 30%, and price to operating cash flow, 70%. Operating cash flow
+    is close to the funds from operations REIT investors use, and depreciation makes a REIT's P/E look
+    worse than its business is. The dividend is left out of a REIT's fair multiple, since it is paid
+    from that same cash.</li>
+
+    <li><b>Utilities.</b> The P/E alone. A utility borrows to build, so negative free cash flow is
+    normal and says nothing about its price.</li>
+  </ul>
+
+  <p>When the two measures disagree, one cheap and the other dear, the card says
+  <strong>Mixed</strong> and names which is which rather than averaging the disagreement away.
+  Forward P/E and EV/EBITDA are shown for reference but not scored: a forward P/E rests on analysts'
+  forecasts, and the score reads only what has been reported.</p>
 
   <h2>Against its own sector</h2>
 
