@@ -1,11 +1,11 @@
 {
-  "ranAt": "2026-09-23T02:41:28.144Z",
-  "snapshotUpdated": "2026-09-23T02:41:27.968Z",
-  "companies": 500,
+  "ranAt": "2026-10-06T04:09:35.167Z",
+  "snapshotUpdated": "2026-10-06T04:09:34.827Z",
+  "companies": 501,
   "deep": {
-    "present": 500,
-    "charts": 0,
-    "analysts": 499
+    "present": 501,
+    "charts": 499,
+    "analysts": 500
   },
   "verdict": "published with warnings",
   "findings": [
@@ -14,104 +14,155 @@
       "code": "tickers-dropped",
       "msg": "1 tickers present yesterday are missing today.",
       "tickers": [
-        "EA"
+        "AVB"
       ],
       "count": 1
     },
     {
       "level": "warn",
-      "code": "range-inconsistent",
-      "msg": "1 companies have a 52-week range that disagrees with the price.",
+      "code": "price-jump",
+      "msg": "2 companies moved more than 25% since the last run.",
       "tickers": [
-        "BRK.B"
+        "CTVA 80.34→12.39",
+        "PTC 140→192.26"
       ],
-      "count": 1
+      "count": 2
     },
     {
       "level": "warn",
       "code": "balance-sheet-gap",
-      "msg": "4 balance sheets do not add up (assets vs liabilities + equity). Usually the equity tag is parent-only and the company carries large noncontrolling interests — common in asset managers. Worth checking before assuming a parsing bug.",
+      "msg": "5 balance sheets do not add up (assets vs liabilities + equity). Usually the equity tag is parent-only and the company carries large noncontrolling interests — common in asset managers. Worth checking before assuming a parsing bug.",
       "tickers": [
         "ARES 15% off",
         "BX 28% off",
+        "CF 21% off",
         "FCX 20% off",
         "TKO 36% off"
       ],
-      "count": 4
+      "count": 5
     },
     {
       "level": "warn",
       "code": "financials-missing",
-      "msg": "4 companies have no financials.",
+      "msg": "3 companies have no financials.",
       "tickers": [
         "APA",
-        "GS",
-        "SYF",
-        "TFC"
+        "EQR",
+        "LHX"
       ],
-      "count": 4
+      "count": 3
     },
     {
       "level": "warn",
       "code": "earnings-missing",
-      "msg": "4 companies have no earnings.",
+      "msg": "2 companies have no earnings.",
       "tickers": [
         "SATS",
-        "EQR",
-        "Q",
-        "SWKS"
+        "EQR"
       ],
-      "count": 4
+      "count": 2
     },
     {
       "level": "warn",
       "code": "filings-missing",
-      "msg": "4 companies have no filings.",
+      "msg": "15 companies have no filings.",
       "tickers": [
+        "AOS",
+        "AES",
+        "AMCR",
+        "BRK.B",
+        "BLDR",
+        "CAH",
+        "CHD",
         "CINF",
+        "C",
+        "COST",
+        "DELL",
+        "DG",
         "EXPD",
         "MLM",
         "SYF"
       ],
-      "count": 4
+      "count": 15
+    },
+    {
+      "level": "warn",
+      "code": "revenue-implausible",
+      "msg": "3 companies' filed revenue is more than 3× off what their price/sales implies.",
+      "tickers": [
+        "CPT filed 0.0B vs ~1.6B",
+        "EVRG filed 6.0B vs ~1.4B",
+        "MU filed 37.4B vs ~133.2B"
+      ],
+      "count": 3
+    },
+    {
+      "level": "warn",
+      "code": "income-exceeds-revenue",
+      "msg": "1 companies report net income above revenue.",
+      "tickers": [
+        "CPT"
+      ],
+      "count": 1
+    },
+    {
+      "level": "warn",
+      "code": "financials-not-latest",
+      "msg": "2 companies' financials are not from their latest 10-K.",
+      "tickers": [
+        "CLX 2025-06-30 vs 10-K 2026-06-30",
+        "PSKY 2024-12-31 vs 10-K 2025-12-31"
+      ],
+      "count": 2
+    },
+    {
+      "level": "warn",
+      "code": "earnings-far",
+      "msg": "1 companies show a next report more than 100 days out; they report quarterly.",
+      "tickers": [
+        "MKC 2027-01-20"
+      ],
+      "count": 1
+    },
+    {
+      "level": "warn",
+      "code": "skipped",
+      "msg": "2 tickers in data/sp500.json could not be priced and are not in the deck.",
+      "tickers": [
+        "AVB",
+        "EA"
+      ],
+      "count": 2
+    },
+    {
+      "level": "warn",
+      "code": "renamed",
+      "msg": "2 tickers were found under a new symbol. Update data/sp500.json.",
+      "tickers": [
+        "FI→FISV",
+        "MMC→MRSH"
+      ],
+      "count": 2
     },
     {
       "level": "warn",
       "code": "share-count-step",
-      "msg": "36 companies show a step change in share count (split, or mixed filing conventions).",
+      "msg": "12 companies show a step change in share count (split, or mixed filing conventions).",
       "tickers": [
-        "AMCR FY2022→FY2023 ×0.08",
-        "APH FY2021→FY2022 ×1.99",
+        "AMCR FY2025→FY2026 ×1.46",
         "APO FY2021→FY2022 ×2.47",
-        "ANET FY2021→FY2022 ×3.97",
-        "AVGO FY2021→FY2022 ×9.86",
         "COF FY2024→FY2025 ×1.41",
         "CVNA FY2022→FY2023 ×1.99",
-        "CMG FY2021→FY2022 ×49.21",
-        "CTAS FY2021→FY2022 ×3.92",
-        "COO FY2021→FY2022 ×3.99",
-        "DECK FY2021→FY2022 ×5.76",
-        "ETR FY2021→FY2022 ×2.04",
-        "EXE FY2024→FY2025 ×1.53",
-        "FAST FY2022→FY2023 ×1.99",
-        "GRMN FY2021→FY2022 ×999.99",
-        "IBKR FY2022→FY2023 ×4.18",
+        "EXE FY2020→FY2022 ×14.94",
         "IP FY2024→FY2025 ×1.43",
-        "KLAC FY2023→FY2024 ×9.71",
-        "LRCX FY2021→FY2022 ×9.66",
-        "NFLX FY2022→FY2023 ×9.96",
-        "NVDA FY2021→FY2022 ×9.89",
-        "ORLY FY2022→FY2023 ×14.08",
-        "ODFL FY2021→FY2022 ×1.94",
-        "PANW FY2022→FY2023 ×2.32",
-        "O FY2021→FY2022 ×1.48"
+        "O FY2021→FY2022 ×1.48",
+        "HOOD FY2021→FY2022 ×1.78",
+        "SW FY2023→FY2024 ×1.50",
+        "TKO FY2023→FY2024 ×2.08",
+        "VICI FY2021→FY2022 ×1.52",
+        "WBD FY2021→FY2022 ×2.92"
       ],
-      "count": 36
-    },
-    {
-      "level": "warn",
-      "code": "charts-missing",
-      "msg": "Only 0 of 500 companies have a price chart."
+      "count": 12
     }
   ]
 }
