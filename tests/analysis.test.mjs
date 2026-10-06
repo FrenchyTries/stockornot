@@ -269,3 +269,31 @@ test("missing capital spending does not excuse a company from the cash test", ()
   assert.ok(rawFactors(s).factors.quality < rawFactors(skipped).factors.quality,
     rawFactors(s).factors.quality + " vs " + rawFactors(skipped).factors.quality);
 });
+
+test("a commodity producer's peak year is read at mid-cycle", () => {
+  const peak = { ...base().fin, revenue: 22e9, revenuePrev: 18e9, netIncome: 7e9, netIncomePrev: 3e9 };
+  const miner = base({ s: "Materials", pe: 16, nm: 31, eg: 80, fin: peak });
+  const k = inputs(miner);
+  assert.equal(k.cyclical, true);
+  assert.ok(k.peMid > 16, "mid-cycle P/E " + k.peMid);
+  assert.ok(k.nmMid < 31, "mid-cycle margin " + k.nmMid);
+  assert.equal(valuation(miner).earnings.midCycle, true);
+  /* five years on file outrank the two-year stand-in */
+  const longer = base({ s: "Materials", pe: 16, nm: 31, eg: 80, fin: { ...peak, niAvg: 1.7e9, revAvg: 15e9, avgYears: 5 } });
+  assert.ok(inputs(longer).peMid > k.peMid);
+  /* last year's jump in EPS is not growth for a miner, as it would be for anyone else */
+  const maker = base({ s: "Industrials", pe: 16, nm: 31, eg: 80, fin: peak });
+  assert.ok(rawFactors(miner).factors.growth < rawFactors(maker).factors.growth);
+  assert.equal(inputs(maker).peMid, null);
+  assert.ok(scoreStock(miner).notes.some((n) => /follow commodity prices/.test(n)));
+  assert.match(financialChecks(miner, scoreStock(miner)).find((g) => g.id === "value").why, /mid-cycle earnings/);
+});
+
+test("a gap in the filings is named, not shown as n/a", () => {
+  const s = base({ fin: { ...base().fin, fcf: null, capex: null, ocf: 4e8 } });
+  const cash = financialChecks(s, scoreStock(s)).find((g) => g.id === "cash");
+  assert.match(cash.answer.text, /no capital spending in its filings/);
+  assert.match(cash.why, /cannot be worked out/);
+  assert.ok(!cash.rows.some((r) => r[1] === "n/a"), JSON.stringify(cash.rows));
+  assert.ok(scoreStock(s).notes.some((n) => /Capital spending is missing/.test(n)));
+});

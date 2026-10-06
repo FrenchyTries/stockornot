@@ -204,6 +204,26 @@ function restatedShares(gaap, periods) {
   return null;
 }
 
+/* ------------------------------------------------------- missing capex
+
+   Capital spending goes by many names. When operating cash flow is there and
+   none of the capex tags above is, the outflows in the same period whose
+   names look like spending on assets are listed, largest first. Nothing uses
+   them as figures; they go into the cache and the audit, so the tag a company
+   really uses can be added to the list on evidence rather than by guesswork. */
+const CAPEX_LIKE = /^(PaymentsToAcquire|PaymentsFor|PaymentsToDevelop|PaymentsToConstruct|PaymentsToExplore|CapitalExpenditure)/;
+const NOT_CAPEX = /Business|Investment|Securit|Loan|Interest|Dividend|Repurchase|Tax|Debt|Equity|Share|Stock|Note|Pension|Restructuring|Legal|Contingent|Derivative|Hedg|Financ|Receivable|Mortgage|Affiliate|Subsidiar|Noncontrolling|Partnership|JointVenture|Retire|Settle/;
+
+function capexCandidates(gaap, end) {
+  const out = [];
+  for (const tag of Object.keys(gaap)) {
+    if (!CAPEX_LIKE.test(tag) || NOT_CAPEX.test(tag) || CONCEPTS.capex.tags.includes(tag)) continue;
+    const f = latestFor(annual(gaap, tag), end);
+    if (f && f.val > 0) out.push({ tag, val: f.val });
+  }
+  return out.sort((a, b) => b.val - a.val).slice(0, 6);
+}
+
 /* ------------------------------------------------------------------ main */
 
 /**
@@ -255,7 +275,9 @@ export function extractFundamentals(companyfacts, { latestPeriod = null } = {}) 
   const current = !latestPeriod || Math.abs(days(cur.end, latestPeriod)) <= 20;
 
   if (!num(fin.revenue) && !num(fin.netIncome)) return null;
-  return { fin, history, end: cur.end, fy: cur.fy, current, sharesRestated: !!shares };
+  const out = { fin, history, end: cur.end, fy: cur.fy, current, sharesRestated: !!shares };
+  if (num(ocf) && !num(capex)) out.capexCandidates = capexCandidates(gaap, cur.end);
+  return out;
 }
 
 export const FUNDAMENTALS_VERSION = 1;

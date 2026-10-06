@@ -110,7 +110,7 @@ function checkPrices(snap, prev) {
 }
 
 function checkFundamentals(snap) {
-  const suspect = { negRevenue: [], hugeMargin: [], negEquityRatio: [], impossiblePe: [] };
+  const suspect = { negRevenue: [], hugeMargin: [], negEquityRatio: [], impossiblePe: [], noCapex: [] };
 
   for (const s of snap.stocks) {
     const f = s.fin || {};
@@ -120,6 +120,10 @@ function checkFundamentals(snap) {
     if (num(s.nm) && (s.nm > 100 || s.nm < -500)) suspect.hugeMargin.push(`${s.t} ${s.nm.toFixed(0)}%`);
     if (num(s.gm) && (s.gm > 100 || s.gm < -100)) suspect.hugeMargin.push(`${s.t} gm ${s.gm.toFixed(0)}%`);
     if (num(s.pe) && Math.abs(s.pe) > 5000) suspect.impossiblePe.push(`${s.t} ${s.pe.toFixed(0)}`);
+    /* Operating cash flow but no capital spending: free cash flow cannot be
+       worked out, and the score has to fall back on operating cash. Banks
+       and insurers are not expected to report it. */
+    if (s.s !== "Financials" && num(f.ocf) && !num(f.capex)) suspect.noCapex.push(s.t);
     if (num(f.assets) && num(f.liabs) && num(f.equity) && f.assets > 0) {
       /* assets = liabilities + equity, give or take minority interests */
       const gap = Math.abs(f.assets - (f.liabs + f.equity)) / f.assets;
@@ -133,6 +137,11 @@ function checkFundamentals(snap) {
     add("warn", "margin-out-of-range", `${suspect.hugeMargin.length} margins fall outside any plausible range.`, suspect.hugeMargin);
   if (suspect.impossiblePe.length)
     add("warn", "pe-extreme", `${suspect.impossiblePe.length} P/E ratios are absurd.`, suspect.impossiblePe);
+  if (suspect.noCapex.length)
+    add("warn", "capex-missing",
+        `${suspect.noCapex.length} companies report operating cash flow but no capital spending, so free cash ` +
+        `flow is missing. data/fundamentals/<ticker>.json lists, under capexCandidates, the tags each one ` +
+        `does report that look like capital spending.`, suspect.noCapex);
   if (suspect.negEquityRatio.length)
     add("warn", "balance-sheet-gap",
         `${suspect.negEquityRatio.length} balance sheets do not add up (assets vs liabilities + equity). ` +
