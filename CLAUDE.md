@@ -74,3 +74,5 @@ conflict, say so and ask; don't quietly break the rule.
 - Company pages, as Vercel builds them: `node scripts/build-pages.mjs`
 - Local server: `node scripts/dev-server.mjs` (port 8080; `PORT` to change)
 - Deploying without GitHub: see "Deploying without GitHub" in `README.md`.
+- Getting on the App Store: the plan and who does what is in
+  `docs/APP_STORE.md`. Follow it, and tick steps off there as they land.
