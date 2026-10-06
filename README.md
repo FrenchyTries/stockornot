@@ -23,7 +23,9 @@ the score shows its working: five factors (value, growth, profitability,
 momentum, stability), each half a curve over the reported figures and half a
 rank among the company's own sector, blended by weight. The score is where that
 blend places the company in the S&P 500: 90 means ahead of 90% of the index.
-The notes say what was left out and why. [How the score works](https://stockornot.com/method)
+The notes say what was left out and why. The [track record](https://stockornot.com/track)
+follows each week's top and bottom fifth forward from October 2026, so whether
+the score means anything gets an honest answer over time. [How the score works](https://stockornot.com/method)
 lists every threshold. It describes the last filing and today's price; it does
 not forecast anything.
 

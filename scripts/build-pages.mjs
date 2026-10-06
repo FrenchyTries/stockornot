@@ -269,6 +269,61 @@ ${siblings.length ? `<h2>Other ${esc(s.s)} companies</h2>
 
 /* ------------------------------------------------------------- the index */
 
+/* ------------------------------------------------------------ track record
+
+   What the score picked each week, followed forward by scripts/track.mjs. The
+   page shows whatever the record says, and says how little a few weeks mean. */
+const MEANINGFUL_DAYS = 60;      /* about three months of sessions */
+
+function trackPage(track, updated) {
+  const groups = (track?.groups || []).slice().reverse();
+  const ret = (v) => pct((v - 1) * 100, 1);
+  const tone = (v) => (v > 1.0005 ? "up" : v < 0.9995 ? "down" : "flat");
+  const cell = (v) => `<td class="num"><span class="delta ${tone(v)}">${esc(pct((v - 1) * 100, 1))}</span></td>`;
+  const rows = groups.map((g) => `<tr>
+<th scope="row">${esc(dateShort(g.start))}<span class="track-days">${g.days} ${g.days === 1 ? "session" : "sessions"}</span></th>
+${cell(g.top)}${cell(g.bottom)}<td class="num">${esc(ret(g.index))}</td>${cell(g.top / g.index)}
+</tr>`).join("");
+  const longest = groups.reduce((m, g) => Math.max(m, g.days), 0);
+  const body = !groups.length
+    ? `<p>The first group is picked on the first nightly run after this page went up. Come back in a week.</p>`
+    : `<div class="table-scroll"><table class="doc-table list track-table">
+<thead><tr><th>Picked</th><th class="num">Top fifth</th><th class="num">Bottom fifth</th><th class="num">All 500</th><th class="num">Top vs all</th></tr></thead>
+<tbody>${rows}</tbody></table></div>
+${longest < MEANINGFUL_DAYS ? `<p class="note">The oldest group has been followed for ${longest} trading ${longest === 1 ? "session" : "sessions"}. Over weeks, prices move for reasons no score can see; read nothing into this until it has run for months.</p>` : ""}`;
+
+  return head("Track record | StockOrNot",
+    "What the StockOrNot score picked each week, the top and bottom fifth of the S&P 500, and how both did afterwards. Forward only, not a backtest.",
+    `${SITE}/track`).replace(' aria-current="page"', "") + `
+
+<p class="eyebrow">Track record</p>
+<h1>What the score picked, and what happened next</h1>
+<p class="doc-standfirst">Every week the top fifth of the S&amp;P 500 by score and the bottom fifth are
+written down with that day's prices, and followed from then on beside every company in the index.
+${track?.started ? `It started on ${esc(dateShort(track.started))} and` : "It"} only moves forward: nothing
+here is a backtest, and nothing can be tuned after the fact.</p>
+
+${body}
+
+<h2>How it is counted</h2>
+<ul class="limits">
+  <li><b>Equal weight.</b> Each group's day is the average of its members' price changes, as if the
+  same amount were held in each and evened out every day. "All 500" is every company in the index,
+  counted the same way.</li>
+  <li><b>Price only.</b> Dividends and trading costs are not included.</li>
+  <li><b>Fixed at the pick.</b> A group keeps the companies it was picked with, whatever their score
+  does afterwards. One that leaves the index stops counting.</li>
+  <li><b>Splits.</b> A one-day move of 40% or more is set aside for that day, which removes stock
+  splits and, rarely, a real crash.</li>
+  <li><b>The method as it stood.</b> Each group was picked by the score as it was that week. When the
+  method changes, earlier groups are left as they were picked.</li>
+</ul>
+
+<p>A score that does no better than the index over a long run is still a way to read the filings
+quickly. That is all it claims to be. <a href="/method">How the score works</a>.</p>
+` + foot(updated);
+}
+
 function indexPage(stocks, updated) {
   const bySector = {};
   for (const s of stocks) (bySector[s.s] ||= []).push(s);
@@ -356,6 +411,7 @@ async function main() {
   }
 
   await fs.writeFile(path.join(OUTDIR, "index.html"), indexPage(snap.stocks, snap.updated));
+  await fs.writeFile(path.join(ROOT, "track.html"), trackPage(await readJSON(path.join(DATA, "track.json")), snap.updated));
 
   /* ---- sitemap + robots ---- */
   const today = (snap.updated || new Date().toISOString()).slice(0, 10);
@@ -363,6 +419,7 @@ async function main() {
     { loc: `${SITE}/`, pri: "1.0", freq: "daily" },
     { loc: `${SITE}/stock`, pri: "0.9", freq: "daily" },
     { loc: `${SITE}/method`, pri: "0.8", freq: "monthly" },
+    { loc: `${SITE}/track`, pri: "0.6", freq: "weekly" },
     { loc: `${SITE}/pricing`, pri: "0.6", freq: "monthly" },
     { loc: `${SITE}/privacy`, pri: "0.3", freq: "yearly" },
     ...snap.stocks.map((s) => ({ loc: `${SITE}/stock/${slug(s.t)}`, pri: "0.7", freq: "daily" }))
@@ -376,7 +433,7 @@ ${urls.map((u) => `  <url><loc>${u.loc}</loc><lastmod>${today}</lastmod><changef
   await fs.writeFile(path.join(ROOT, "robots.txt"),
     `User-agent: *\nAllow: /\n\nSitemap: ${SITE}/sitemap.xml\n`);
 
-  console.log(`Built ${written} company pages + index, sitemap with ${urls.length} URLs.`);
+  console.log(`Built ${written} company pages + index, the track record, sitemap with ${urls.length} URLs.`);
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

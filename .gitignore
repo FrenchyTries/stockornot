@@ -5,5 +5,6 @@ node_modules/
 # buildCommand). Never commit them: 500 machine-written pages changing every
 # night is exactly the pattern that got the old GitHub account flagged.
 /stock/
+/track.html
 /sitemap.xml
 /robots.txt
