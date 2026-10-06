@@ -3149,6 +3149,11 @@ function wireAuth() {
 function init() {
   state.viewed = tier.loadViewed();
   wire();
+  /* Installable as an app, and able to open with no signal on the last data
+     it saw (sw.js, network first). Over https, and on localhost for development. */
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+    navigator.serviceWorker.register("/sw.js").catch(function () {});
+  }
   /* Decided synchronously, before any network call: either a session is already
      in storage or this page load is the return leg of a sign-in link. Either
      way somebody is signed in, and the header should not claim otherwise. */

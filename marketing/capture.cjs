@@ -13,6 +13,7 @@
      marketing/app-icon-1024   the store icon
      og.png                    the link preview every page names, 1200 x 630
      apple-touch-icon.png      the home-screen icon, 180 x 180
+     icons/icon-192, -512      the web app manifest's icons
 
    The cart is seeded with three companies at their real closing prices on the
    day they are shown as added, read from data/detail, so every number in the
@@ -154,6 +155,10 @@ async function icons(browser) {
 <svg viewBox="0 0 100 100"><rect width="100" height="100" fill="#4c8dff"/><path d="M22 64 L41 45 L56 57 L78 33" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   await renderHtml(browser, 180, 180, path.join(ROOT, "apple-touch-icon.png"), html);
   await renderHtml(browser, 1024, 1024, path.join(__dirname, "app-icon-1024.png"), html);
+  /* the web app manifest's icons; the 512 is also its maskable one, since the
+     mark sits well inside the safe circle */
+  await renderHtml(browser, 192, 192, path.join(ROOT, "icons", "icon-192.png"), html);
+  await renderHtml(browser, 512, 512, path.join(ROOT, "icons", "icon-512.png"), html);
 }
 
 async function renderHtml(browser, width, height, out, body) {

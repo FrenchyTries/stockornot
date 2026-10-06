@@ -63,6 +63,7 @@ function head(title, description, canonical, extra = "") {
 <meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" href="/favicon.svg" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="manifest" href="/manifest.webmanifest" />
 <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="/styles.css" />
 ${extra}

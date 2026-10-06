@@ -63,6 +63,11 @@ revenue expected, last quarter's result, the beat record, a calendar button),
 trend and drawdown under the price chart, the **closest peers** by size,
 month-by-month **insider sentiment**, and the last ten days of **headlines**.
 
+On a phone, *Add to Home Screen* installs it as an app with its own icon, and
+it opens with no signal on the last data it saw (`sw.js`, network first, so
+nobody online is ever shown a stale page). The App Store version is planned in
+[`docs/APP_STORE.md`](docs/APP_STORE.md).
+
 Scroll the card to read it all. Drag it sideways, press **Not for me** or
 **Add to cart** under the deck, or use <kbd>←</kbd> / <kbd>→</kbd>. The round
 button between them, or <kbd>Z</kbd>, takes back the last swipe: the company
