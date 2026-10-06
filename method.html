@@ -189,9 +189,24 @@
     filings. Each company is counted once in its sector, and is never its own closest peer.</li>
   </ul>
 
-  <p>The five results are multiplied by their weights and summed. Above 70 the card says
-  <strong>screens strongly</strong>; below 33, <strong>screens badly</strong>. The bands in between are
-  labels on a continuum, not categories.</p>
+  <h2>From five factors to one score</h2>
+
+  <p>The five results are multiplied by their weights and summed. Averaging five readings pulls
+  every company toward the middle: across the S&amp;P 500 the blend runs from about 20 to 87, and
+  half of all companies sit roughly between 45 and 60. A score that never leaves the fifties says very
+  little, so the number on the card is where the blend places the company in the index: the share
+  of the other S&amp;P 500 companies it beats, from 1 to 99. A score of 90 means ahead of 90% of the
+  index on these five factors, the same idea as a percentile.</p>
+
+  <p>Each label covers a fifth of the index: 80 and above <strong>screens strongly</strong>, 60 to 79
+  <strong>screens well</strong>, 40 to 59 <strong>mixed</strong>, 20 to 39 <strong>screens poorly</strong>,
+  and under 20 <strong>screens badly</strong>. Beside it the card gives the company's rank in its own
+  sector, such as &ldquo;#2 of 73 in Tech&rdquo;, so a utility can be read against utilities as well
+  as against everything else.</p>
+
+  <p>A rank is relative: if the whole market grows dearer, the best of it still scores 99. The five
+  factor readings in the full record are not ranked this way, so they still show whether a company
+  is strong in absolute terms.</p>
 
   <h2>Where the numbers come from</h2>
 
@@ -224,7 +239,9 @@
     Write-downs, one-off gains, capitalised costs and unusual fiscal years all distort ratios the score
     treats as comparable.</li>
 
-    <li><b>Missing data is only partly penalised.</b> When a figure is absent it is dropped rather than
+    <li><b>Missing data is only partly penalised.</b> When capital spending is missing from the
+    filings, free cash flow cannot be worked out, so operating cash flow stands in for the cash test
+    against a stricter bar, rather than the test being skipped. When any other figure is absent it is dropped rather than
     guessed, and a factor resting on one or two figures is pulled toward the middle, but a company with
     thin disclosure can still score on partial evidence. Banks and insurers are the usual case.</li>
 

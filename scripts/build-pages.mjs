@@ -14,7 +14,7 @@ import path from "node:path";
 import { sessionDate } from "./dates.mjs";
 import {
   num, money, cap, price, pct, pctPlain, x, dateShort, rangeSummary,
-  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext, inputs
+  FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext, inputs
 } from "../lib/analysis.mjs";
 import { financialChecks, historyChecks } from "../lib/insight.mjs";
 import { CHECK_ICONS } from "../lib/icons.mjs";
@@ -214,7 +214,9 @@ function companyPage(s, filing, deep, siblings, updated, session) {
   </div>
   <div class="hero-score">
     <span class="hero-score-num">${num(res.overall) ? res.overall : "—"}</span>
-    <span class="hero-score-lab">${esc(label.word)}<br><span class="muted">fundamentals score out of 100</span></span>
+    <span class="hero-score-lab">${esc(label.word)}<br><span class="muted">${res.place
+      ? `ahead of ${res.overall}% of the S&amp;P 500${res.place.sector ? ` · ${esc(sectorRankText(res.place, true))}` : ""}`
+      : "fundamentals score out of 100"}</span></span>
   </div>
 </div>
 
@@ -230,7 +232,8 @@ ${list(pc.cons, "con")}
 <h2>What the score is made of</h2>
 <p class="block-note">Each factor is half a curve over reported figures and half a rank among the
 other ${esc(s.s)} companies (momentum is judged against fixed thresholds only), and the five are
-blended by weight. It describes the last filing and the current price. It is not a forecast.</p>
+blended by weight. The score is where that blend places it in the S&amp;P 500. It describes the
+last filing and the current price. It is not a forecast.</p>
 <table class="doc-table factor-table"><tbody>${factorRows}</tbody></table>
 ${res.notes.length ? `<ul class="score-notes">${res.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
 

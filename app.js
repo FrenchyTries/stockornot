@@ -17,7 +17,7 @@
    ========================================================================== */
 import {
   num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos, rangeSummary,
-  FACTORS, scoreStock, scoreLabel, prosAndCons, buildScoreContext
+  FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext
 } from "./lib/analysis.mjs";
 import * as auth from "./lib/auth.mjs";
 import * as tier from "./lib/tier.mjs";
@@ -359,7 +359,8 @@ function stackTransform(depth) {
 /* The score as a ring. Deliberately small on the card — it sits beside the
    numbers rather than on top of them, and the factor bars behind it are one
    tap away in the detail sheet. */
-/* The score as a number out of 100, a thin meter and the word for it. */
+/* The score as a number out of 100, a thin meter, the word for it and the
+   company's rank in its sector. */
 function scoreRing(res, big) {
   var v = res.overall;
   var lab = scoreLabel(v);
@@ -374,9 +375,12 @@ function scoreRing(res, big) {
   meter.appendChild(fill);
   box.appendChild(meter);
   box.appendChild(el("span", "sr-label", lab.word));
-  box.title = num(v)
-    ? "Fundamentals score " + v + " out of 100, " + lab.word.toLowerCase()
-    : "Not enough reported data to score this one";
+  var rank = sectorRankText(res.place, big);
+  if (rank) box.appendChild(el("span", "sr-rank", rank));
+  box.title = !num(v) ? "Not enough reported data to score this one"
+    : res.place ? "Ahead of " + v + "% of the S&P 500 on its fundamentals" +
+        (res.place.sector ? ", and " + sectorRankText(res.place, true) : "")
+    : "Fundamentals score " + v + " out of 100, " + lab.word.toLowerCase();
   return box;
 }
 
@@ -2640,9 +2644,11 @@ function openDetail(s) {
     var scoreHead = el("div", "score-head");
     scoreHead.appendChild(scoreRing(scoreRes, true));
     var blurb = el("div", "score-blurb");
-    blurb.appendChild(el("p", "", num(scoreRes.overall)
-      ? "A weighted blend of the five factors below. It describes what the last filing and the current price look like. It is not a forecast, and it knows nothing about the business beyond these numbers."
-      : "Not enough reported data to score this one."));
+    blurb.appendChild(el("p", "", !num(scoreRes.overall) ? "Not enough reported data to score this one."
+      : (scoreRes.place
+          ? "Ahead of " + scoreRes.overall + "% of the S&P 500 on the five factors below, weighted. "
+          : "A weighted blend of the five factors below. ") +
+        "It describes what the last filing and the current price look like. It is not a forecast, and it knows nothing about the business beyond these numbers."));
     scoreHead.appendChild(blurb);
     if (scoreRes.notes && scoreRes.notes.length) {
       var notes = el("ul", "score-notes");
