@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-10-06T04:09:35.167Z",
-  "snapshotUpdated": "2026-10-06T04:09:34.827Z",
+  "ranAt": "2026-10-07T00:33:06.103Z",
+  "snapshotUpdated": "2026-10-07T00:33:05.917Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -9,25 +9,6 @@
   },
   "verdict": "published with warnings",
   "findings": [
-    {
-      "level": "warn",
-      "code": "tickers-dropped",
-      "msg": "1 tickers present yesterday are missing today.",
-      "tickers": [
-        "AVB"
-      ],
-      "count": 1
-    },
-    {
-      "level": "warn",
-      "code": "price-jump",
-      "msg": "2 companies moved more than 25% since the last run.",
-      "tickers": [
-        "CTVA 80.34→12.39",
-        "PTC 140→192.26"
-      ],
-      "count": 2
-    },
     {
       "level": "warn",
       "code": "balance-sheet-gap",
@@ -65,7 +46,7 @@
     {
       "level": "warn",
       "code": "filings-missing",
-      "msg": "15 companies have no filings.",
+      "msg": "23 companies have no filings.",
       "tickers": [
         "AOS",
         "AES",
@@ -79,11 +60,19 @@
         "COST",
         "DELL",
         "DG",
+        "EIX",
+        "EQR",
         "EXPD",
+        "GRMN",
+        "GE",
+        "HON",
+        "KMI",
+        "LVS",
         "MLM",
+        "MCD",
         "SYF"
       ],
-      "count": 15
+      "count": 23
     },
     {
       "level": "warn",
