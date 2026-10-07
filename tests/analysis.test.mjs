@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pct, pctPlain, inputs, rankAmong, scoreStock, prosAndCons, buildScoreContext, rangeSummary, valuation } from "../lib/analysis.mjs";
+import { pct, pctPlain, inputs, rankAmong, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext, rangeSummary, valuation, rawFactors } from "../lib/analysis.mjs";
 import { beatRecord, insiderSummary, financialChecks, historyChecks, buildSectorStats, sectorView, nearestPeers } from "../lib/insight.mjs";
 import { CHECK_ICONS } from "../lib/icons.mjs";
 
@@ -226,4 +226,89 @@ test("when earnings and cash flow disagree, the check says which is which", () =
   const c = valueCheck(base({ pe: 40, fin: { ...base().fin, fcf: 2e9 } }));
   assert.equal(c.answer.text, "Mixed: dear on earnings, cheap on cash");
   assert.match(c.why, /well above the 19×.*well below that same mark/);
+});
+
+test("the score is the company's place in the index, with its rank in the sector", () => {
+  /* sixty companies in two sectors, better the further down the list */
+  const stocks = [];
+  for (let i = 0; i < 60; i++) {
+    stocks.push(base({ t: "S" + i, cik: "c" + i, s: i % 2 ? "Industrials" : "Health Care",
+      pe: 40 - i * 0.5, rg: i * 0.5, rg5: i * 0.4, nm: 2 + i * 0.4, r52: -20 + i, beta: 2 - i * 0.02 }));
+  }
+  const ctx = buildScoreContext(stocks);
+  const scores = stocks.map((s) => scoreStock(s, ctx));
+  const byBlend = scores.slice().sort((a, b) => a.blend - b.blend);
+  const best = byBlend.at(-1), worst = byBlend[0];
+  assert.equal(best.overall, 99);
+  assert.equal(worst.overall, 1);
+  /* the order of the scores is the order of the blends */
+  const order = byBlend.map((r) => r.overall);
+  assert.deepEqual(order, order.slice().sort((a, b) => a - b));
+  assert.equal(best.place.sector.rank, 1);
+  assert.equal(best.place.sector.of, 30);
+  assert.match(sectorRankText(best.place), /^#1 of 30 in (Industrials|Health Care)$/);
+  assert.match(sectorRankText(worst.place, true), /^#30 of 30 in (Industrials|Health Care)$/);
+  /* without the rest of the index there is nothing to place it in */
+  assert.equal(scoreStock(stocks[0]).place, null);
+  assert.equal(scoreStock(stocks[0]).overall, Math.round(scoreStock(stocks[0]).blend));
+});
+
+test("each label covers a fifth of the scale", () => {
+  assert.deepEqual([99, 80, 79, 60, 59, 40, 39, 20, 19, 1].map((v) => scoreLabel(v).word),
+    ["Screens strongly", "Screens strongly", "Screens well", "Screens well", "Mixed", "Mixed",
+     "Screens poorly", "Screens poorly", "Screens badly", "Screens badly"]);
+});
+
+test("missing capital spending does not excuse a company from the cash test", () => {
+  /* profit 5e8, operating cash 4e8, no capex: free cash flow unknown */
+  const s = base({ fin: { ...base().fin, fcf: null, capex: null, ocf: 4e8 } });
+  const k = inputs(s);
+  assert.equal(k.cashConv, null);
+  assert.equal(k.ocfConv, 0.8);
+  const skipped = base({ fin: { ...base().fin, fcf: null, capex: null, ocf: null } });
+  assert.ok(rawFactors(s).factors.quality < rawFactors(skipped).factors.quality,
+    rawFactors(s).factors.quality + " vs " + rawFactors(skipped).factors.quality);
+});
+
+test("a commodity producer's peak year is read at mid-cycle", () => {
+  const peak = { ...base().fin, revenue: 22e9, revenuePrev: 18e9, netIncome: 7e9, netIncomePrev: 3e9 };
+  const miner = base({ s: "Materials", pe: 16, nm: 31, eg: 80, fin: peak });
+  const k = inputs(miner);
+  assert.equal(k.cyclical, true);
+  assert.ok(k.peMid > 16, "mid-cycle P/E " + k.peMid);
+  assert.ok(k.nmMid < 31, "mid-cycle margin " + k.nmMid);
+  assert.equal(valuation(miner).earnings.midCycle, true);
+  /* five years on file outrank the two-year stand-in */
+  const longer = base({ s: "Materials", pe: 16, nm: 31, eg: 80, fin: { ...peak, niAvg: 1.7e9, revAvg: 15e9, avgYears: 5 } });
+  assert.ok(inputs(longer).peMid > k.peMid);
+  /* last year's jump in EPS is not growth for a miner, as it would be for anyone else */
+  const maker = base({ s: "Industrials", pe: 16, nm: 31, eg: 80, fin: peak });
+  assert.ok(rawFactors(miner).factors.growth < rawFactors(maker).factors.growth);
+  assert.equal(inputs(maker).peMid, null);
+  assert.ok(scoreStock(miner).notes.some((n) => /follow commodity prices/.test(n)));
+  assert.match(financialChecks(miner, scoreStock(miner)).find((g) => g.id === "value").why, /mid-cycle earnings/);
+});
+
+test("a gap in the filings is named, not shown as n/a", () => {
+  const s = base({ fin: { ...base().fin, fcf: null, capex: null, ocf: 4e8 } });
+  const cash = financialChecks(s, scoreStock(s)).find((g) => g.id === "cash");
+  assert.match(cash.answer.text, /no capital spending in its filings/);
+  assert.match(cash.why, /cannot be worked out/);
+  assert.ok(!cash.rows.some((r) => r[1] === "n/a"), JSON.stringify(cash.rows));
+  assert.ok(scoreStock(s).notes.some((n) => /Capital spending is missing/.test(n)));
+});
+
+test("a dividend yield its own payout ratio contradicts is not counted", () => {
+  /* a 4.3% yield on a 13% payout at 14× earnings: about 0.9% implied */
+  const s = base({ pe: 14.3, dy: 4.26, payout: 12.84 });
+  const k = inputs(s);
+  assert.equal(k.dyDisputed, true);
+  assert.equal(k.dy, null);
+  assert.equal(valuation(s).dy, 0);
+  assert.doesNotMatch(prosAndCons(s).pros.join(" "), /dividend/);
+  assert.ok(scoreStock(s).notes.some((n) => /dividend figures disagree/.test(n)));
+  /* figures that agree are counted as they are */
+  const fine = base({ pe: 26.4, dy: 3.14, payout: 77.24 });
+  assert.equal(inputs(fine).dyDisputed, false);
+  assert.equal(inputs(fine).dy, 3.14);
 });

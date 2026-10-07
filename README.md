@@ -17,11 +17,15 @@ decide: swipe right and it goes in your cart, left and it's gone.
 
 Most stock screeners either dump a spreadsheet on you or hand you a rating and
 expect you to trust it. This tries to do neither. Each card carries a
-**fundamentals score** from 0 to 100 with a plain label ("Screens well",
-"Mixed", "Screens poorly"), but the score shows its working: five factors
-(value, growth, profitability, momentum, stability), each half a curve over the
-reported figures and half a rank among the company's own sector, with the notes
-on anything it left out and why. [How the score works](https://stockornot.com/method)
+**fundamentals score** from 1 to 99 with a plain label ("Screens well",
+"Mixed", "Screens poorly") and its rank in its sector ("#2 of 73 in Tech"), but
+the score shows its working: five factors (value, growth, profitability,
+momentum, stability), each half a curve over the reported figures and half a
+rank among the company's own sector, blended by weight. The score is where that
+blend places the company in the S&P 500: 90 means ahead of 90% of the index.
+The notes say what was left out and why. The [track record](https://stockornot.com/track)
+follows each week's top and bottom fifth forward from October 2026, so whether
+the score means anything gets an honest answer over time. [How the score works](https://stockornot.com/method)
 lists every threshold. It describes the last filing and today's price; it does
 not forecast anything.
 
@@ -50,8 +54,8 @@ the raw number is in the table below it.
 | **Against its sector** | The first six of P/E, price/sales, FCF yield, revenue growth, net margin, ROE (ROA where equity is negative or tiny), debt/equity, dividend yield and 1-year return that the company reports, beside the sector median, with where it ranks among the other companies in the sector ("cheaper than 63%"). The full record shows every row |
 
 The answers use the same rules as the score: a bank's revenue jump, cash flow and
-debt are never judged, and "is the price reasonable?" is the value part of the
-score, sector half included. Hover any figure for a one-line explanation.
+debt are never judged, and "is the price reasonable?" reads the same multiples,
+against the same growth, as the value part of the score. Hover any figure for a one-line explanation.
 
 Tapping a card opens the full record, which adds five years of the filings under
 the same checks, the **next report** (EPS and
@@ -59,10 +63,16 @@ revenue expected, last quarter's result, the beat record, a calendar button),
 trend and drawdown under the price chart, the **closest peers** by size,
 month-by-month **insider sentiment**, and the last ten days of **headlines**.
 
-Scroll the card to read it all. Drag it sideways or use <kbd>←</kbd> / <kbd>→</kbd>;
-without a pointer or keyboard, *Open the full record* has **Add to cart** and
-**Not for me** buttons. <kbd>↑</kbd> / <kbd>↓</kbd> scroll, and <kbd>Enter</kbd>
-opens the full record.
+On a phone, *Add to Home Screen* installs it as an app with its own icon, and
+it opens with no signal on the last data it saw (`sw.js`, network first, so
+nobody online is ever shown a stale page). The App Store version is planned in
+[`docs/APP_STORE.md`](docs/APP_STORE.md).
+
+Scroll the card to read it all. Drag it sideways, press **Not for me** or
+**Add to cart** under the deck, or use <kbd>←</kbd> / <kbd>→</kbd>. The round
+button between them, or <kbd>Z</kbd>, takes back the last swipe: the company
+returns to the top, and leaves the cart again if that swipe put it there.
+<kbd>↑</kbd> / <kbd>↓</kbd> scroll, and <kbd>Enter</kbd> opens the full record.
 
 ## The cart
 
@@ -307,6 +317,13 @@ moves carry a ▲/▼ glyph and a signed number as well as colour, so nothing de
 on colour alone. `prefers-reduced-motion` and `forced-colors` are honoured. The
 swipe gesture locks to an axis on the first 8px of movement, so dragging sideways
 swipes and dragging vertically scrolls the card.
+
+Motion is there to say what just happened, and nothing moves on its own:
+the next two cards show at the bottom of the deck, the button on the side a card
+is dragged towards lights up with it, an undone card flies back in from the side
+it left by, a company's score counts up the first time it reaches the top, and
+a removal from the cart folds the row away and offers an **Undo**. With reduced
+motion all of it is instant.
 
 The link preview (`og.png`), the home-screen icon and the store screenshots
 are all captured from the running site by `marketing/capture.cjs`, so they

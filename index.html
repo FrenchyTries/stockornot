@@ -21,6 +21,11 @@
 
 <link rel="icon" href="/favicon.svg" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="StockOrNot" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
 <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="styles.css" />
 </head>
@@ -71,6 +76,23 @@
           <p id="msgBody"></p>
           <div class="msg-actions" id="msgActions"></div>
         </div>
+      </div>
+
+      <!-- the same three things a swipe, the arrow keys and Z do -->
+      <div class="deck-bar" id="deckBar" hidden>
+        <button type="button" class="deck-btn pass" id="btnPass" aria-keyshortcuts="ArrowLeft">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          <span>Not for me</span>
+          <kbd aria-hidden="true">&larr;</kbd>
+        </button>
+        <button type="button" class="deck-btn undo" id="btnUndo" aria-keyshortcuts="Z" aria-label="Undo the last swipe" title="Undo the last swipe (Z)" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+        </button>
+        <button type="button" class="deck-btn add" id="btnKeep" aria-keyshortcuts="ArrowRight">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Add to cart</span>
+          <kbd aria-hidden="true">&rarr;</kbd>
+        </button>
       </div>
 
     </div>
@@ -388,6 +410,12 @@
     and may be stale, mis-parsed or wrong. Read the actual 10-K before you buy anything.
   </p>
 </footer>
+
+<!-- a short confirmation with a way back; app.js moves it into an open dialog -->
+<div class="toast" id="toast" role="status" aria-live="polite" hidden>
+  <span id="toastText"></span>
+  <button type="button" class="toast-btn" id="toastAction">Undo</button>
+</div>
 
 <script type="module" src="app.js"></script>
 </body>

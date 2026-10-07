@@ -215,7 +215,13 @@ async function fundamentalsFor(c, tenK, safeName) {
   const file = path.join(FUND_DIR, safeName + ".json");
   let cached = null;
   try { cached = JSON.parse(await fs.readFile(file, "utf8")); } catch { /* first run */ }
-  if (cached?.out && cached.v === FUNDAMENTALS_VERSION && tenK && cached.accession === tenK.accession) {
+  /* A cached reading with operating cash flow but no capital spending, and
+     no list of what the company tags instead, is read once more so the list
+     is there (see capexCandidates in fundamentals.mjs). Only those companies,
+     not the whole cache. */
+  const owesCandidates = cached?.out && cached.out.fin && cached.out.fin.ocf != null &&
+    cached.out.fin.capex == null && !cached.out.capexCandidates;
+  if (cached?.out && cached.v === FUNDAMENTALS_VERSION && tenK && cached.accession === tenK.accession && !owesCandidates) {
     return { out: cached.out, how: "cached" };
   }
 
@@ -567,6 +573,18 @@ async function main() {
           if (v !== undefined && v !== null) row[finFy - k] = v;
         }
         if (Object.keys(row).length) history[concept.key] = row;
+      }
+    }
+
+    /* Average profit and revenue over the years on file (three at least), for
+       companies whose profits follow commodity prices: lib/analysis.mjs reads
+       them on half the latest year and half this average. */
+    if (fin) {
+      const yrs = Object.keys(history?.netIncome || {}).filter((y) => numOrNull(history.revenue?.[y]) !== null);
+      if (yrs.length >= 3) {
+        fin.niAvg = Math.round(yrs.reduce((a, y) => a + history.netIncome[y], 0) / yrs.length);
+        fin.revAvg = Math.round(yrs.reduce((a, y) => a + history.revenue[y], 0) / yrs.length);
+        fin.avgYears = yrs.length;
       }
     }
 
