@@ -731,6 +731,32 @@ body:not(.docpage) main { flex: 1; display: flex; }
 .sr-label { font-size: 12px; color: var(--ink-2); font-weight: 500; white-space: nowrap; }
 .sr-rank { font-size: 11.5px; color: var(--ink-muted); white-space: nowrap; font-variant-numeric: tabular-nums; margin-top: -2px; }
 .score-box.tone-none .score-num b { color: var(--ink-muted); }
+/* a score in any style but Balanced carries the style's name */
+.sr-style {
+  margin-top: 1px; padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+  font-size: 11px; font-weight: 600; color: var(--accent-ink); background: var(--accent-soft);
+}
+.fl-weight { margin-left: 6px; font-size: 11.5px; font-weight: 500; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.style-line { margin: 10px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-muted); }
+.style-line .link-btn { padding: 0; font-size: 12.5px; }
+#cmpStyle .style-line { margin: 12px 0 0; }
+.score-blurb .style-line { margin-top: 8px; }
+
+/* the style picker */
+.style-list { display: grid; gap: 8px; margin: 14px 0 16px; padding: 0; border: 0; }
+.style-opt {
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; cursor: pointer;
+  border-radius: var(--radius); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line);
+}
+.style-opt:has(input:checked) { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.style-opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.style-opt input { flex: none; width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
+.style-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.style-txt b { font-size: 14.5px; font-weight: 600; }
+.style-after { font-size: 12px; color: var(--accent-ink); }
+.style-blurb { margin-top: 2px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.style-weights { margin-top: 4px; font-size: 11.5px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.style-fine { margin-top: 12px; }
 
 .score-box.is-big { align-items: flex-start; min-width: 132px; }
 .score-box.is-big .score-num b { font-size: 44px; }
@@ -1174,7 +1200,9 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
 .doc-table.list th a:hover b { color: var(--accent-ink); }
 .doc-table.list th span { display: block; font-size: 12px; color: var(--ink-muted); }
 .doc-table.list thead th { font-size: 12px; color: var(--ink-muted); font-weight: 500; }
-.doc-table.list thead th:not(:first-child) { text-align: right; }
+.doc-table.list thead th:not(:first-child) { text-align: right; padding-left: 12px; }
+.style-table th[scope="row"] { min-width: 11em; }
+@media (max-width: 520px) { .style-table { font-size: 13px; } }
 .doc-table.list td { padding-left: 12px; }
 
 .doc-check h3 { display: flex; align-items: center; gap: 10px; margin: 26px 0 4px; font-size: 15px; }

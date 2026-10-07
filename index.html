@@ -105,6 +105,7 @@
     <p class="block-note first" id="cmpFull" hidden>Three at a time. Take one out to add another.</p>
     <div class="cmp-suggest" id="cmpSuggest" hidden></div>
     <p class="block-note" id="cmpMsg" role="status"></p>
+    <div id="cmpStyle"></div>
 
     <div class="cmp-body" id="cmpBody"></div>
     <p class="block-note">Not investment advice. The score describes the latest filings; it does not predict the price.</p>
@@ -166,8 +167,8 @@
       nothing here is a backtest, and nothing can be tuned after the fact.
     </p>
     <div id="trackBody"><p class="block-note">Loading…</p></div>
-    <p class="block-note">Price only, equal weight, without dividends or trading costs.
-      <a href="/track">How it is counted</a></p>
+    <p class="block-note">Picked by the Balanced score, whatever style you have chosen. Price only,
+      equal weight, without dividends or trading costs. <a href="/track">How it is counted</a></p>
   </section>
 
   <!-- ============================ ACCOUNT ============================ -->
@@ -238,6 +239,10 @@
     </p>
 
     <div class="row-list">
+      <button type="button" class="row-link" id="acctStyle" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+        <span><b>Scoring style</b><small id="acctStyleNote">Balanced, the standard score</small></span>
+      </button>
       <button type="button" class="row-link" id="acctAlerts">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
         <span><b>Earnings alerts</b><small>An email a week before anything in your cart reports</small></span>
@@ -448,6 +453,31 @@
       </div>
       <p class="block-note">Not investment advice. Orders go to your brokerage exactly as listed and cannot be recalled once filled.</p>
       <p class="auth-error" id="orderError" role="alert" hidden></p>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================ SCORING STYLE ============================ -->
+<dialog class="sheet" id="dlgStyle" aria-labelledby="styleTitle">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="styleTitle">Scoring style</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <p class="auth-blurb">
+        The same five factors, weighted the way different investors have said matters. The score
+        is still a place among the S&amp;P 500, ranked under the style you pick.
+      </p>
+      <fieldset class="style-list" id="styleList"><legend class="sr-only">Scoring style</legend></fieldset>
+      <button type="button" class="primary-btn wide" data-close>Done</button>
+      <p class="auth-fine style-fine">
+        Each style is our reading of what that investor has published. None of them is affiliated
+        with StockOrNot or has endorsed it, and none of this is how they invest today. The track
+        record and the company pages use Balanced. Not investment advice.
+      </p>
     </div>
   </div>
 </dialog>

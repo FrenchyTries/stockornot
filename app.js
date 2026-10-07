@@ -17,7 +17,8 @@
    ========================================================================== */
 import {
   num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos, rangeSummary,
-  FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext
+  FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext,
+  STYLES, DEFAULT_STYLE, styleById, styleFactors
 } from "./lib/analysis.mjs";
 import * as auth from "./lib/auth.mjs";
 import * as tier from "./lib/tier.mjs";
@@ -29,7 +30,7 @@ import { CHECK_ICONS } from "./lib/icons.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
-var LS = { cart: "ts.cart", seen: "ts.seen", owner: "ts.cartOwner" };
+var LS = { cart: "ts.cart", seen: "ts.seen", owner: "ts.cartOwner", style: "ts.style" };
 
 function load(k, fb) {
   try { var raw = localStorage.getItem(k); return raw === null ? fb : JSON.parse(raw); }
@@ -64,6 +65,7 @@ var state = {
   sectors: null,          /* per-sector sorted metrics, built once per snapshot */
   scoreCtx: null,         /* the same, for the score's sector half */
   broker:  null,          /* last /api/broker status; null until asked */
+  style:   styleById(load(LS.style, DEFAULT_STYLE)).id,   /* the scoring style chosen, kept in this browser */
   orderType: "market"     /* market (dollars) | limit (whole shares) */
 };
 
@@ -377,20 +379,29 @@ function scoreRing(res, big) {
   box.appendChild(el("span", "sr-label", lab.word));
   var rank = sectorRankText(res.place, big);
   if (rank) box.appendChild(el("span", "sr-rank", rank));
+  /* any style but the standard one says so wherever its score shows */
+  var st = styleById(res.style);
+  if (st.id !== DEFAULT_STYLE) box.appendChild(el("span", "sr-style", st.short));
   box.title = !num(v) ? "Not enough reported data to score this one"
-    : res.place ? "Ahead of " + v + "% of the S&P 500 on its fundamentals" +
+    : (res.place ? "Ahead of " + v + "% of the S&P 500 on its fundamentals" +
         (res.place.sector ? ", and " + sectorRankText(res.place, true) : "")
-    : "Fundamentals score " + v + " out of 100, " + lab.word.toLowerCase();
+      : "Fundamentals score " + v + " out of 100, " + lab.word.toLowerCase()) +
+      (st.id !== DEFAULT_STYLE ? ", in the " + st.label + " style" : "");
   return box;
 }
 
+/* The factors the score's style reads. Balanced reads all five in their usual
+   order; any other style lists its own, heaviest first, with each weight. */
 function factorBars(res) {
   var box = el("div", "factor-list");
-  FACTORS.forEach(function (f) {
-    var val = res.factors[f.id];
+  var styled = res.style && res.style !== DEFAULT_STYLE;
+  styleFactors(res.factors, res.style).forEach(function (f) {
+    var val = f.value;
     var row = el("div", "factor-row" + (num(val) ? "" : " is-na"));
     var lab = el("div", "factor-label");
-    lab.appendChild(el("span", "fl-name", f.label));
+    var name = el("span", "fl-name", f.label);
+    if (styled) name.appendChild(el("span", "fl-weight", Math.round(f.weight * 100) + "%"));
+    lab.appendChild(name);
     lab.appendChild(el("span", "fl-blurb", f.blurb));
     row.appendChild(lab);
     var meter = el("div", "factor-meter");
@@ -585,7 +596,7 @@ function makeCard(s, depth) {
   idb.appendChild(el("p", "c-name", s.n));
   idb.appendChild(el("span", "c-sector", s.s));
   top.appendChild(idb);
-  var res = scoreStock(s, state.scoreCtx);
+  var res = scoreStock(s, state.scoreCtx, state.style);
   top.appendChild(scoreRing(res, false));
   body.appendChild(top);
 
@@ -2653,16 +2664,19 @@ function openDetail(s) {
     body.innerHTML = "";
 
     /* --- the score, and what drove it --- */
-    var scoreRes = scoreStock(s, state.scoreCtx);
+    var scoreRes = scoreStock(s, state.scoreCtx, state.style);
     var scoreBox = el("div", "score-detail");
     var scoreHead = el("div", "score-head");
     scoreHead.appendChild(scoreRing(scoreRes, true));
     var blurb = el("div", "score-blurb");
+    var st = styleById(scoreRes.style);
+    var styled = st.id !== DEFAULT_STYLE;   /* a style may read fewer than five */
     blurb.appendChild(el("p", "", !num(scoreRes.overall) ? "Not enough reported data to score this one."
       : (scoreRes.place
-          ? "Ahead of " + scoreRes.overall + "% of the S&P 500 on the five factors below, weighted. "
-          : "A weighted blend of the five factors below. ") +
+          ? "Ahead of " + scoreRes.overall + "% of the S&P 500 on the " + (styled ? "" : "five ") + "factors below, weighted. "
+          : "A weighted blend of the factors below. ") +
         "It describes what the last filing and the current price look like. It is not a forecast, and it knows nothing about the business beyond these numbers."));
+    blurb.appendChild(styleLine(st));
     scoreHead.appendChild(blurb);
     if (scoreRes.notes && scoreRes.notes.length) {
       var notes = el("ul", "score-notes");
@@ -2916,6 +2930,9 @@ function renderCompare() {
     body.appendChild(el("p", "block-note", "Loading the S&P 500…"));
     return;
   }
+  var note = $("#cmpStyle");
+  note.innerHTML = "";
+  note.appendChild(styleLine(styleById(state.style)));
   var list = comparePicks().map(function (t) { return state.byTicker[t]; }).filter(Boolean);
   /* a company that has left the index since it was picked no longer holds a place */
   if (list.length < comparePicks().length) {
@@ -2931,7 +2948,7 @@ function renderCompare() {
   }
 
   var cols = list.map(function (s) {
-    var res = scoreStock(s, state.scoreCtx);
+    var res = scoreStock(s, state.scoreCtx, state.style);
     return { s: s, res: res, checks: insight.financialChecks(s, res) };
   });
 
@@ -3014,9 +3031,11 @@ function renderCompare() {
     box.appendChild(el("span", "cmp-sub", m[2]));
     return box;
   }));
-  FACTORS.forEach(function (f) {
-    var vals = cols.map(function (c) { return c.res.factors[f.id]; });
-    row(f.label, vals.map(meter), highest(vals.map(function (v) { return num(v) ? Math.round(v) : null; })), f.blurb);
+  var styled = state.style !== DEFAULT_STYLE;
+  styleFactors(cols[0].res.factors, state.style).forEach(function (f, i) {
+    var vals = cols.map(function (c) { return styleFactors(c.res.factors, state.style)[i].value; });
+    row(f.label + (styled ? " · " + Math.round(f.weight * 100) + "%" : ""), vals.map(meter),
+      highest(vals.map(function (v) { return num(v) ? Math.round(v) : null; })), f.blurb);
   });
 
   section("The five checks");
@@ -3134,6 +3153,59 @@ function renderTrack(track) {
 
 function openDialog(dlg) { if (!dlg.open) dlg.showModal(); }
 function closeDialog(dlg) { if (dlg.open) dlg.close(); }
+
+/* ------------------------------------------------------- scoring style ---
+   The same five factors weighted the way a known investor has said matters
+   (STYLES in lib/analysis.mjs). The choice applies at once, behind the
+   sheet, so the score on the card can be watched changing. */
+
+/* "Scored in the Balanced style. Try another style" */
+function styleLine(st) {
+  var p = el("p", "style-line");
+  p.appendChild(document.createTextNode(st.id === DEFAULT_STYLE ? "Scored in the Balanced style. "
+    : "Scored in the " + st.label + " style, after " + st.after + ". "));
+  var b = el("button", "link-btn", st.id === DEFAULT_STYLE ? "Try another style" : "Change");
+  b.type = "button";
+  b.addEventListener("click", openStyles);
+  p.appendChild(b);
+  return p;
+}
+
+function weightsText(st) {
+  return styleFactors(null, st.id).map(function (f) { return f.label + " " + Math.round(f.weight * 100) + "%"; }).join(" · ");
+}
+
+function openStyles() {
+  var list = $("#styleList");
+  Array.prototype.slice.call(list.querySelectorAll(".style-opt")).forEach(function (n) { n.remove(); });
+  STYLES.forEach(function (st) {
+    var opt = el("label", "style-opt");
+    var input = el("input");
+    input.type = "radio";
+    input.name = "scoreStyle";
+    input.value = st.id;
+    input.checked = st.id === state.style;
+    input.addEventListener("change", function () { if (input.checked) chooseStyle(st.id); });
+    opt.appendChild(input);
+    var txt = el("span", "style-txt");
+    txt.appendChild(el("b", "", st.label));
+    if (st.after) txt.appendChild(el("span", "style-after", "After " + st.after + ", from " + st.source));
+    txt.appendChild(el("span", "style-blurb", st.blurb));
+    txt.appendChild(el("span", "style-weights", weightsText(st)));
+    opt.appendChild(txt);
+    list.appendChild(opt);
+  });
+  openDialog($("#dlgStyle"));
+}
+
+function chooseStyle(id) {
+  state.style = styleById(id).id;
+  save(LS.style, state.style);
+  renderDeck();
+  renderAccountTab();
+  if (view === "compare") renderCompare();
+  if ($("#dlgDetail").open && detailTicker && state.byTicker[detailTicker]) openDetail(state.byTicker[detailTicker]);
+}
 
 /* --------------------------------------------------------------- tabs ---
    Five tabs, one shown at a time. The address carries the tab (#cart,
@@ -3255,6 +3327,7 @@ function wire() {
   window.addEventListener("popstate", followUrl);
   window.addEventListener("hashchange", followUrl);
   $("#acctAlerts").addEventListener("click", openEarnings);
+  $("#acctStyle").addEventListener("click", openStyles);
   $("#cmpInput").addEventListener("input", renderHits);
   $("#cmpInput").addEventListener("keydown", function (ev) {
     if (ev.key === "Enter") {
@@ -3431,6 +3504,8 @@ function renderAccountTab() {
   var on = auth.isConfigured();
   $("#authBox").hidden = !on;
   $("#authOff").hidden = on;
+  var st = styleById(state.style);
+  $("#acctStyleNote").textContent = st.label + (st.after ? ", after " + st.after : ", the standard score");
   $("#acctPlan").textContent = tier.DEV_UNLIMITED ? "Not taking payment yet, so everything is open"
     : tier.TIER_LABEL[state.tier] + (state.tier === "member" ? "" : " · see what membership adds");
   if (!on) return;

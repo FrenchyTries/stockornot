@@ -91,6 +91,21 @@ Each tab has its own address (`/#cart`, `/#compare`…), so the Back button step
 between them and a link opens the same one. The arrow keys swipe only while the
 deck is showing.
 
+## Scoring styles
+
+The score can be read in six styles, chosen under Account (or *Try another
+style* under any score). Each weights the same five factors the way an investor
+has written that it matters: **Balanced** (the standard score), **Quality at a
+fair price** (after Warren Buffett), **Deep value, out of favour** (after Michael
+Burry, where a fallen price counts in its favour), **Growth at a reasonable
+price** (after Peter Lynch), **Defensive** (after Benjamin Graham) and **Growth
+and momentum** (after William O'Neil). Only the weights change, and the score is
+still a place among the 500, ranked under that style (`STYLES` in
+`lib/analysis.mjs`; the weights are on the method page, and a test keeps the
+two in step). The choice is kept in the browser. The track record and the
+company pages use Balanced. None of these investors is affiliated with
+StockOrNot.
+
 ## The cart
 
 Swiping right stores the ticker, the price at the moment you added it, and a note

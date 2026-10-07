@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pct, pctPlain, inputs, rankAmong, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext, rangeSummary, valuation, rawFactors } from "../lib/analysis.mjs";
+import { pct, pctPlain, inputs, rankAmong, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext, rangeSummary, valuation, rawFactors,
+  FACTORS, STYLES, DEFAULT_STYLE, styleById, styleFactors } from "../lib/analysis.mjs";
+import fs from "node:fs";
 import { beatRecord, insiderSummary, financialChecks, historyChecks, buildSectorStats, sectorView, nearestPeers } from "../lib/insight.mjs";
 import { CHECK_ICONS } from "../lib/icons.mjs";
 
@@ -311,4 +313,71 @@ test("a dividend yield its own payout ratio contradicts is not counted", () => {
   const fine = base({ pe: 26.4, dy: 3.14, payout: 77.24 });
   assert.equal(inputs(fine).dyDisputed, false);
   assert.equal(inputs(fine).dy, 3.14);
+});
+
+/* ------------------------------------------------------------ styles */
+
+test("every style's weights add up to one, and an unknown style is Balanced", () => {
+  for (const st of STYLES) {
+    const sum = Object.values(st.weights).reduce((a, b) => a + b, 0);
+    assert.ok(Math.abs(sum - 1) < 1e-9, st.id + " adds to " + sum);
+    assert.deepEqual(Object.keys(st.weights).sort(), FACTORS.map((f) => f.id).sort());
+  }
+  assert.equal(styleById("no-such-style").id, DEFAULT_STYLE);
+  assert.deepEqual(styleById(DEFAULT_STYLE).weights, Object.fromEntries(FACTORS.map((f) => [f.id, f.weight])));
+});
+
+/* sixty companies: cheap ones falling, dear ones rising, in two sectors */
+const field = () => {
+  const out = [];
+  for (let i = 0; i < 60; i++) {
+    out.push(base({ t: "F" + i, cik: "f" + i, s: i % 2 ? "Industrials" : "Health Care",
+      pe: 8 + i * 0.6, r13: -25 + i * 0.8, r52: -40 + i * 1.5, lo: 40, hi: 60, price: 41 + i * 0.3 }));
+  }
+  return out;
+};
+
+test("no style named is Balanced, exactly", () => {
+  const stocks = field();
+  const ctx = buildScoreContext(stocks);
+  for (const s of stocks) {
+    const a = scoreStock(s, ctx), b = scoreStock(s, ctx, DEFAULT_STYLE);
+    assert.equal(a.overall, b.overall);
+    assert.deepEqual(a.place, b.place);
+    assert.equal(a.style, DEFAULT_STYLE);
+  }
+});
+
+test("deep value favours the cheap falling stock, momentum the dear rising one", () => {
+  const stocks = field();
+  const ctx = buildScoreContext(stocks);
+  const cheapFalling = stocks[0], dearRising = stocks.at(-1);
+  assert.ok(scoreStock(cheapFalling, ctx, "deep").overall > scoreStock(dearRising, ctx, "deep").overall);
+  assert.ok(scoreStock(dearRising, ctx, "momentum").overall > scoreStock(cheapFalling, ctx, "momentum").overall);
+  /* each style is ranked among its own scores: someone is 99 under every one */
+  for (const st of STYLES) assert.equal(Math.max(...stocks.map((s) => scoreStock(s, ctx, st.id).overall)), 99, st.id);
+  /* the factor readings themselves do not change with the style */
+  assert.deepEqual(scoreStock(cheapFalling, ctx, "deep").factors, scoreStock(cheapFalling, ctx).factors);
+});
+
+test("a style lists only what it weighs, heaviest first, with momentum reversed for deep value", () => {
+  const factors = { value: 70, growth: 40, quality: 60, moment: 30, stable: 55 };
+  const deep = styleFactors(factors, "deep");
+  assert.deepEqual(deep.map((f) => f.id), ["value", "stable", "quality", "moment"]);
+  const out = deep.find((f) => f.id === "moment");
+  assert.equal(out.label, "Out of favour");
+  assert.equal(out.value, 70);
+  /* Balanced keeps the usual order */
+  assert.deepEqual(styleFactors(factors, DEFAULT_STYLE).map((f) => f.id), FACTORS.map((f) => f.id));
+});
+
+test("the method page's table of styles matches the weights the app uses", () => {
+  const html = fs.readFileSync(new URL("../method.html", import.meta.url), "utf8");
+  for (const st of STYLES) {
+    const name = st.label.replace(/'/g, "&rsquo;");
+    const row = html.split("\n").find((l) => l.includes(`<th scope="row">${name}<span>`));
+    assert.ok(row, "no row for " + st.label);
+    const cells = [...row.matchAll(/<td>([^<]*)/g)].map((m) => m[1] === "&ndash;" ? 0 : Number(m[1]));
+    assert.deepEqual(cells, FACTORS.map((f) => Math.round(st.weights[f.id] * 100)), st.label);
+  }
 });
