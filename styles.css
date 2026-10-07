@@ -950,6 +950,18 @@ input[type="search"]::placeholder { color: var(--ink-muted); }
   color: #ffc2c7; font-size: 13.5px;
 }
 .auth-or { display: flex; align-items: center; gap: 10px; margin: 6px 0 0; color: var(--ink-muted); font-size: 12.5px; }
+.auth-agree { align-items: flex-start; margin: 2px 0 0; font-size: 13px; line-height: 1.5; }
+.auth-agree input { flex: none; margin-top: 2px; }
+.acct-data { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.acct-data .link-btn { font-size: 13px; }
+.acct-confirm { display: grid; gap: 10px; margin-top: 6px; padding: 14px; border-radius: var(--radius); background: var(--bad-soft); box-shadow: inset 0 0 0 1px rgba(239, 90, 103, .35); }
+.danger-btn {
+  font: inherit; cursor: pointer; border: 0; height: 42px; border-radius: var(--radius-sm);
+  background: var(--bad); color: #fff; font-size: 14.5px; font-weight: 600;
+}
+.danger-btn:hover { background: #e04452; }
+.danger-btn[disabled] { opacity: .5; cursor: not-allowed; }
+.danger-btn.wide { width: 100%; }
 .auth-or::before, .auth-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 #dlgOwner .sheet-body > button + button { margin-top: 10px; }
 

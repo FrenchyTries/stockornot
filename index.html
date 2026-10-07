@@ -183,14 +183,15 @@
         <label class="auth-label" for="authEmail">Email address</label>
         <input class="auth-input" type="email" id="authEmail" name="email"
                autocomplete="email" inputmode="email" required placeholder="you@example.com">
+        <label class="switch auth-agree">
+          <input type="checkbox" id="authAgree" required>
+          <span>I agree to the <a href="/terms" target="_blank" rel="noopener">terms</a> and have read the
+          <a href="/privacy" target="_blank" rel="noopener">privacy policy</a>. StockOrNot is not investment advice.</span>
+        </label>
         <button type="submit" class="primary-btn wide" id="authSend">Email me a sign-in link</button>
         <p class="auth-fine">
           No password to make up or forget. We use your
           address to save your cart and nothing else without asking.
-        </p>
-        <p class="auth-fine">
-          Signing in means accepting the <a href="/terms">terms</a>: StockOrNot is a way of
-          reading public figures, not investment advice.
         </p>
       </form>
 
@@ -217,10 +218,20 @@
           then clears it from this browser.
         </p>
         <button type="button" class="ghost-btn wide" id="authSignOut">Sign out</button>
-        <p class="auth-fine">
-          To delete the account and everything saved with it, write to
-          <a href="mailto:hello@stockornot.com">hello@stockornot.com</a> from this address.
-        </p>
+        <div class="acct-data">
+          <button type="button" class="link-btn" id="acctExport">Download my data</button>
+          <button type="button" class="link-btn danger" id="acctDelete">Delete my account</button>
+        </div>
+        <!-- deleting is asked twice: it cannot be undone -->
+        <div class="acct-confirm" id="acctDeleteConfirm" hidden>
+          <p class="auth-blurb">
+            This deletes your account for good: the email address, the saved cart with its notes and
+            amounts, and your alert settings. It cannot be undone. A brokerage account at Alpaca is
+            not touched; this browser just disconnects from it.
+          </p>
+          <button type="button" class="danger-btn wide" id="acctDeleteGo">Delete everything</button>
+          <button type="button" class="ghost-btn wide" id="acctDeleteKeep">Keep my account</button>
+        </div>
       </div>
 
       <p class="auth-error" id="authError" role="alert" hidden></p>

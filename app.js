@@ -3598,6 +3598,8 @@ function wireAuth() {
     e.preventDefault();
     var email = $("#authEmail").value.trim();
     if (!email) return;
+    /* an account is created on first sign-in, so agreeing comes first, every time */
+    if (!$("#authAgree").checked) return authError("Tick the box to agree to the terms first.");
     var btn = $("#authSend");
     btn.disabled = true; btn.textContent = "Sending…";
     auth.sendCode(email).then(function (r) {
@@ -3627,6 +3629,66 @@ function wireAuth() {
   $("#authBack").addEventListener("click", function () {
     $("#authCode").value = "";
     showAuthStep("authEmailStep");
+  });
+
+  /* everything kept about you, as a file: the account, the saved cart and
+     alerts, and what this browser holds */
+  $("#acctExport").addEventListener("click", function () {
+    var btn = $("#acctExport");
+    btn.disabled = true; btn.textContent = "Gathering…";
+    auth.myData().then(function (r) {
+      btn.disabled = false; btn.textContent = "Download my data";
+      if (!r.ok) return authError(r.error);
+      var out = {
+        exported_at: new Date().toISOString(),
+        from: "StockOrNot (stockornot.com)",
+        stored_in_your_account: r.data,
+        stored_in_this_browser: {
+          cart: cartRecords(),
+          scoring_style: state.style,
+          companies_swiped_past: state.seen.length,
+          compare: load(CMP_KEY, null)
+        }
+      };
+      var blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "stockornot-my-data-" + new Date().toISOString().slice(0, 10) + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    });
+  });
+
+  $("#acctDelete").addEventListener("click", function () {
+    authError("");
+    $("#acctDeleteConfirm").hidden = false;
+    $("#acctDeleteKeep").focus();
+  });
+  $("#acctDeleteKeep").addEventListener("click", function () { $("#acctDeleteConfirm").hidden = true; });
+  $("#acctDeleteGo").addEventListener("click", function () {
+    var btn = $("#acctDeleteGo");
+    btn.disabled = true; btn.textContent = "Deleting…";
+    auth.deleteAccount().then(function (r) {
+      btn.disabled = false; btn.textContent = "Delete everything";
+      if (!r.ok) { $("#acctDeleteConfirm").hidden = true; return authError(r.error); }
+      /* the account's copy of the cart is gone, so this browser's goes too,
+         and the brokerage cookie with it, as on signing out */
+      clearTimeout(sync.timer); clearTimeout(sync.retryTimer);
+      broker.disconnect().then(function (b) {
+        if (b.ok) state.broker = b.data;
+        portfolio = null;
+        renderBrokerPanel(); renderOrderBar();
+      });
+      setCartOwner("");
+      setCart([]);
+      save(LS.cart, []);
+      cartChanged();
+      $("#acctDeleteConfirm").hidden = true;
+      state.user = null;
+      refreshTier();
+      renderAccountTab();
+      showToast("Your account and everything in it has been deleted.");
+    });
   });
 
   $("#authSignOut").addEventListener("click", function () {

@@ -106,6 +106,18 @@ two in step). The choice is kept in the browser. The track record and the
 company pages use Balanced. None of these investors is affiliated with
 StockOrNot.
 
+## Your data
+
+Creating an account asks for a tick agreeing to the terms; the version and the
+time are kept on the account (`TERMS_VERSION` in `lib/auth.mjs`, to change
+with `terms.html`). Signed in, Account has **Download my data** (a JSON file of
+everything kept: the account, the saved cart, alert settings and alerts sent)
+and **Delete my account**, which asks once more and then deletes the account
+and everything attached to it through `delete_my_account()` in
+`supabase/schema.sql`. That function, and the policy that lets people read
+their own alert log, take effect once the schema file is run again in
+Supabase's SQL editor; until then the button says to write in instead.
+
 ## The cart
 
 Swiping right stores the ticker, the price at the moment you added it, and a note

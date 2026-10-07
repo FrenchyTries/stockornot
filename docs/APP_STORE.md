@@ -92,8 +92,10 @@ Later, before order placing comes to the app:
       phone's share sheet, and push notifications a week before anything in
       the cart reports. Apple turns down a website in a wrapper (Guideline
       4.2), and these are the difference.
-- [ ] **5. Delete your account in the app.** Apple requires it (Guideline
-      5.1.1(v)); today it is an email.
+- [x] **5. Delete your account in the app.** Apple requires it (Guideline
+      5.1.1(v)). Account → Delete my account, through `delete_my_account()`
+      in `supabase/schema.sql`, which the owner runs once in Supabase's SQL
+      editor. Download my data sits beside it.
 - [ ] **6. First-run guide.** Three short screens: what the score is, how to
       swipe, what the cart does.
 - [ ] **7. The store listing.** Screenshots from `marketing/capture.cjs`
