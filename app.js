@@ -595,7 +595,7 @@ function makeCard(s, depth) {
   var dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
   var delta = el("div", "delta " + dir);
   delta.appendChild(el("span", "arrow", dir === "up" ? "▲" : dir === "down" ? "▼" : "–"));
-  delta.appendChild(el("span", "", num(s.change) ? pct(s.change, 2) + " today" : "no change data"));
+  delta.appendChild(el("span", "", num(s.change) ? pct(s.change, 2) + " " + sessionWord() : "no change data"));
   pr.appendChild(delta);
   var mcTag = el("span", "c-cap", cap(s.mc) + " market cap");
   pr.appendChild(mcTag);
@@ -3036,7 +3036,7 @@ function renderCompare() {
 
   section("The figures");
   row("Price", cols.map(function (c) { return price(c.s.price); }));
-  row("Today", cols.map(function (c) {
+  row("Day's move", cols.map(function (c) {
     var v = c.s.change;
     var dir = !num(v) ? "flat" : v > 0.005 ? "up" : v < -0.005 ? "down" : "flat";
     return el("span", "delta small " + dir, num(v) ? pct(v, 2) : "—");
@@ -3185,19 +3185,31 @@ function deckShown() {
   if (sc) sc.dispatchEvent(new Event("scroll"));
 }
 
-/* "Prices at the Sep 22 close": the session the figures describe, which is
-   what matters, rather than how long ago a job ran. */
+/* The top bar says "Not investment advice" on every tab, and the date of the
+   prices only once it has gone stale: a nightly run that stopped is the one
+   time the date needs saying. The card says which close its move is from. */
+var STALE_DAYS = 4;          /* a Friday close read on the Tuesday after a holiday is still the latest */
+
+function snapshotDay() {
+  return state.session || (state.updated ? String(state.updated).slice(0, 10) : null);
+}
+
 function renderDataAge() {
-  var text = !state.updated ? "No data yet"
-    : state.session ? "Prices at the " + dateShort(state.session).replace(/, \d{4}$/, "") + " close"
-    : "Updated " + relTime(state.updated);
-  var title = state.updated ? "Snapshot built " + new Date(state.updated).toLocaleString() : "";
-  ["#dataAge", "#footAge"].forEach(function (sel) {
-    var n = $(sel);
-    if (!n) return;
-    n.textContent = text;
-    n.title = title;
-  });
+  var box = $("#dataAge");
+  var day = snapshotDay();
+  var age = day ? Math.floor((Date.now() - Date.parse(day + "T12:00:00Z")) / 864e5) : null;
+  box.hidden = !(age > STALE_DAYS);
+  var shown = dateShort(day);
+  if (shown.slice(-4) === String(new Date().getFullYear())) shown = shown.replace(/, \d{4}$/, "");
+  box.textContent = box.hidden ? "" : "Prices from " + shown;
+  box.title = state.updated ? "Not updated since " + new Date(state.updated).toLocaleString() : "";
+}
+
+/* "today" while the snapshot is today's close, "on Oct 6" after that */
+function sessionWord() {
+  var day = snapshotDay();
+  var today = new Date().toLocaleDateString("en-CA");      /* YYYY-MM-DD, local */
+  return !day || day === today ? "today" : "on " + dateShort(day).replace(/, \d{4}$/, "");
 }
 
 function setupScreen(reason) {

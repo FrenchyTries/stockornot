@@ -193,6 +193,14 @@ kbd { font: 500 11px var(--font); background: var(--surface-2); border: 1px soli
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .allowance { padding-left: 10px; border-left: 1px solid var(--line-strong); }
+.topmeta .advice { color: var(--ink-muted); }
+.topmeta .advice:hover { color: var(--ink-2); }
+.stale { color: var(--warning); }
+.stale:not([hidden]) + .advice { padding-left: 10px; border-left: 1px solid var(--line-strong); }
+/* a phone has room for the warning or the name, not both */
+@media (max-width: 460px) { .topbar:has(.stale:not([hidden])) .brand span { display: none; } }
+.acct-fine { margin-top: 28px; line-height: 1.6; }
+.acct-fine b { color: var(--ink-2); }
 .allowance.is-low { color: var(--warning); }
 
 .topbar-actions { display: flex; gap: 8px; align-items: center; }
@@ -208,7 +216,7 @@ kbd { font: 500 11px var(--font); background: var(--surface-2); border: 1px soli
   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
   height: calc(var(--tabbar-h) + var(--safe-b));
   padding: 0 max(4px, env(safe-area-inset-right, 0px)) var(--safe-b) max(4px, env(safe-area-inset-left, 0px));
-  background: rgba(11, 12, 14, .92);
+  background: rgba(11, 12, 14, .97);
   -webkit-backdrop-filter: saturate(140%) blur(12px);
   backdrop-filter: saturate(140%) blur(12px);
   border-top: 1px solid var(--line);
@@ -432,6 +440,8 @@ body:not(.docpage) main { flex: 1; display: flex; }
 .deck-btn.add kbd { background: rgba(255, 255, 255, .2); }
 /* the keys only mean something where there is a keyboard */
 @media (hover: hover) and (pointer: fine) { .deck-btn kbd { display: inline-grid; } }
+/* a narrow window needs the room for the words */
+@media (max-width: 460px) { .deck-btn kbd { display: none; } }
 .deck-btn span { overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 360px) {
   .deck-bar { gap: 10px; }
@@ -1257,7 +1267,7 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
   .topbar-actions { margin-left: auto; }
   .stage { padding-bottom: 12px; }
   /* a short phone keeps the buttons above the tab bar; the card scrolls inside */
-  .deck { height: calc(100dvh - 164px - var(--tabbar-h) - var(--safe-b)); min-height: 340px; }
+  .deck { height: calc(100dvh - 168px - var(--tabbar-h) - var(--safe-b)); min-height: 340px; }
   .card-scroll { padding: 18px 18px 22px; }
   .c-price-v { font-size: 30px; }
   .topnav { display: none; }

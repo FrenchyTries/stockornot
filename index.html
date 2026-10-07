@@ -39,8 +39,10 @@
     <span>Stock<b>OrNot</b></span>
   </div>
 
+  <!-- on every tab: what this is not. The prices' date joins it only if it goes stale. -->
   <div class="topmeta">
-    <span id="dataAge">loading…</span>
+    <span class="stale" id="dataAge" hidden></span>
+    <a class="advice" href="/terms">Not investment advice</a>
     <span class="allowance" id="allowance" hidden></span>
   </div>
 </header>
@@ -194,6 +196,10 @@
           No password to make up or forget. We use your
           address to save your cart and nothing else without asking.
         </p>
+        <p class="auth-fine">
+          Signing in means accepting the <a href="/terms">terms</a>: StockOrNot is a way of
+          reading public figures, not investment advice.
+        </p>
       </form>
 
       <!-- signed out: step 2, the code -->
@@ -253,6 +259,12 @@
       <a class="row-link" href="/privacy"><span><b>Privacy</b></span></a>
       <a class="row-link" href="/terms"><span><b>Terms</b></span></a>
     </div>
+    <p class="block-note acct-fine">
+      <b>Not investment advice.</b> Every figure here comes from
+      <a href="https://finnhub.io" target="_blank" rel="noopener">Finnhub</a> or the company's own
+      <a href="https://www.sec.gov/edgar" target="_blank" rel="noopener">SEC filings</a>
+      and may be stale, mis-parsed or wrong. Read the actual 10-K before you buy anything.
+    </p>
   </section>
 </main>
 
@@ -472,22 +484,6 @@
   </div>
 </dialog>
 
-<footer class="sitefoot">
-  <p class="foot-age" id="footAge"></p>
-  <nav class="foot-nav" aria-label="Footer">
-    <a href="/stock">Companies</a>
-    <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
-    <a href="/privacy">Privacy</a>
-    <a href="/terms">Terms</a>
-  </nav>
-  <p>
-    <b>Not investment advice.</b> Every figure here comes from
-    <a href="https://finnhub.io" target="_blank" rel="noopener">Finnhub</a> or the company's own
-    <a href="https://www.sec.gov/edgar" target="_blank" rel="noopener">SEC filings</a>
-    and may be stale, mis-parsed or wrong. Read the actual 10-K before you buy anything.
-  </p>
-</footer>
 
 <!-- a short confirmation with a way back; app.js moves it into an open dialog -->
 <div class="toast" id="toast" role="status" aria-live="polite" hidden>
