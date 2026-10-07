@@ -82,7 +82,7 @@ on a wide screen, with the deck in the middle:
 | Tab | What it holds |
 |---|---|
 | **Track** | The track record: each week's top and bottom fifth by score, followed forward against the whole index (`data/track.json`, the same table as `/track`) |
-| **Compare** | Up to three companies side by side: the score, its five factors, the answers to the five checks and the figures people compare most. It starts from the cart; type a ticker or a name to add any other company |
+| **Compare** | Two companies head to head: the score and its factors, then the figures behind the five checks (growth, margins, cash and debt, valuation, price), with the stronger figure on each row marked. It opens on the two largest companies; tap either to swap it for any other, from the cart, the largest, or by ticker or name |
 | **Deck** | The cards |
 | **Cart** | The cart, below |
 | **Account** | Signing in, earnings alerts, the brokerage, membership and the site's pages |

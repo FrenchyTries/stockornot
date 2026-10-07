@@ -17,7 +17,7 @@
    ========================================================================== */
 import {
   num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos, rangeSummary,
-  FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext,
+  FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext, inputs, valuation,
   STYLES, DEFAULT_STYLE, styleById, styleFactors
 } from "./lib/analysis.mjs";
 import * as auth from "./lib/auth.mjs";
@@ -2802,44 +2802,62 @@ function openDetail(s) {
 }
 
 /* ============================================================ COMPARE ===
-   Up to three companies side by side: the score and its five factors, the
-   answers to the five checks, and the figures people compare most. The pick
-   is kept in this browser; the first time, it starts from the cart. */
+   Two companies head to head: the score and its factors under the chosen
+   style, then the figures behind the five checks as numbers, with the
+   stronger of the two marked on each row. It opens on the two largest
+   companies in the index; tapping either one swaps it. The pair is kept in
+   this browser. */
 
 var CMP_KEY = "ts.compare";
-var CMP_MAX = 3;
-var CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-var cmpPicks = null;
+var SWAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9l4-4 4 4M8 15l4 4 4-4"/></svg>';
+var cmpPair = null;      /* [left, right] tickers */
+var pickSide = 0;        /* the side the picker is choosing for */
 
-function comparePicks() {
-  if (cmpPicks) return cmpPicks;
+var idOf = function (s) { return s.cik || s.t; };
+
+/* The largest companies by market value, one share class each, leaving out
+   any company in `skip` (tickers). */
+function largest(n, skip) {
+  var seen = new Set((skip || []).map(function (t) { return state.byTicker[t] ? idOf(state.byTicker[t]) : t; }));
+  var out = [];
+  state.all.slice().sort(function (a, b) { return (b.mc || 0) - (a.mc || 0); }).forEach(function (s) {
+    if (out.length >= n || seen.has(idOf(s))) return;
+    seen.add(idOf(s));
+    out.push(s);
+  });
+  return out;
+}
+
+function comparePair() {
+  if (cmpPair && cmpPair.length === 2 && cmpPair.every(function (t) { return state.byTicker[t]; })) return cmpPair;
   var saved = load(CMP_KEY, null);
-  cmpPicks = Array.isArray(saved)
-    ? saved.filter(function (t) { return typeof t === "string"; }).slice(0, CMP_MAX)
-    : state.cart.slice(0, CMP_MAX).map(function (i) { return i.t; });
-  return cmpPicks;
+  var pair = Array.isArray(saved)
+    ? saved.filter(function (t) { return typeof t === "string" && state.byTicker[t]; }).slice(0, 2) : [];
+  /* a first visit, or a company that has left the index: the largest fill in */
+  largest(2, pair).forEach(function (s) { if (pair.length < 2) pair.push(s.t); });
+  cmpPair = pair;
+  return pair;
 }
 
-function setPicks(list) {
-  cmpPicks = list.slice(0, CMP_MAX);
-  save(CMP_KEY, cmpPicks);
-  $("#cmpMsg").textContent = "";
-  renderCompare();
-}
-
-function addPick(t) {
-  var picks = comparePicks();
-  if (picks.indexOf(t) >= 0) return;
-  if (picks.length >= CMP_MAX) { $("#cmpMsg").textContent = "Three at a time. Take one out to add " + t + "."; return; }
-  /* the same allowance as the deck: a company opened here counts as opened */
-  if (!tier.withinAllowance(state.viewed, t, state.tier)) {
-    $("#cmpMsg").textContent = "That is past the companies your plan can open." +
-      (state.tier === "anon" ? " Sign in for more." : "");
-    return;
+function setSide(side, t) {
+  var pair = comparePair().slice();
+  if (pair[side] !== t) {
+    /* the same allowance as the deck: a company opened here counts as opened */
+    if (!tier.withinAllowance(state.viewed, t, state.tier)) {
+      $("#pickMsg").textContent = "That is past the companies your plan can open." +
+        (state.tier === "anon" ? " Sign in for more." : "");
+      return;
+    }
+    tier.recordViewed(state.viewed, t);
+    renderAllowance();
+    /* choosing the company on the other side swaps the two */
+    if (pair[1 - side] === t) pair[1 - side] = pair[side];
+    pair[side] = t;
+    cmpPair = pair;
+    save(CMP_KEY, pair);
   }
-  tier.recordViewed(state.viewed, t);
-  renderAllowance();
-  setPicks(picks.concat([t]));
+  closeDialog($("#dlgPick"));
+  renderCompare();
 }
 
 /* Tickers that start with what was typed come first, then names that hold it. */
@@ -2852,120 +2870,151 @@ function findCompanies(q) {
     else if (q.length >= 2 && String(s.n || "").toUpperCase().indexOf(q) >= 0) within.push(s);
   });
   starts.sort(function (a, b) { return a.t.length - b.t.length || (a.t < b.t ? -1 : 1); });
-  return starts.concat(within).slice(0, 6);
+  return starts.concat(within).slice(0, 8);
 }
 
-function renderHits() {
-  var input = $("#cmpInput"), box = $("#cmpHits");
-  var picks = comparePicks();
-  var hits = findCompanies(input.value);
+function openPicker(side) {
+  pickSide = side;
+  $("#pickTitle").textContent = "Swap " + comparePair()[side];
+  $("#pickInput").value = "";
+  $("#pickMsg").textContent = "";
+  renderPickList();
+  openDialog($("#dlgPick"));
+}
+
+/* What was typed, or with nothing typed, the cart and the largest companies. */
+function renderPickList() {
+  var box = $("#pickList");
   box.innerHTML = "";
-  hits.forEach(function (s) {
-    var b = el("button", "search-hit");
-    b.type = "button";
-    b.appendChild(el("b", "", s.t));
-    b.appendChild(el("span", "", picks.indexOf(s.t) >= 0 ? s.n + " · already here" : s.n));
-    b.addEventListener("click", function (ev) { pickHit(s.t, ev.detail === 0); });
-    box.appendChild(b);
-  });
-  box.hidden = !hits.length;
-}
-
-function pickHit(t, byKeyboard) {
-  var input = $("#cmpInput");
-  input.value = "";
-  renderHits();
-  addPick(t);
-  if (byKeyboard && !$(".cmp-find").hidden) input.focus();
-}
-
-function renderPicks(list) {
-  var box = $("#cmpPicks");
-  box.innerHTML = "";
-  list.forEach(function (s) {
-    var chip = el("span", "cmp-pick");
-    chip.appendChild(el("span", "", s.t));
-    var out = el("button", "icon-btn small");
-    out.type = "button";
-    out.innerHTML = CLOSE_ICON;
-    out.setAttribute("aria-label", "Take " + s.t + " out of the comparison");
-    out.addEventListener("click", function (ev) {
-      setPicks(comparePicks().filter(function (t) { return t !== s.t; }));
-      /* from the keyboard, on to the box that is back now there is room; a
-         tap leaves the phone's keyboard down */
-      if (ev.detail === 0) $("#cmpInput").focus();
+  var pair = comparePair();
+  function group(title, list) {
+    if (!list.length) return;
+    if (title) box.appendChild(el("h3", "pick-h", title));
+    list.forEach(function (s) {
+      var b = el("button", "search-hit");
+      b.type = "button";
+      b.appendChild(el("b", "", s.t));
+      b.appendChild(el("span", "", s.n + (s.t === pair[pickSide] ? " · showing now" : s.t === pair[1 - pickSide] ? " · on the other side" : "")));
+      b.addEventListener("click", function () { setSide(pickSide, s.t); });
+      box.appendChild(b);
     });
-    chip.appendChild(out);
-    box.appendChild(chip);
-  });
-
-  /* three is the most a phone can show side by side */
-  var full = list.length >= CMP_MAX;
-  $(".cmp-find").hidden = full;
-  $("#cmpFull").hidden = !full;
-
-  /* what is in the cart and not here yet, one tap each */
-  var sug = $("#cmpSuggest");
-  sug.innerHTML = "";
-  var here = list.map(function (s) { return s.t; });
-  var left = state.cart.map(function (i) { return i.t; })
-    .filter(function (t) { return here.indexOf(t) < 0 && state.byTicker[t]; }).slice(0, 8);
-  sug.hidden = full || !left.length;
-  if (sug.hidden) return;
-  sug.appendChild(el("span", "cmp-suggest-l", "From your cart"));
-  left.forEach(function (t) {
-    var b = el("button", "chip", t);
-    b.type = "button";
-    b.setAttribute("aria-label", "Add " + t + " to the comparison");
-    b.addEventListener("click", function () { addPick(t); });
-    sug.appendChild(b);
-  });
+  }
+  var q = $("#pickInput").value;
+  if (q.trim()) {
+    var hits = findCompanies(q);
+    if (hits.length) group("", hits);
+    else box.appendChild(el("p", "block-note", "Nothing in the S&P 500 matches that."));
+    return;
+  }
+  group("In your cart", state.cart.map(function (i) { return state.byTicker[i.t]; }).filter(Boolean).slice(0, 12));
+  group("Largest companies", largest(10));
 }
+
+/* The figures behind the five checks, as numbers, worked out the way the
+   card's checks work them out (lib/insight.mjs), traps included: a bank's
+   revenue swing, cash flow and debt are not read as such, and a gap in the
+   filings is said rather than shown as zero. Each is { v: number to compare,
+   or null; t: what to show }. */
+function cmpFigures(s) {
+  var k = inputs(s), f = s.fin || {}, val = valuation(s, k);
+  var fin = k.financial ? "n/a, a financial" : null;
+  var fig = function (v, t) { return { v: num(v) ? v : null, t: t }; };
+  var fcfOk = !k.financial && num(f.fcf);
+  var fcfm = fcfOk && num(f.revenue) && f.revenue > 0 ? (f.fcf / f.revenue) * 100 : null;
+  var net = !k.financial && num(f.cash) && num(f.debt) ? f.cash - f.debt : null;
+  var pePos = num(s.pe) && s.pe > 0, pefPos = num(s.pef) && s.pef > 0;
+  var lens = val.cash && !val.cash.none ? val.cash.multiple : null;
+  var e = s.earnings;
+  var dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
+  return {
+    rg:    fig(k.rg, num(s.rg) ? pct(s.rg) + (k.rgSuspect ? "*" : "") : "n/a"),
+    rg5:   fig(s.rg5, num(s.rg5) ? pct(s.rg5) : "n/a"),
+    eg:    fig(s.eg, num(s.eg) ? pct(s.eg) : "n/a"),
+    gm:    fig(s.gm, num(s.gm) ? pctPlain(s.gm, 0) : "n/a"),
+    nm:    fig(s.nm, num(s.nm) ? pctPlain(s.nm, 1) : "n/a"),
+    roe:   fig(k.roeOk ? s.roe : null, k.roeOk ? pctPlain(s.roe, 0) : "n/a"),
+    fcfm:  fig(fcfm, num(fcfm) ? pctPlain(fcfm, 0) : fin || (num(f.ocf) ? "no capital spending filed" : "n/a")),
+    fcf:   fig(fcfOk ? f.fcf : null, fcfOk ? money(f.fcf) : fin || "n/a"),
+    net:   fig(net, num(net) ? money(net) : fin || "n/a"),
+    years: fig(k.financial ? null : k.debtYears === Infinity ? 1e9 : k.debtYears,
+      fin || (num(k.debtYears) ? k.debtYears.toFixed(1) + " yrs" : k.debtYears === Infinity ? "no cash flow" : "n/a")),
+    pe:    fig(pePos ? s.pe : null, pePos ? x(s.pe) : k.losing ? "a loss" : "n/a"),
+    fair:  fig(val.fair, x(val.fair, 0)),
+    pef:   fig(pefPos ? s.pef : null, pefPos ? x(s.pef) : "n/a"),
+    pfcf:  fig(lens, val.cash ? (val.cash.none ? "no free cash flow" : x(lens, 1) + (val.kind === "ocf" ? " (operating)" : "")) : fin || "n/a"),
+    dy:    fig(s.dy, num(s.dy) && s.dy > 0 ? pctPlain(s.dy, 2) : "None"),
+    price: fig(s.price, price(s.price)),
+    day:   fig(null, el("span", "delta small " + dir, num(s.change) ? pct(s.change, 2) : "—")),
+    r52:   fig(null, pct(s.r52, 0)),
+    mc:    fig(null, cap(s.mc)),
+    next:  fig(null, e && e.date && daysUntil(e.date) >= 0 ? dateShort(e.date).replace(/, \d{4}$/, "") : "—")
+  };
+}
+
+/* [key, label, which way is stronger (1 higher, -1 lower, 0 neither), hint];
+   a one-item row is a heading. */
+var CMP_ROWS = [
+  ["Growth"],
+  ["rg", "Revenue, 12 months", 1, "Revenue over the last twelve months against the twelve before. *Far out of line with the five-year trend: for a bank, usually interest income moving with rates."],
+  ["rg5", "Revenue, 5-year average", 1, "Average yearly revenue growth over five years."],
+  ["eg", "Earnings per share, 12 months", 1, "Earnings per share over the last twelve months against the twelve before."],
+  ["Profitability"],
+  ["gm", "Gross margin", 1, "What is left of each dollar of sales after the direct cost of making it."],
+  ["nm", "Net margin", 1, "Profit after everything, as a share of revenue."],
+  ["roe", "Return on equity", 1, "Profit against the shareholders' money in the business. Left out where equity is negative or a sliver."],
+  ["Cash and debt"],
+  ["fcfm", "Free cash flow, of revenue", 1, "Cash from operations minus capital spending, as a share of revenue."],
+  ["fcf", "Free cash flow", 0, "Cash from operations minus capital spending, from the last annual filing."],
+  ["net", "Cash minus debt", 0, "Cash less long-term debt at the last fiscal year end. Below zero is net debt."],
+  ["years", "Years to repay debt", -1, "Years of operating cash flow it would take to pay off the long-term debt. Under 3 is comfortable."],
+  ["Valuation"],
+  ["pe", "P/E", -1, "Price against the last twelve months of earnings per share."],
+  ["fair", "Fair P/E for its growth", 0, "8 + 1.5 × (growth + dividend yield): the P/E its growth would justify, as on the card."],
+  ["pef", "Forward P/E", -1, "Price against next year's expected earnings. Analysts' forecasts, not scored."],
+  ["pfcf", "Price / free cash flow", -1, "Market value against last year's free cash flow: the cash version of the P/E."],
+  ["dy", "Dividend yield", 0, "A year of dividends as a share of the price."],
+  ["Price"],
+  ["price", "Price", 0],
+  ["day", "Day's move", 0],
+  ["r52", "Past year", 0, "The share price over the last 52 weeks, without dividends."],
+  ["mc", "Market cap", 0],
+  ["next", "Next earnings", 0]
+];
 
 function renderCompare() {
   var body = $("#cmpBody");
   body.innerHTML = "";
-  if (!state.all.length) {
-    renderPicks([]);
-    body.appendChild(el("p", "block-note", "Loading the S&P 500…"));
-    return;
-  }
   var note = $("#cmpStyle");
   note.innerHTML = "";
   note.appendChild(styleLine(styleById(state.style)));
-  var list = comparePicks().map(function (t) { return state.byTicker[t]; }).filter(Boolean);
-  /* a company that has left the index since it was picked no longer holds a place */
-  if (list.length < comparePicks().length) {
-    cmpPicks = list.map(function (s) { return s.t; });
-    save(CMP_KEY, cmpPicks);
-  }
-  renderPicks(list);
-  if (!list.length) {
-    body.appendChild(el("p", "empty-note", state.cart.length
-      ? "Pick two or three companies from your cart, or type a ticker or a name."
-      : "Type a ticker or a name to start. Companies you add to your cart from the deck show up here too, one tap each."));
+  if (!state.all.length) {
+    body.appendChild(el("p", "block-note", "Loading the S&P 500…"));
     return;
   }
 
-  var cols = list.map(function (s) {
-    var res = scoreStock(s, state.scoreCtx, state.style);
-    return { s: s, res: res, checks: insight.financialChecks(s, res) };
+  var cols = comparePair().map(function (t) {
+    var s = state.byTicker[t];
+    return { s: s, res: scoreStock(s, state.scoreCtx, state.style), fig: cmpFigures(s) };
   });
 
   var table = el("table", "cmp-table");
-  table.appendChild(el("caption", "sr-only", "Side by side: " + list.map(function (s) { return s.t; }).join(", ")));
+  table.appendChild(el("caption", "sr-only", cols[0].s.t + " and " + cols[1].s.t + " side by side"));
   var head = el("thead");
   var hr = el("tr");
   hr.appendChild(el("td", "cmp-corner"));
-  cols.forEach(function (c) {
+  cols.forEach(function (c, side) {
     var th = el("th");
     th.scope = "col";
-    var b = el("button", "cmp-ticker", c.s.t);
+    var b = el("button", "cmp-co");
     b.type = "button";
-    b.title = "Open the full record";
-    b.addEventListener("click", function () { openDetail(c.s); });
+    b.setAttribute("aria-label", c.s.t + ", " + c.s.n + ": swap for another company");
+    var top = el("span", "cmp-co-t");
+    top.appendChild(el("b", "", c.s.t));
+    top.insertAdjacentHTML("beforeend", SWAP_ICON);      /* a constant */
+    b.appendChild(top);
+    b.appendChild(el("span", "cmp-name", c.s.n));
+    b.addEventListener("click", function () { openPicker(side); });
     th.appendChild(b);
-    th.appendChild(el("span", "cmp-name", c.s.n));
     hr.appendChild(th);
   });
   head.appendChild(hr);
@@ -2994,14 +3043,11 @@ function renderCompare() {
     });
     tbody.appendChild(tr);
   }
-  /* the highest of two or more, unless they all tie */
-  function highest(vals) {
-    if (vals.length < 2) return null;
-    var nums = vals.filter(num);
-    if (nums.length < 2) return null;
-    var top = Math.max.apply(null, nums), low = Math.min.apply(null, nums);
-    if (top === low) return null;
-    return vals.map(function (v) { return v === top; });
+  /* the stronger of the two, when both have the figure and they differ */
+  function stronger(vals, way) {
+    if (!way || !num(vals[0]) || !num(vals[1]) || vals[0] === vals[1]) return null;
+    var left = way > 0 ? vals[0] > vals[1] : vals[0] < vals[1];
+    return [left, !left];
   }
   function meter(v) {
     var wrap = el("span");
@@ -3015,13 +3061,13 @@ function renderCompare() {
   }
 
   section("Score");
-  var overall = cols.map(function (c) { return c.res.overall; });
   row("Score", cols.map(function (c) {
     var box = el("span");
     box.appendChild(el("b", "cmp-big", num(c.res.overall) ? String(c.res.overall) : "—"));
     box.appendChild(el("span", "cmp-sub", scoreLabel(c.res.overall).word));
     return box;
-  }), highest(overall), "Its place in the S&P 500, 1 to 99: better than that share of the index.");
+  }), stronger(cols.map(function (c) { return c.res.overall; }), 1),
+    "Its place in the S&P 500, 1 to 99: better than that share of the index.");
   row("In its sector", cols.map(function (c) {
     /* "#2 of 73", and the sector under it in small type */
     var m = (sectorRankText(c.res.place) || "").match(/^(#\d+ of \d+) in (.+)$/);
@@ -3032,43 +3078,24 @@ function renderCompare() {
     return box;
   }));
   var styled = state.style !== DEFAULT_STYLE;
-  styleFactors(cols[0].res.factors, state.style).forEach(function (f, i) {
-    var vals = cols.map(function (c) { return styleFactors(c.res.factors, state.style)[i].value; });
+  var weighed = cols.map(function (c) { return styleFactors(c.res.factors, state.style); });
+  weighed[0].forEach(function (f, i) {
+    var vals = weighed.map(function (list) { return list[i].value; });
     row(f.label + (styled ? " · " + Math.round(f.weight * 100) + "%" : ""), vals.map(meter),
-      highest(vals.map(function (v) { return num(v) ? Math.round(v) : null; })), f.blurb);
+      stronger(vals.map(function (v) { return num(v) ? Math.round(v) : null; }), 1), f.blurb);
   });
 
-  section("The five checks");
-  var titles = [];
-  cols.forEach(function (c) { c.checks.forEach(function (g) { if (titles.indexOf(g.title) < 0) titles.push(g.title); }); });
-  titles.forEach(function (title) {
-    var question = "";
-    row(title, cols.map(function (c) {
-      var g = c.checks.filter(function (k) { return k.title === title; })[0];
-      if (g && g.question) question = g.question;
-      if (!g || !g.answer) return "—";
-      var a = el("span", "check-a is-" + g.answer.tone, g.answer.text);
-      if (g.note) a.title = g.note;
-      return a;
-    }), null, question);
+  CMP_ROWS.forEach(function (r) {
+    if (r.length === 1) { section(r[0]); return; }
+    var figs = cols.map(function (c) { return c.fig[r[0]]; });
+    row(r[1], figs.map(function (g) { return g.t; }), stronger(figs.map(function (g) { return g.v; }), r[2]), r[3]);
   });
 
-  section("The figures");
-  row("Price", cols.map(function (c) { return price(c.s.price); }));
-  row("Day's move", cols.map(function (c) {
-    var v = c.s.change;
-    var dir = !num(v) ? "flat" : v > 0.005 ? "up" : v < -0.005 ? "down" : "flat";
-    return el("span", "delta small " + dir, num(v) ? pct(v, 2) : "—");
-  }));
-  row("Past year", cols.map(function (c) { return pct(c.s.r52, 0); }), null, "The share price over the last 52 weeks, without dividends.");
-  row("Market cap", cols.map(function (c) { return cap(c.s.mc); }));
-  row("P/E", cols.map(function (c) { return num(c.s.pe) && c.s.pe > 0 ? x(c.s.pe) : "n/a"; }), null,
-    "Price over the last twelve months' earnings per share. None for a company losing money.");
-  row("Net margin", cols.map(function (c) { return pctPlain(c.s.nm); }));
-  row("Dividend yield", cols.map(function (c) { return num(c.s.dy) && c.s.dy > 0 ? pctPlain(c.s.dy, 2) : "None"; }));
-  row("Next earnings", cols.map(function (c) {
-    var e = c.s.earnings;
-    return e && e.date && daysUntil(e.date) >= 0 ? dateShort(e.date).replace(/, \d{4}$/, "") : "—";
+  row("Full record", cols.map(function (c) {
+    var b = el("button", "link-btn", "Open " + c.s.t);
+    b.type = "button";
+    b.addEventListener("click", function () { openDetail(c.s); });
+    return b;
   }));
 
   table.appendChild(tbody);
@@ -3328,17 +3355,12 @@ function wire() {
   window.addEventListener("hashchange", followUrl);
   $("#acctAlerts").addEventListener("click", openEarnings);
   $("#acctStyle").addEventListener("click", openStyles);
-  $("#cmpInput").addEventListener("input", renderHits);
-  $("#cmpInput").addEventListener("keydown", function (ev) {
-    if (ev.key === "Enter") {
-      ev.preventDefault();
-      var hit = findCompanies(ev.target.value)[0];
-      if (hit) pickHit(hit.t, true);
-    } else if (ev.key === "Escape" && ev.target.value) {
-      ev.preventDefault();
-      ev.target.value = "";
-      renderHits();
-    }
+  $("#pickInput").addEventListener("input", renderPickList);
+  $("#pickInput").addEventListener("keydown", function (ev) {
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    var hit = findCompanies(ev.target.value)[0];
+    if (hit) setSide(pickSide, hit.t);
   });
   $("#acctBroker").addEventListener("click", openBroker);
 

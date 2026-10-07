@@ -313,27 +313,25 @@ body:not(.docpage) { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
 }
 
 /* compare */
-.cmp-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.cmp-picks:empty { display: none; }
-.cmp-pick {
-  display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 0 3px 0 12px;
-  border-radius: 999px; background: var(--accent-soft); box-shadow: inset 0 0 0 1px rgba(76, 141, 255, .35);
-  font-size: 13.5px; font-weight: 650;
+/* each company's heading is the way to swap it */
+.cmp-co {
+  font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; gap: 1px; width: 100%; padding: 6px 8px 6px 0; margin: -6px 0;
+  border-radius: var(--radius-sm); -webkit-tap-highlight-color: transparent;
 }
-.cmp-pick .icon-btn { border-radius: 999px; color: var(--ink-2); }
-.cmp-find { position: relative; }
-.cmp-find input[type="search"] { height: 42px; font-size: 16px; }     /* 16px stops iOS zooming */
-.cmp-find input:disabled { opacity: .6; cursor: not-allowed; }
-.cmp-find .search-results {
-  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 6; margin: 0; padding: 2px 12px;
-  background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow);
-}
-.cmp-find .search-hit:last-child { border-bottom: 0; }
-.cmp-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
-.cmp-suggest-l { margin-right: 4px; font-size: 12.5px; color: var(--ink-muted); }
-.cmp-suggest .chip { background: var(--surface-2); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
-.cmp-suggest .chip::before { content: "+"; margin-right: 4px; color: var(--accent-ink); }
-#cmpMsg:empty { display: none; }
+.cmp-co-t { display: inline-flex; align-items: center; gap: 4px; }
+.cmp-co-t b { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.cmp-co-t svg { width: 15px; height: 15px; color: var(--accent-ink); }
+.cmp-co:hover .cmp-co-t b { color: var(--accent-ink); }
+.cmp-co:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cmp-table td .link-btn { padding: 0; font-size: 13px; }
+
+/* the picker for a side */
+.pick-input { width: 100%; height: 42px; font-size: 16px; }      /* 16px stops iOS zooming */
+#pickMsg:empty { display: none; }
+.pick-list { display: grid; margin-top: 4px; }
+.pick-h { margin: 16px 0 2px; font-size: 12.5px; font-weight: 600; color: var(--ink-muted); }
+#dlgPick .sheet-inner { height: min(88dvh, 640px); }
 
 .cmp-body { margin: 20px 0 6px; }
 .cmp-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13.5px; }
@@ -348,11 +346,6 @@ body:not(.docpage) { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
   border-bottom: 0; box-shadow: inset 0 -1px 0 var(--line-strong);
 }
 .cmp-corner { width: 30%; }
-.cmp-ticker {
-  font: inherit; font-size: 15.5px; font-weight: 700; letter-spacing: -0.01em;
-  color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer;
-}
-.cmp-ticker:hover { color: var(--accent-ink); }
 .cmp-name {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   font-size: 12px; font-weight: 400; line-height: 1.35; color: var(--ink-muted);
@@ -375,7 +368,6 @@ body:not(.docpage) { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
   .cmp-table { font-size: 13px; }
   .cmp-corner { width: 25%; }
   .cmp-big { font-size: 19px; }
-  .cmp-ticker { font-size: 14.5px; }
   .cmp-table .check-a { padding-left: 0; }
   .cmp-table .check-a::before { display: none; }
 }

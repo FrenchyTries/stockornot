@@ -92,19 +92,10 @@
   <section class="view page" id="viewCompare" aria-labelledby="compareTitle" hidden>
     <header class="page-head">
       <h1 id="compareTitle" tabindex="-1">Compare</h1>
-      <span class="head-note">Up to three companies, side by side</span>
+      <span class="head-note">Two companies, head to head</span>
     </header>
 
-    <div class="cmp-picks" id="cmpPicks"></div>
-    <div class="cmp-find">
-      <label class="sr-only" for="cmpInput">Add a company to compare</label>
-      <input type="search" id="cmpInput" placeholder="Add a company: ticker or name" autocomplete="off"
-             spellcheck="false" autocapitalize="characters" enterkeyhint="done" aria-describedby="cmpMsg">
-      <div class="search-results" id="cmpHits" hidden></div>
-    </div>
-    <p class="block-note first" id="cmpFull" hidden>Three at a time. Take one out to add another.</p>
-    <div class="cmp-suggest" id="cmpSuggest" hidden></div>
-    <p class="block-note" id="cmpMsg" role="status"></p>
+    <p class="block-note first">Tap either company to swap it. On each row the stronger figure is in blue.</p>
     <div id="cmpStyle"></div>
 
     <div class="cmp-body" id="cmpBody"></div>
@@ -453,6 +444,25 @@
       </div>
       <p class="block-note">Not investment advice. Orders go to your brokerage exactly as listed and cannot be recalled once filled.</p>
       <p class="auth-error" id="orderError" role="alert" hidden></p>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================ COMPARE: SWAP A SIDE ============================ -->
+<dialog class="sheet" id="dlgPick" aria-labelledby="pickTitle">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="pickTitle">Swap</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <label class="sr-only" for="pickInput">Find a company by ticker or name</label>
+      <input type="search" id="pickInput" class="pick-input" placeholder="Ticker or name" autocomplete="off"
+             spellcheck="false" autocapitalize="characters" enterkeyhint="go">
+      <p class="block-note" id="pickMsg" role="status"></p>
+      <div class="pick-list" id="pickList"></div>
     </div>
   </div>
 </dialog>
