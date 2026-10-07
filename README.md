@@ -209,8 +209,12 @@ snapshot that is worse than yesterday's. Only data is committed.
 
 The site itself is served by Vercel, which also runs the functions under `api/`.
 **Vercel builds the 500 company pages, the sitemap and robots.txt on every
-deploy** (`buildCommand` in `vercel.json`, served from the repository root by
-`outputDirectory: "."`), from whatever data is committed.
+deploy** (`buildCommand` in `vercel.json`), from whatever data is committed.
+The build then copies the site, and only the site, into `public/`, which is
+what Vercel serves (`outputDirectory: "public"`): a fixed list in
+`scripts/build-pages.mjs`, so the project's notes, scripts and database schema
+are never published beside it. `STATIC=public node scripts/dev-server.mjs`
+serves that folder locally, to check nothing the site needs was left off.
 They are build output and are never committed; `.gitignore` keeps them out.
 The nightly job builds them too, but only to check they still build.
 [docs/LESSONS.md](docs/LESSONS.md) explains why.

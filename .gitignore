@@ -6,5 +6,6 @@ node_modules/
 # night is exactly the pattern that got the old GitHub account flagged.
 /stock/
 /track.html
+/public/
 /sitemap.xml
 /robots.txt

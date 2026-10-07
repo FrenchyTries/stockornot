@@ -999,7 +999,7 @@ var toastTimer = null;
 
 /* One line, and a way back. A modal dialog covers everything outside it, so
    the toast moves into whichever dialog is open. */
-function showToast(text, label, onAction) {
+function showToast(text, label, onAction, ms) {
   var box = $("#toast");
   var host = document.querySelector("dialog[open]") || document.body;
   if (box.parentNode !== host) host.appendChild(box);
@@ -1013,7 +1013,7 @@ function showToast(text, label, onAction) {
   void box.offsetWidth;
   box.classList.add("is-in");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(hideToast, 6000);
+  toastTimer = setTimeout(hideToast, ms || 6000);
 }
 
 function hideToast() {
@@ -1176,6 +1176,14 @@ function signOutAndForget() {
     return auth.signOut();
   }).then(function () {
     clearTimeout(sync.timer); clearTimeout(sync.retryTimer);
+    /* Signing out on a shared computer has to end the brokerage connection
+       too: its cookie belongs to the browser, not the account, and would
+       otherwise leave the account and its orders to whoever sits down next. */
+    broker.disconnect().then(function (r) {
+      if (r.ok) state.broker = r.data;
+      portfolio = null;
+      renderBrokerPanel(); renderOrderBar();
+    });
     if (owned) {
       setCartOwner("");
       setCart([]);
@@ -1415,7 +1423,7 @@ function exportCsv() {
     var now = live && num(live.price) ? live.price : "";
     var chg = now !== "" && num(i.priceAtAdd) && i.priceAtAdd > 0
       ? (((now - i.priceAtAdd) / i.priceAtAdd) * 100).toFixed(2) : "";
-    rows.push([i.t, text(i.n), text(i.sector), String(i.addedAt || "").slice(0, 10),
+    rows.push([text(i.t), text(i.n), text(i.sector), text(String(i.addedAt || "").slice(0, 10)),
                num(i.priceAtAdd) ? i.priceAtAdd : "", now, chg, num(i.amount) ? i.amount : "", text(i.note)]);
   });
   /* A text cell that starts with = + - @ is run as a formula by spreadsheet
@@ -2984,8 +2992,8 @@ function renderAuthButton() {
   if (!auth.isConfigured()) { btn.hidden = true; return; }
   btn.hidden = false;
 
-  /* Three states, not two. The library loads from a CDN, so for the first
-     moment of every page load we do not yet know who you are. Saying "Sign in"
+  /* Three states, not two. The sign-in library loads on demand, so for the
+     first moment of every page load we do not yet know who you are. Saying "Sign in"
      during that gap tells an already-signed-in person they have been thrown
      out, which is how this looked broken even when the session was fine. */
   var label = state.user
@@ -3037,7 +3045,19 @@ function wireAuth() {
   /* a sign-in that happens on this page load (a link or a code), as opposed
      to a session restored from storage */
   var fresh = auth.isAuthCallback();
+  var fromLink = fresh;
   var linkError = auth.callbackError();
+  var whoShown = false;
+
+  /* A link signed this browser in, but nobody asked for one here: say whose
+     account it is, so a link someone sent for their own account cannot
+     quietly collect what you add to the cart. */
+  function sayWho(user) {
+    if (whoShown || !fromLink || !user || auth.linkWasAsked(user.email)) return;
+    whoShown = true;
+    showToast("Signed in as " + (user.email || "an account you did not ask for") + ". Not you?",
+      "Sign out", function () { signOutAndForget().then(function () { renderAuthButton(); }); }, 20000);
+  }
 
   $("#authEmailStep").addEventListener("submit", function (e) {
     e.preventDefault();
@@ -3117,7 +3137,7 @@ function wireAuth() {
       if (user) {
         auth.tidyUrl();
         /* token refreshes arrive here too; only a new person needs the check */
-        if (!same) ensureCartOwner(user, fresh);
+        if (!same) { ensureCartOwner(user, fresh); sayWho(user); }
         if ($("#dlgAuth").open) {
           $("#authWho").textContent = user.email || "your account";
           showAuthStep("authSignedIn");
@@ -3136,7 +3156,7 @@ function wireAuth() {
       refreshTier();
       renderAuthButton();
       auth.tidyUrl();
-      if (user && !same) ensureCartOwner(user, fresh);
+      if (user && !same) { ensureCartOwner(user, fresh); sayWho(user); }
       if (!user && linkError) {
         openAuth();
         showAuthStep("authEmailStep");
@@ -3188,6 +3208,13 @@ function init() {
       renderDeck();
       renderEarnNotice();
       brokerReturn();
+
+      /* "Turn them off" in an alert email lands here: open the alert settings
+         straight away (signing in first, if need be, is part of that dialog) */
+      if (new URLSearchParams(location.search).get("alerts") === "off") {
+        history.replaceState(null, "", location.pathname);
+        openEarnings();
+      }
     });
 }
 
