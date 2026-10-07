@@ -54,6 +54,11 @@
   --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
+  /* the bars: the header, and the tab bar along the bottom of a phone */
+  --topbar-h: 56px;
+  --tabbar-h: 56px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+
   /* older names still used in a few places */
   --plane: var(--bg);
 }
@@ -63,7 +68,11 @@
 html, body {
   margin: 0; padding: 0;
   min-height: 100%;
-  overflow-x: hidden;          /* a swiped card flies past the viewport */
+  /* a swiped card flies past the viewport. Clip, not hidden: hidden makes the
+     body a scroll box of its own, and the header and the compare table's row
+     of names then cannot stay at the top. Older browsers keep hidden. */
+  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {
@@ -165,7 +174,7 @@ kbd { font: 500 11px var(--font); background: var(--surface-2); border: 1px soli
 
 .topbar {
   display: flex; align-items: center; gap: 16px;
-  height: 56px; padding: 0 clamp(14px, 3vw, 28px);
+  height: var(--topbar-h); padding: 0 clamp(14px, 3vw, 28px);
   border-bottom: 1px solid var(--line);
   background: rgba(11, 12, 14, .88);
   backdrop-filter: saturate(140%) blur(10px);
@@ -187,18 +196,188 @@ kbd { font: 500 11px var(--font); background: var(--surface-2); border: 1px soli
 .allowance.is-low { color: var(--warning); }
 
 .topbar-actions { display: flex; gap: 8px; align-items: center; }
-.topmeta + .topbar-actions { margin-left: 4px; }
-@media (max-width: 700px) { .topmeta + .topbar-actions { margin-left: auto; } }
 .topbar .ghost-btn { height: 34px; font-size: 13.5px; }
-.ghost-btn .pill {
-  min-width: 20px; height: 20px; padding: 0 6px; margin-right: -4px;
-  display: inline-grid; place-items: center;
-  border-radius: 999px; background: var(--surface-3); color: var(--ink-2);
-  font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums;
+@keyframes bump { 0%,100% { transform: scale(1); } 40% { transform: scale(1.18); } }
+
+/* ============================== tabs ==============================
+   Five tabs: a bar along the bottom on a phone or tablet, the middle of the
+   header on a wide screen. The deck is the middle one. */
+
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  height: calc(var(--tabbar-h) + var(--safe-b));
+  padding: 0 max(4px, env(safe-area-inset-right, 0px)) var(--safe-b) max(4px, env(safe-area-inset-left, 0px));
+  background: rgba(11, 12, 14, .92);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  backdrop-filter: saturate(140%) blur(12px);
+  border-top: 1px solid var(--line);
 }
-.ghost-btn.has-items .pill { background: var(--accent); color: #fff; }
-@keyframes bump { 0%,100% { transform: scale(1); } 40% { transform: scale(1.08); } }
-.ghost-btn.bump { animation: bump .3s ease; }
+.tab {
+  position: relative; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  color: var(--ink-muted); font-size: 11px; font-weight: 550; line-height: 1.2;
+  -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none;
+}
+.tab:hover { color: var(--ink-2); text-decoration: none; }
+.tab-icon {
+  display: grid; place-items: center; width: 54px; height: 28px; border-radius: 999px;
+  transition: background-color .2s ease, color .2s ease, transform .15s ease;
+}
+.tab-icon svg { width: 21px; height: 21px; }
+.tab:active .tab-icon { transform: scale(.9); }
+.tab[aria-current="page"] { color: var(--ink); }
+.tab[aria-current="page"] .tab-icon { background: var(--accent-soft); color: var(--accent-ink); }
+.tab:focus-visible { outline: none; }
+.tab:focus-visible .tab-icon { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-badge {
+  position: absolute; top: 4px; left: calc(50% + 7px);
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  display: grid; place-items: center;
+  background: var(--accent); color: #fff; box-shadow: 0 0 0 2px var(--bg);
+  font-size: 10.5px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.tab-badge.bump { animation: bump .3s ease; }
+
+/* nothing ends up under the bar */
+body:not(.docpage) { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
+
+@media (min-width: 1100px) {
+  :root { --tabbar-h: 0px; }
+  .tabbar {
+    top: 0; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); z-index: 25;
+    display: flex; align-items: center; gap: 2px;
+    height: var(--topbar-h); padding: 0;
+    background: none; border: 0; -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .tab {
+    flex-direction: row; gap: 7px; height: 36px; padding: 0 12px;
+    border-radius: var(--radius-sm); font-size: 13.5px; font-weight: 500;
+  }
+  .tab:hover { background: var(--surface-2); color: var(--ink); }
+  .tab-icon, .tab[aria-current="page"] .tab-icon { width: auto; height: auto; background: none; }
+  .tab-icon svg { width: 17px; height: 17px; }
+  .tab[aria-current="page"] { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .tab[aria-current="page"] .tab-icon { color: var(--accent-ink); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tab:focus-visible .tab-icon { outline: none; }
+  .tab-badge { position: static; margin-left: 1px; box-shadow: none; }
+}
+
+/* ------------------------------ the tab pages ------------------------------ */
+
+.view.page { flex: 1; width: 100%; min-width: 0; max-width: 680px; margin: 0 auto; padding: clamp(18px, 3vh, 28px) 16px 32px; }
+.view.page.narrow { max-width: 520px; }
+.page-head {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px;
+  margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.page-head h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.page-head h1:focus { outline: none; }
+.page-head .head-note { flex: 0 1 auto; }
+.page-lead { margin: 0 0 18px; font-size: 14px; line-height: 1.6; color: var(--ink-2); max-width: 62ch; }
+@media (max-width: 460px) {
+  .page-head .head-note { order: 3; flex-basis: 100%; margin-left: 0; text-align: left; }
+}
+
+/* account */
+.panel { padding: 18px; border-radius: var(--radius-lg); background: var(--surface-1); box-shadow: inset 0 0 0 1px var(--line); }
+.panel-h { margin: 0 0 12px; font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+.row-list { display: grid; margin-top: 20px; border-top: 1px solid var(--line); }
+.block-h.row-list-h { margin: 30px 0 0; }
+.row-list-h + .row-list { margin-top: 10px; }
+.row-link {
+  font: inherit; color: var(--ink); background: none; border: 0; cursor: pointer; text-align: left; width: 100%;
+  display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 11px 2px;
+  border-bottom: 1px solid var(--line);
+  -webkit-tap-highlight-color: transparent;
+}
+.row-link:hover { text-decoration: none; }
+.row-link:hover b { color: var(--accent-ink); }
+.row-link > svg { width: 20px; height: 20px; flex: none; color: var(--ink-2); }
+.row-link > span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.row-link b { font-size: 14.5px; font-weight: 550; }
+.row-link small { font-size: 12.5px; line-height: 1.4; color: var(--ink-muted); }
+.row-link::after {
+  content: ""; flex: none; margin: 0 4px 0 auto; width: 7px; height: 7px;
+  border-top: 1.75px solid var(--ink-muted); border-right: 1.75px solid var(--ink-muted); transform: rotate(45deg);
+}
+
+/* compare */
+.cmp-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.cmp-picks:empty { display: none; }
+.cmp-pick {
+  display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 0 3px 0 12px;
+  border-radius: 999px; background: var(--accent-soft); box-shadow: inset 0 0 0 1px rgba(76, 141, 255, .35);
+  font-size: 13.5px; font-weight: 650;
+}
+.cmp-pick .icon-btn { border-radius: 999px; color: var(--ink-2); }
+.cmp-find { position: relative; }
+.cmp-find input[type="search"] { height: 42px; font-size: 16px; }     /* 16px stops iOS zooming */
+.cmp-find input:disabled { opacity: .6; cursor: not-allowed; }
+.cmp-find .search-results {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 6; margin: 0; padding: 2px 12px;
+  background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow);
+}
+.cmp-find .search-hit:last-child { border-bottom: 0; }
+.cmp-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
+.cmp-suggest-l { margin-right: 4px; font-size: 12.5px; color: var(--ink-muted); }
+.cmp-suggest .chip { background: var(--surface-2); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.cmp-suggest .chip::before { content: "+"; margin-right: 4px; color: var(--accent-ink); }
+#cmpMsg:empty { display: none; }
+
+.cmp-body { margin: 20px 0 6px; }
+.cmp-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13.5px; }
+.cmp-table th, .cmp-table td {
+  padding: 9px 8px 9px 0; border-bottom: 1px solid var(--line);
+  text-align: left; vertical-align: top; overflow-wrap: break-word; -webkit-hyphens: auto; hyphens: auto;
+}
+/* the companies stay in view down a long table */
+.cmp-table thead th, .cmp-table thead td {
+  position: sticky; top: var(--topbar-h); z-index: 3;
+  padding: 10px 8px 10px 0; background: var(--bg); vertical-align: top;
+  border-bottom: 0; box-shadow: inset 0 -1px 0 var(--line-strong);
+}
+.cmp-corner { width: 30%; }
+.cmp-ticker {
+  font: inherit; font-size: 15.5px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer;
+}
+.cmp-ticker:hover { color: var(--accent-ink); }
+.cmp-name {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 12px; font-weight: 400; line-height: 1.35; color: var(--ink-muted);
+}
+.cmp-table tbody th { font-size: 12.5px; font-weight: 400; color: var(--ink-muted); }
+.cmp-table td { color: var(--ink); font-weight: 550; font-variant-numeric: tabular-nums; }
+.cmp-table tr.cmp-sec th { padding: 22px 0 8px; font-size: 13.5px; font-weight: 600; color: var(--ink); border-bottom-color: var(--line-strong); }
+.cmp-table tbody tr.cmp-sec:first-child th { padding-top: 14px; }
+.cmp-big { display: block; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.cmp-sub { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--ink-2); }
+@media (max-width: 460px) { .cmp-sub { font-size: 11.5px; font-weight: 400; } }
+.cmp-meter { display: block; max-width: 96px; height: 3px; margin-top: 6px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+.cmp-meter i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.cmp-table td.is-top, .cmp-table td.is-top .cmp-big { color: var(--accent-ink); }
+/* plain text with the dot hung in the margin, so a long word can still break */
+.cmp-table .check-a { display: block; position: relative; padding-left: 11px; white-space: normal; font-size: 12.5px; font-weight: 550; line-height: 1.4; }
+.cmp-table .check-a::before { position: absolute; left: 0; top: .5em; }
+/* phones: the words carry the answer without the dot, and whole words fit */
+@media (max-width: 460px) {
+  .cmp-table { font-size: 13px; }
+  .cmp-corner { width: 25%; }
+  .cmp-big { font-size: 19px; }
+  .cmp-ticker { font-size: 14.5px; }
+  .cmp-table .check-a { padding-left: 0; }
+  .cmp-table .check-a::before { display: none; }
+}
+@media (max-width: 380px) {
+  #viewCompare { padding-left: 12px; padding-right: 12px; }
+  .cmp-table th, .cmp-table td, .cmp-table thead th, .cmp-table thead td { padding-right: 5px; }
+  .cmp-corner { width: 23%; }
+  .cmp-table tbody th { font-size: 11.5px; }
+  .cmp-table .check-a { font-size: 11.5px; }
+}
 
 /* ============================== notice ============================== */
 
@@ -219,7 +398,7 @@ body:not(.docpage) main { flex: 1; display: flex; }
 
 .stage { flex: 1; display: grid; place-items: start center; padding: clamp(14px, 3vh, 28px) 16px 24px; }
 .deck-wrap { width: 100%; max-width: 440px; min-width: 0; }
-.deck { position: relative; height: min(690px, calc(100dvh - 262px)); min-height: 420px; }
+.deck { position: relative; height: min(690px, calc(100dvh - 262px - var(--tabbar-h) - var(--safe-b))); min-height: 420px; }
 
 /* Pass, Undo and Add under the deck. While a card is dragged, --pull (0–1)
    lights the button on that side; a choice made any way presses it. */
@@ -803,7 +982,7 @@ input[type="search"]::placeholder { color: var(--ink-muted); }
   margin-top: 16px; padding: 14px 16px; border-radius: var(--radius);
   background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line);
 }
-#dlgCart .order-bar { position: sticky; bottom: -24px; z-index: 2; box-shadow: inset 0 0 0 1px var(--line), 0 -14px 24px rgba(0, 0, 0, .4); }
+#viewCart .order-bar { position: sticky; bottom: calc(var(--tabbar-h) + var(--safe-b) + 10px); z-index: 2; box-shadow: inset 0 0 0 1px var(--line), 0 -14px 24px rgba(0, 0, 0, .4); }
 .ob-total { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
 .ob-label { font-size: 12.5px; color: var(--ink-muted); }
 .ob-total b { font-size: 17px; font-weight: 650; }
@@ -1071,14 +1250,14 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
 /* ============================== responsive ============================== */
 
 @media (max-width: 700px) {
-  .topbar { height: 52px; gap: 10px; }
-  .topmeta { display: none; }
+  :root { --topbar-h: 52px; }
+  .topbar { gap: 10px; }
+  .topmeta { font-size: 12px; }
+  .allowance { display: none; }
   .topbar-actions { margin-left: auto; }
-  /* icon-only sign-in on phones; the label stays for screen readers */
-  #btnAuth span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  #btnAuth { width: 34px; padding: 0; }
-  .foot-age { display: block; }
-  .deck { height: calc(100dvh - 176px); min-height: 420px; }
+  .stage { padding-bottom: 12px; }
+  /* a short phone keeps the buttons above the tab bar; the card scrolls inside */
+  .deck { height: calc(100dvh - 164px - var(--tabbar-h) - var(--safe-b)); min-height: 340px; }
   .card-scroll { padding: 18px 18px 22px; }
   .c-price-v { font-size: 30px; }
   .topnav { display: none; }
@@ -1110,7 +1289,7 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
 /* ============================== toast ============================== */
 
 .toast {
-  position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 100;
+  position: fixed; left: 50%; bottom: calc(var(--tabbar-h) + var(--safe-b) + 14px); z-index: 100;
   transform: translateX(-50%);
   display: flex; align-items: center; gap: 12px;
   width: max-content; max-width: min(92vw, 420px); padding: 8px 8px 8px 16px;
@@ -1118,6 +1297,7 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
   border: 1px solid var(--line-strong); border-radius: 999px; box-shadow: var(--shadow);
   font-size: 13.5px;
 }
+dialog .toast { bottom: calc(20px + var(--safe-b)); }
 .toast.is-in { animation: toast-in .28s cubic-bezier(.22,1,.36,1); }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
 .toast-btn {
@@ -1134,4 +1314,5 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
   .card, .sheet-inner, .bp-row, .order-bar, .tier { border: 1px solid CanvasText; }
   .rangebar-fill, .rangebar-dot, .score-meter i, .factor-fill, .check-a::before { forced-color-adjust: none; }
   .primary-btn, .ghost-btn, .more-btn, .swipe-btn, .deck-btn, .toast { border: 1px solid ButtonText; }
+  .tab[aria-current="page"] .tab-icon, .tab[aria-current="page"] { outline: 1px solid Highlight; }
 }

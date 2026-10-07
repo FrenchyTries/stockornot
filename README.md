@@ -74,6 +74,23 @@ button between them, or <kbd>Z</kbd>, takes back the last swipe: the company
 returns to the top, and leaves the cart again if that swipe put it there.
 <kbd>↑</kbd> / <kbd>↓</kbd> scroll, and <kbd>Enter</kbd> opens the full record.
 
+## The tabs
+
+Five tabs run along the bottom of a phone, and across the middle of the header
+on a wide screen, with the deck in the middle:
+
+| Tab | What it holds |
+|---|---|
+| **Track** | The track record: each week's top and bottom fifth by score, followed forward against the whole index (`data/track.json`, the same table as `/track`) |
+| **Compare** | Up to three companies side by side: the score, its five factors, the answers to the five checks and the figures people compare most. It starts from the cart; type a ticker or a name to add any other company |
+| **Deck** | The cards |
+| **Cart** | The cart, below |
+| **Account** | Signing in, earnings alerts, the brokerage, membership and the site's pages |
+
+Each tab has its own address (`/#cart`, `/#compare`…), so the Back button steps
+between them and a link opens the same one. The arrow keys swipe only while the
+deck is showing.
+
 ## The cart
 
 Swiping right stores the ticker, the price at the moment you added it, and a note

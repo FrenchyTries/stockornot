@@ -990,7 +990,7 @@ function restoreToCart(item) {
   state.cart.sort(function (a, b) { return String(b.addedAt || "").localeCompare(String(a.addedAt || "")); });
   persistCart();
   renderCartCount(); renderEarnNotice();
-  if ($("#dlgCart").open) renderCart();
+  if (view === "cart") renderCart();
 }
 
 /* ---------------------------------------------------------------- toast */
@@ -1033,8 +1033,8 @@ function cartChanged() {
   renderCartCount();
   renderEarnNotice();
   renderOrderBar();
-  var dlg = $("#dlgCart");
-  if (dlg.open && !dlg.contains(document.activeElement && document.activeElement.matches("input, textarea") ? document.activeElement : null)) renderCart();
+  var box = $("#viewCart");
+  if (view === "cart" && !box.contains(document.activeElement && document.activeElement.matches("input, textarea") ? document.activeElement : null)) renderCart();
 }
 
 function persistCart() {
@@ -1233,15 +1233,18 @@ function addToCart(s) {
 }
 
 function flashCart() {
-  var b = $("#btnCart");
+  var b = $("#cartCount");
   b.classList.remove("bump");
   void b.offsetWidth;
   b.classList.add("bump");
 }
 
 function renderCartCount() {
-  $("#cartCount").textContent = state.cart.length;
-  $("#btnCart").classList.toggle("has-items", state.cart.length > 0);
+  var n = state.cart.length;
+  var badge = $("#cartCount");
+  badge.textContent = n > 99 ? "99+" : String(n);
+  badge.hidden = n === 0;
+  $("#tabCart").setAttribute("aria-label", n ? "Cart, " + n + (n === 1 ? " company" : " companies") : "Cart");
 }
 
 var NOTE_MAX = 600;
@@ -1405,9 +1408,12 @@ function renderCart() {
   renderOrderBar();
 }
 
-function openCart() {
+function openCart() { go("cart"); }
+
+/* The cart tab, each time it is shown: drawn fresh, and the brokerage asked
+   whether it is still connected. */
+function showCart() {
   renderCart();
-  openDialog($("#dlgCart"));
   refreshBroker().then(function (b) { if (b && b.connected) loadPortfolio(); });
 }
 
@@ -1481,7 +1487,7 @@ function loadPortfolio() {
     /* A failed refresh keeps what was already on screen and says why. */
     if (r.ok) { portfolio = r.data; portfolioError = ""; }
     else portfolioError = r.error || "Could not load holdings and orders.";
-    if ($("#dlgCart").open) renderCart();
+    if (view === "cart") renderCart();
     if ($("#dlgBroker").open) renderAccount();
     return portfolio;
   });
@@ -2013,7 +2019,7 @@ function placeOrders() {
     }
     if (review === mine) renderReview();
     renderOrderBar();
-    if ($("#dlgCart").open) renderCart();
+    if (view === "cart") renderCart();
     refreshBroker().then(loadPortfolio);
   });
 }
@@ -2781,10 +2787,403 @@ function openDetail(s) {
   });
 }
 
+/* ============================================================ COMPARE ===
+   Up to three companies side by side: the score and its five factors, the
+   answers to the five checks, and the figures people compare most. The pick
+   is kept in this browser; the first time, it starts from the cart. */
+
+var CMP_KEY = "ts.compare";
+var CMP_MAX = 3;
+var CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+var cmpPicks = null;
+
+function comparePicks() {
+  if (cmpPicks) return cmpPicks;
+  var saved = load(CMP_KEY, null);
+  cmpPicks = Array.isArray(saved)
+    ? saved.filter(function (t) { return typeof t === "string"; }).slice(0, CMP_MAX)
+    : state.cart.slice(0, CMP_MAX).map(function (i) { return i.t; });
+  return cmpPicks;
+}
+
+function setPicks(list) {
+  cmpPicks = list.slice(0, CMP_MAX);
+  save(CMP_KEY, cmpPicks);
+  $("#cmpMsg").textContent = "";
+  renderCompare();
+}
+
+function addPick(t) {
+  var picks = comparePicks();
+  if (picks.indexOf(t) >= 0) return;
+  if (picks.length >= CMP_MAX) { $("#cmpMsg").textContent = "Three at a time. Take one out to add " + t + "."; return; }
+  /* the same allowance as the deck: a company opened here counts as opened */
+  if (!tier.withinAllowance(state.viewed, t, state.tier)) {
+    $("#cmpMsg").textContent = "That is past the companies your plan can open." +
+      (state.tier === "anon" ? " Sign in for more." : "");
+    return;
+  }
+  tier.recordViewed(state.viewed, t);
+  renderAllowance();
+  setPicks(picks.concat([t]));
+}
+
+/* Tickers that start with what was typed come first, then names that hold it. */
+function findCompanies(q) {
+  q = q.trim().toUpperCase();
+  if (!q) return [];
+  var starts = [], within = [];
+  state.all.forEach(function (s) {
+    if (s.t.indexOf(q) === 0) starts.push(s);
+    else if (q.length >= 2 && String(s.n || "").toUpperCase().indexOf(q) >= 0) within.push(s);
+  });
+  starts.sort(function (a, b) { return a.t.length - b.t.length || (a.t < b.t ? -1 : 1); });
+  return starts.concat(within).slice(0, 6);
+}
+
+function renderHits() {
+  var input = $("#cmpInput"), box = $("#cmpHits");
+  var picks = comparePicks();
+  var hits = findCompanies(input.value);
+  box.innerHTML = "";
+  hits.forEach(function (s) {
+    var b = el("button", "search-hit");
+    b.type = "button";
+    b.appendChild(el("b", "", s.t));
+    b.appendChild(el("span", "", picks.indexOf(s.t) >= 0 ? s.n + " · already here" : s.n));
+    b.addEventListener("click", function (ev) { pickHit(s.t, ev.detail === 0); });
+    box.appendChild(b);
+  });
+  box.hidden = !hits.length;
+}
+
+function pickHit(t, byKeyboard) {
+  var input = $("#cmpInput");
+  input.value = "";
+  renderHits();
+  addPick(t);
+  if (byKeyboard && !$(".cmp-find").hidden) input.focus();
+}
+
+function renderPicks(list) {
+  var box = $("#cmpPicks");
+  box.innerHTML = "";
+  list.forEach(function (s) {
+    var chip = el("span", "cmp-pick");
+    chip.appendChild(el("span", "", s.t));
+    var out = el("button", "icon-btn small");
+    out.type = "button";
+    out.innerHTML = CLOSE_ICON;
+    out.setAttribute("aria-label", "Take " + s.t + " out of the comparison");
+    out.addEventListener("click", function (ev) {
+      setPicks(comparePicks().filter(function (t) { return t !== s.t; }));
+      /* from the keyboard, on to the box that is back now there is room; a
+         tap leaves the phone's keyboard down */
+      if (ev.detail === 0) $("#cmpInput").focus();
+    });
+    chip.appendChild(out);
+    box.appendChild(chip);
+  });
+
+  /* three is the most a phone can show side by side */
+  var full = list.length >= CMP_MAX;
+  $(".cmp-find").hidden = full;
+  $("#cmpFull").hidden = !full;
+
+  /* what is in the cart and not here yet, one tap each */
+  var sug = $("#cmpSuggest");
+  sug.innerHTML = "";
+  var here = list.map(function (s) { return s.t; });
+  var left = state.cart.map(function (i) { return i.t; })
+    .filter(function (t) { return here.indexOf(t) < 0 && state.byTicker[t]; }).slice(0, 8);
+  sug.hidden = full || !left.length;
+  if (sug.hidden) return;
+  sug.appendChild(el("span", "cmp-suggest-l", "From your cart"));
+  left.forEach(function (t) {
+    var b = el("button", "chip", t);
+    b.type = "button";
+    b.setAttribute("aria-label", "Add " + t + " to the comparison");
+    b.addEventListener("click", function () { addPick(t); });
+    sug.appendChild(b);
+  });
+}
+
+function renderCompare() {
+  var body = $("#cmpBody");
+  body.innerHTML = "";
+  if (!state.all.length) {
+    renderPicks([]);
+    body.appendChild(el("p", "block-note", "Loading the S&P 500…"));
+    return;
+  }
+  var list = comparePicks().map(function (t) { return state.byTicker[t]; }).filter(Boolean);
+  /* a company that has left the index since it was picked no longer holds a place */
+  if (list.length < comparePicks().length) {
+    cmpPicks = list.map(function (s) { return s.t; });
+    save(CMP_KEY, cmpPicks);
+  }
+  renderPicks(list);
+  if (!list.length) {
+    body.appendChild(el("p", "empty-note", state.cart.length
+      ? "Pick two or three companies from your cart, or type a ticker or a name."
+      : "Type a ticker or a name to start. Companies you add to your cart from the deck show up here too, one tap each."));
+    return;
+  }
+
+  var cols = list.map(function (s) {
+    var res = scoreStock(s, state.scoreCtx);
+    return { s: s, res: res, checks: insight.financialChecks(s, res) };
+  });
+
+  var table = el("table", "cmp-table");
+  table.appendChild(el("caption", "sr-only", "Side by side: " + list.map(function (s) { return s.t; }).join(", ")));
+  var head = el("thead");
+  var hr = el("tr");
+  hr.appendChild(el("td", "cmp-corner"));
+  cols.forEach(function (c) {
+    var th = el("th");
+    th.scope = "col";
+    var b = el("button", "cmp-ticker", c.s.t);
+    b.type = "button";
+    b.title = "Open the full record";
+    b.addEventListener("click", function () { openDetail(c.s); });
+    th.appendChild(b);
+    th.appendChild(el("span", "cmp-name", c.s.n));
+    hr.appendChild(th);
+  });
+  head.appendChild(hr);
+  table.appendChild(head);
+
+  var tbody = el("tbody");
+  function section(title) {
+    var tr = el("tr", "cmp-sec");
+    var th = el("th", "", title);
+    th.scope = "colgroup";
+    th.colSpan = cols.length + 1;
+    tr.appendChild(th);
+    tbody.appendChild(tr);
+  }
+  /* cells: one per company, each a string or a node; best: the cells to mark */
+  function row(label, cells, best, hint) {
+    var tr = el("tr");
+    var th = el("th", "", label);
+    th.scope = "row";
+    if (hint) th.title = hint;
+    tr.appendChild(th);
+    cells.forEach(function (c, i) {
+      var td = el("td", best && best[i] ? "is-top" : "");
+      if (c && c.nodeType) td.appendChild(c); else td.textContent = c;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  /* the highest of two or more, unless they all tie */
+  function highest(vals) {
+    if (vals.length < 2) return null;
+    var nums = vals.filter(num);
+    if (nums.length < 2) return null;
+    var top = Math.max.apply(null, nums), low = Math.min.apply(null, nums);
+    if (top === low) return null;
+    return vals.map(function (v) { return v === top; });
+  }
+  function meter(v) {
+    var wrap = el("span");
+    wrap.appendChild(el("span", "", num(v) ? String(Math.round(v)) : "n/a"));
+    var m = el("span", "cmp-meter");
+    var fill = el("i");
+    fill.style.width = num(v) ? clamp(v, 0, 100) + "%" : "0";
+    m.appendChild(fill);
+    wrap.appendChild(m);
+    return wrap;
+  }
+
+  section("Score");
+  var overall = cols.map(function (c) { return c.res.overall; });
+  row("Score", cols.map(function (c) {
+    var box = el("span");
+    box.appendChild(el("b", "cmp-big", num(c.res.overall) ? String(c.res.overall) : "—"));
+    box.appendChild(el("span", "cmp-sub", scoreLabel(c.res.overall).word));
+    return box;
+  }), highest(overall), "Its place in the S&P 500, 1 to 99: better than that share of the index.");
+  row("In its sector", cols.map(function (c) {
+    /* "#2 of 73", and the sector under it in small type */
+    var m = (sectorRankText(c.res.place) || "").match(/^(#\d+ of \d+) in (.+)$/);
+    if (!m) return "—";
+    var box = el("span");
+    box.appendChild(el("span", "", m[1]));
+    box.appendChild(el("span", "cmp-sub", m[2]));
+    return box;
+  }));
+  FACTORS.forEach(function (f) {
+    var vals = cols.map(function (c) { return c.res.factors[f.id]; });
+    row(f.label, vals.map(meter), highest(vals.map(function (v) { return num(v) ? Math.round(v) : null; })), f.blurb);
+  });
+
+  section("The five checks");
+  var titles = [];
+  cols.forEach(function (c) { c.checks.forEach(function (g) { if (titles.indexOf(g.title) < 0) titles.push(g.title); }); });
+  titles.forEach(function (title) {
+    var question = "";
+    row(title, cols.map(function (c) {
+      var g = c.checks.filter(function (k) { return k.title === title; })[0];
+      if (g && g.question) question = g.question;
+      if (!g || !g.answer) return "—";
+      var a = el("span", "check-a is-" + g.answer.tone, g.answer.text);
+      if (g.note) a.title = g.note;
+      return a;
+    }), null, question);
+  });
+
+  section("The figures");
+  row("Price", cols.map(function (c) { return price(c.s.price); }));
+  row("Today", cols.map(function (c) {
+    var v = c.s.change;
+    var dir = !num(v) ? "flat" : v > 0.005 ? "up" : v < -0.005 ? "down" : "flat";
+    return el("span", "delta small " + dir, num(v) ? pct(v, 2) : "—");
+  }));
+  row("Past year", cols.map(function (c) { return pct(c.s.r52, 0); }), null, "The share price over the last 52 weeks, without dividends.");
+  row("Market cap", cols.map(function (c) { return cap(c.s.mc); }));
+  row("P/E", cols.map(function (c) { return num(c.s.pe) && c.s.pe > 0 ? x(c.s.pe) : "n/a"; }), null,
+    "Price over the last twelve months' earnings per share. None for a company losing money.");
+  row("Net margin", cols.map(function (c) { return pctPlain(c.s.nm); }));
+  row("Dividend yield", cols.map(function (c) { return num(c.s.dy) && c.s.dy > 0 ? pctPlain(c.s.dy, 2) : "None"; }));
+  row("Next earnings", cols.map(function (c) {
+    var e = c.s.earnings;
+    return e && e.date && daysUntil(e.date) >= 0 ? dateShort(e.date).replace(/, \d{4}$/, "") : "—";
+  }));
+
+  table.appendChild(tbody);
+  body.appendChild(table);
+}
+
+/* ======================================================= TRACK RECORD ===
+   The weekly groups scripts/track.mjs follows, newest first, as on the
+   /track page. Fetched the first time the tab is shown. */
+
+var MEANINGFUL_DAYS = 60;       /* about three months of sessions, as on /track */
+var trackLoad = null;
+
+function showTrack() {
+  if (trackLoad) return;
+  trackLoad = fetch("data/track.json", { cache: "no-cache" })
+    .then(function (r) {
+      if (r.status === 404) return null;            /* not started yet */
+      if (!r.ok) throw new Error("http " + r.status);
+      return r.json();
+    })
+    .then(renderTrack, function () {
+      trackLoad = null;                            /* asked again next time */
+      var body = $("#trackBody");
+      body.innerHTML = "";
+      body.appendChild(el("p", "block-note", "The track record did not load. Check the connection, then open this tab again."));
+    });
+}
+
+function renderTrack(track) {
+  var body = $("#trackBody");
+  body.innerHTML = "";
+  var groups = (track && Array.isArray(track.groups) ? track.groups : []).slice().reverse();
+  $("#trackNote").textContent = track && track.started ? "Since " + dateShort(track.started) : "";
+  if (!groups.length) {
+    body.appendChild(el("p", "empty-note", "The first group is picked on the first nightly run. Come back in a week."));
+    return;
+  }
+  var table = el("table", "doc-table list track-table");
+  var head = el("thead");
+  var hr = el("tr");
+  [["Picked", ""], ["Top fifth", "num"], ["Bottom fifth", "num"], ["All 500", "num"], ["Top vs all", "num"]].forEach(function (h) {
+    var th = el("th", h[1], h[0]);
+    th.scope = "col";
+    hr.appendChild(th);
+  });
+  head.appendChild(hr);
+  table.appendChild(head);
+  var tbody = el("tbody");
+  function cell(v, tone) {
+    var td = el("td", "num");
+    var ok = num(v);
+    var dir = !ok ? "flat" : v > 1.0005 ? "up" : v < 0.9995 ? "down" : "flat";
+    td.appendChild(el("span", tone ? "delta " + dir : "", ok ? pct((v - 1) * 100, 1) : "—"));
+    return td;
+  }
+  var longest = 0;
+  groups.forEach(function (g) {
+    longest = Math.max(longest, g.days || 0);
+    var tr = el("tr");
+    var th = el("th", "", dateShort(g.start));
+    th.scope = "row";
+    th.appendChild(el("span", "track-days", g.days + (g.days === 1 ? " session" : " sessions")));
+    tr.appendChild(th);
+    tr.appendChild(cell(g.top, true));
+    tr.appendChild(cell(g.bottom, true));
+    tr.appendChild(cell(g.index, false));
+    tr.appendChild(cell(num(g.top) && g.index > 0 ? g.top / g.index : null, true));
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  var wrap = el("div", "table-scroll");
+  wrap.appendChild(table);
+  body.appendChild(wrap);
+  if (longest < MEANINGFUL_DAYS) {
+    body.appendChild(el("p", "block-note", "The oldest group has been followed for " + longest + " trading " +
+      (longest === 1 ? "session" : "sessions") + ". Over weeks, prices move for reasons no score can see; read nothing into this until it has run for months."));
+  }
+}
+
 /* ============================================================== CHROME === */
 
 function openDialog(dlg) { if (!dlg.open) dlg.showModal(); }
 function closeDialog(dlg) { if (dlg.open) dlg.close(); }
+
+/* --------------------------------------------------------------- tabs ---
+   Five tabs, one shown at a time. The address carries the tab (#cart,
+   #compare…), so Back steps between them and a shared link opens the same
+   one; the deck is the address with no hash. Anything else after a # (a
+   sign-in link's tokens) is not a tab, and is left alone for auth to read. */
+
+var VIEWS = { deck: "#deck", compare: "#viewCompare", cart: "#viewCart", track: "#viewTrack", account: "#viewAccount" };
+var view = "deck";
+
+function viewInUrl() {
+  var h = location.hash.slice(1);
+  return Object.prototype.hasOwnProperty.call(VIEWS, h) ? h : "deck";
+}
+
+function showView(name, focus) {
+  if (!VIEWS[name]) name = "deck";
+  var changed = name !== view;
+  view = name;
+  Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).hidden = k !== name; });
+  Array.prototype.forEach.call(document.querySelectorAll("#tabbar [data-view]"), function (a) {
+    if (a.getAttribute("data-view") === name) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  if (name === "cart") showCart();
+  else if (name === "account") showAccount();
+  else if (name === "compare") renderCompare();
+  else if (name === "track") showTrack();
+  else deckShown();
+  if (!changed) return;
+  window.scrollTo(0, 0);
+  /* chosen from the bar: start the reader at the tab's heading */
+  var h = focus && $(VIEWS[name] + " h1");
+  if (h) h.focus({ preventScroll: true });
+}
+
+function go(name) {
+  if (name === view) { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  if (!auth.isAuthCallback()) {
+    try { history.pushState(null, "", name === "deck" ? location.pathname + location.search : "#" + name); } catch (e) {}
+  }
+  showView(name, true);
+}
+
+/* Back on the deck: the top card was hidden while another tab showed, so its
+   scroll fade is measured again. */
+function deckShown() {
+  var sc = cards[0] && $(".card-scroll", cards[0].node);
+  if (sc) sc.dispatchEvent(new Event("scroll"));
+}
 
 /* "Prices at the Sep 22 close": the session the figures describe, which is
    what matters, rather than how long ago a job ran. */
@@ -2831,8 +3230,32 @@ function repoUrl() {
 
 function wire() {
 
-  $("#btnCart").addEventListener("click", openCart);
   window.addEventListener("storage", onStorage);
+
+  Array.prototype.forEach.call(document.querySelectorAll("#tabbar [data-view]"), function (a) {
+    a.addEventListener("click", function (ev) {
+      if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button) return;   /* a new browser tab */
+      ev.preventDefault();
+      go(a.getAttribute("data-view"));
+    });
+  });
+  function followUrl() { var v = viewInUrl(); if (v !== view) showView(v); }
+  window.addEventListener("popstate", followUrl);
+  window.addEventListener("hashchange", followUrl);
+  $("#acctAlerts").addEventListener("click", openEarnings);
+  $("#cmpInput").addEventListener("input", renderHits);
+  $("#cmpInput").addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      var hit = findCompanies(ev.target.value)[0];
+      if (hit) pickHit(hit.t, true);
+    } else if (ev.key === "Escape" && ev.target.value) {
+      ev.preventDefault();
+      ev.target.value = "";
+      renderHits();
+    }
+  });
+  $("#acctBroker").addEventListener("click", openBroker);
 
   Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (b) {
     b.addEventListener("click", function () { closeDialog(b.closest("dialog")); });
@@ -2876,7 +3299,7 @@ function wire() {
   });
   $("#orderLiveCheck").addEventListener("change", renderReview);
   $("#btnPlace").addEventListener("click", placeOrders);
-  $("#dlgOrders").addEventListener("close", function () { if ($("#dlgCart").open) renderCart(); });
+  $("#dlgOrders").addEventListener("close", function () { if (view === "cart") renderCart(); });
 
   /* ---- brokerage ---- */
   $("#brokerEnv").addEventListener("change", function () { $("#brokerOauth").href = broker.oauthUrl(pickedEnv()); });
@@ -2899,7 +3322,7 @@ function wire() {
       if (r.ok) state.broker = r.data;
       portfolio = null;
       renderAccount(); renderBrokerPanel(); renderOrderBar();
-      if ($("#dlgCart").open) renderCart();
+      if (view === "cart") renderCart();
     });
   });
   $("#brokerRefresh").addEventListener("click", function () { brokerError(""); refreshBroker().then(loadPortfolio); });
@@ -2952,6 +3375,7 @@ function wire() {
        on a focused button or link (Enter should press that), and never with
        a modifier (Ctrl+D is the browser's bookmark). */
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (view !== "deck") return;
     var t = ev.target;
     if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
     if (document.querySelector("dialog[open]")) return;
@@ -2981,41 +3405,45 @@ function authError(msg) {
 }
 
 function showAuthStep(which) {
-  ["authEmailStep", "authCodeStep", "authSignedIn"].forEach(function (id) {
+  ["authPendingStep", "authEmailStep", "authCodeStep", "authSignedIn"].forEach(function (id) {
     $("#" + id).hidden = id !== which;
   });
   authError("");
 }
 
-function renderAuthButton() {
-  var btn = $("#btnAuth");
-  if (!auth.isConfigured()) { btn.hidden = true; return; }
-  btn.hidden = false;
-
-  /* Three states, not two. The sign-in library loads on demand, so for the
-     first moment of every page load we do not yet know who you are. Saying "Sign in"
-     during that gap tells an already-signed-in person they have been thrown
-     out, which is how this looked broken even when the session was fine. */
-  var label = state.user
-    ? (state.user.email || "Account").split("@")[0]
-    : state.authPending ? "Signing in…" : "Sign in";
-  $("#authLabel").textContent = label;
-  btn.classList.toggle("accent", !state.user && !state.authPending);
-  btn.classList.toggle("is-pending", !state.user && !!state.authPending);
+/* The account tab: who is signed in, or the way to sign in. Three states, not
+   two. The sign-in library loads on demand, so for the first moment of every
+   page load we do not yet know who you are. Offering a sign-in form during
+   that gap tells an already-signed-in person they have been thrown out. */
+function renderAccountTab() {
+  var on = auth.isConfigured();
+  $("#authBox").hidden = !on;
+  $("#authOff").hidden = on;
+  $("#acctPlan").textContent = tier.DEV_UNLIMITED ? "Not taking payment yet, so everything is open"
+    : tier.TIER_LABEL[state.tier] + (state.tier === "member" ? "" : " · see what membership adds");
+  if (!on) return;
+  $("#authTitle").textContent = state.user ? "Signed in" : "Keep your cart";
+  if (state.user) {
+    $("#authWho").textContent = state.user.email || "your account";
+    if ($("#authSignedIn").hidden) showAuthStep("authSignedIn");
+  } else if (state.authPending) {
+    showAuthStep("authPendingStep");
+  } else if (!$("#authSignedIn").hidden || !$("#authPendingStep").hidden) {
+    /* only a panel still saying "signed in" or "checking" needs to change;
+       resetting any other step would wipe a message or a half-typed code */
+    showAuthStep("authEmailStep");
+  }
 }
 
 var startAuth = function () {};   /* set by wireAuth */
 
-function openAuth() {
+/* The tab loads the sign-in library the first time it is shown. */
+function showAccount() {
   startAuth();
-  if (state.user) {
-    $("#authWho").textContent = state.user.email || "your account";
-    showAuthStep("authSignedIn");
-  } else {
-    showAuthStep("authEmailStep");
-  }
-  openDialog($("#dlgAuth"));
+  renderAccountTab();
 }
+
+function openAuth() { go("account"); }
 
 /* One place decides the tier, and every path that could change it calls here.
    Re-rendering afterwards matters: someone who pays in another tab should see
@@ -3024,22 +3452,20 @@ function refreshTier() {
   var before = state.tier;
   if (!state.user) {
     state.tier = "anon";
-    if (before !== state.tier) { renderDeck(); renderCartCount(); }
+    if (before !== state.tier) { renderDeck(); renderCartCount(); renderAccountTab(); }
     return;
   }
   auth.getClient().then(function (client) {
     return tier.tierFor(client, state.user);
   }).then(function (t) {
     state.tier = t || "free";
-    if (state.tier !== before) { renderDeck(); renderCartCount(); }
+    if (state.tier !== before) { renderDeck(); renderCartCount(); renderAccountTab(); }
     else renderAllowance();
   });
 }
 
 function wireAuth() {
   if (!auth.isConfigured()) return;
-
-  $("#btnAuth").addEventListener("click", openAuth);
 
   var pending = "";
   /* a sign-in that happens on this page load (a link or a code), as opposed
@@ -3056,7 +3482,7 @@ function wireAuth() {
     if (whoShown || !fromLink || !user || auth.linkWasAsked(user.email)) return;
     whoShown = true;
     showToast("Signed in as " + (user.email || "an account you did not ask for") + ". Not you?",
-      "Sign out", function () { signOutAndForget().then(function () { renderAuthButton(); }); }, 20000);
+      "Sign out", function () { signOutAndForget().then(function () { renderAccountTab(); }); }, 20000);
   }
 
   $("#authEmailStep").addEventListener("submit", function (e) {
@@ -3099,12 +3525,12 @@ function wireAuth() {
     btn.disabled = true; btn.textContent = "Saving and signing out…";
     signOutAndForget().then(function (done) {
       btn.disabled = false; btn.textContent = "Sign out";
-      if (done) closeDialog($("#dlgAuth"));
+      if (done) renderAccountTab();
     });
   });
 
   /* The sign-in library is only loaded for someone who is signed in, is
-     arriving from a sign-in link, or opens the sign-in dialog (or signs in
+     arriving from a sign-in link, or opens the account tab (or signs in
      from another tab). Everyone else never downloads it. */
   var started = false;
   startAuth = function () {
@@ -3130,22 +3556,14 @@ function wireAuth() {
     auth.onAuthChange(function (user) {
       var same = user && state.user && state.user.id === user.id;
       state.user = user;
-      renderAuthButton();
-      setSyncNote("saved");
       state.authPending = false;
+      renderAccountTab();
+      setSyncNote("saved");
       refreshTier();
       if (user) {
         auth.tidyUrl();
         /* token refreshes arrive here too; only a new person needs the check */
         if (!same) { ensureCartOwner(user, fresh); sayWho(user); }
-        if ($("#dlgAuth").open) {
-          $("#authWho").textContent = user.email || "your account";
-          showAuthStep("authSignedIn");
-        }
-      } else if ($("#dlgAuth").open && !$("#authSignedIn").hidden) {
-        /* only a dialog still saying "signed in" needs to change; resetting
-           any other step would wipe a message or a half-typed code */
-        showAuthStep("authEmailStep");
       }
     });
 
@@ -3154,7 +3572,7 @@ function wireAuth() {
       state.authPending = false;
       state.user = user;
       refreshTier();
-      renderAuthButton();
+      renderAccountTab();
       auth.tidyUrl();
       if (user && !same) { ensureCartOwner(user, fresh); sayWho(user); }
       if (!user && linkError) {
@@ -3176,11 +3594,12 @@ function init() {
   }
   /* Decided synchronously, before any network call: either a session is already
      in storage or this page load is the return leg of a sign-in link. Either
-     way somebody is signed in, and the header should not claim otherwise. */
+     way somebody is signed in, and the account tab should not claim otherwise. */
   state.authPending = auth.isConfigured() && (auth.hasStoredSession() || auth.isAuthCallback());
   wireAuth();
-  renderAuthButton();
+  renderAccountTab();
   renderCartCount();
+  showView(viewInUrl());
   showMessage("Loading the S&P 500…", "Pulling the latest snapshot.", []);
 
   loadSnapshot()
@@ -3207,6 +3626,9 @@ function init() {
 
       renderDeck();
       renderEarnNotice();
+      /* a tab opened before the prices arrived is drawn again with them */
+      if (view === "cart") renderCart();
+      else if (view === "compare") renderCompare();
       brokerReturn();
 
       /* "Turn them off" in an alert email lands here: open the alert settings

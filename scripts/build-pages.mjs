@@ -460,6 +460,8 @@ const PUBLIC_FILES = [
   "data/snapshot.json"
 ];
 const PUBLIC_DIRS = ["stock", "lib", "fonts", "icons", "data/detail", "data/filings"];
+/* copied when they exist: the track record starts on the first nightly run */
+const PUBLIC_IF_ANY = ["data/track.json"];
 
 async function assemblePublic() {
   const out = path.join(ROOT, "public");
@@ -469,6 +471,10 @@ async function assemblePublic() {
     await fs.copyFile(path.join(ROOT, f), path.join(out, f));
   }
   for (const d of PUBLIC_DIRS) await fs.cp(path.join(ROOT, d), path.join(out, d), { recursive: true });
+  for (const f of PUBLIC_IF_ANY) {
+    try { await fs.copyFile(path.join(ROOT, f), path.join(out, f)); }
+    catch (err) { if (err.code !== "ENOENT") throw err; }
+  }
   let n = 0;
   const count = async (dir) => {
     for (const e of await fs.readdir(dir, { withFileTypes: true })) {
