@@ -43,6 +43,8 @@ const KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND = process.env.RESEND_API_KEY;
 const FROM  = process.env.ALERT_FROM || "StockOrNot <alerts@stockornot.com>";
 const SITE  = (process.env.SITE_ORIGIN || "https://stockornot.com").replace(/\/+$/, "");
+/* where "unsubscribe" replies go: the address the privacy page gives */
+const UNSUBSCRIBE = "hello@stockornot.com";
 const DRY   = process.env.DRY_RUN === "1";
 const RESEND_URL = process.env.RESEND_URL || "https://api.resend.com/emails";   /* overridable for tests */
 
@@ -128,7 +130,7 @@ function compose(due, details, days) {
       `  ${SITE}/stock/${slug(r.u.t)}`, ""
     ]),
     "You are getting this because earnings alerts are on for your StockOrNot cart.",
-    `Turn them off under Cart > Earnings dates at ${SITE}.`,
+    `Turn them off: ${SITE}/?alerts=off (or reply with "unsubscribe").`,
     "Not investment advice."
   ].join("\n");
 
@@ -147,8 +149,8 @@ ${rows.map((r) => `<div style="border-top:1px solid #e4e2dc;padding:14px 0">
   <p style="margin:10px 0 0;font-size:14px"><a href="${SITE}/?t=${encodeURIComponent(r.u.t)}" style="color:#1a4f8a">Open the card</a></p>
 </div>`).join("")}
 <p style="margin:14px 0 0;font-size:12px;color:#78756a;border-top:1px solid #e4e2dc;padding-top:12px">
-You are getting this because earnings alerts are on for your cart. Turn them off under Cart &rsaquo; Earnings dates at
-<a href="${SITE}" style="color:#78756a">${esc(SITE.replace(/^https?:\/\//, ""))}</a>. Not investment advice.</p>
+You are getting this because earnings alerts are on for your cart.
+<a href="${SITE}/?alerts=off" style="color:#78756a">Turn them off</a>, or reply with "unsubscribe". Not investment advice.</p>
 </div></body></html>`;
 
   return { subject, text, html };
@@ -164,7 +166,9 @@ async function send(to, mail) {
     res = await fetch(RESEND_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to: [to], subject: mail.subject, html: mail.html, text: mail.text }),
+      /* the standard header mail apps turn into an "Unsubscribe" button */
+      body: JSON.stringify({ from: FROM, to: [to], subject: mail.subject, html: mail.html, text: mail.text,
+        headers: { "List-Unsubscribe": `<mailto:${UNSUBSCRIBE}?subject=unsubscribe>, <${SITE}/?alerts=off>` } }),
       signal: AbortSignal.timeout(20000)
     });
   } catch (err) {

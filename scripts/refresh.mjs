@@ -102,11 +102,16 @@ const secGate     = limiter(8);        /* SEC asks for <= 10 requests/second  */
 const chartGate   = limiter(5);        /* charts are optional, so pace them and
                                           never let retries stall the run */
 
+/* Every request has a deadline: one host that accepts a connection and never
+   answers must not hold the whole run past its three-hour limit. */
+const TIMEOUT_MS = 30_000;
+const MAX_TEXT = 25e6;      /* larger than any real 10-K; anything bigger is skipped */
+
 async function getJSON(url, { headers = {}, gate, tries = 3, label = "" } = {}) {
   for (let attempt = 1; attempt <= tries; attempt++) {
     if (gate) await gate();
     try {
-      const res = await fetch(url, { headers });
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
       if (res.status === 429) { await sleep(2000 * attempt); continue; }
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -125,9 +130,12 @@ async function getJSON(url, { headers = {}, gate, tries = 3, label = "" } = {}) 
 async function getText(url, { headers = {}, gate, label = "" } = {}) {
   if (gate) await gate();
   try {
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS * 2) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
+    if (Number(res.headers.get("content-length")) > MAX_TEXT) throw new Error("too large, skipped");
+    const text = await res.text();
+    if (text.length > MAX_TEXT) throw new Error("too large, skipped");
+    return text;
   } catch (err) {
     console.warn(`  ! ${label || url}: ${err.message}`);
     return null;
@@ -382,6 +390,7 @@ async function fetchFilingDetail(ticker, tenK) {
    and try those before giving up. Loaded only if something fails to quote. */
 
 let secTickers = null;
+const TICKER = /^[A-Z]{1,5}(\.[A-Z]{1,2})?$/;
 async function tickersForCik(cik) {
   if (!secTickers) {
     const j = await getJSON(`${SEC_WWW}/files/company_tickers.json`,
@@ -477,246 +486,256 @@ async function main() {
   for (let i = 0; i < companies.length; i++) {
     let c = companies[i];
     const tag = `[${String(i + 1).padStart(3)}/${companies.length}] ${c.t}`;
+    /* One company's malformed record (a bad timestamp, a null in an array)
+       is that company skipped tonight, not all 500 frozen until someone
+       edits the code. The audit still fails the run if too many go. */
+    try {
+      /* -- market data -- */
+      let [quote, metricRes] = await market(c.t);
 
-    /* -- market data -- */
-    let [quote, metricRes] = await market(c.t);
-
-    if (!quoted(quote)) {
-      const alt = (await tickersForCik(c.cik)).find((t) => t !== c.t);
-      const retry = alt ? await market(alt) : null;
-      if (retry && quoted(retry[0])) {
-        console.log(`${tag}  now trades as ${alt}: update data/sp500.json`);
-        renamed.push({ from: c.t, to: alt });
-        c = { ...c, t: alt };
-        [quote, metricRes] = retry;
-      } else {
-        console.log(`${tag}  skipped (no quote)`);
-        skipped.push(c.t);
-        continue;
-      }
-    }
-    const safeName = c.t.replace(/[^A-Z0-9.]/gi, "_");
-    const m = metricRes?.metric || {};
-
-    /* The bulk calendar only carries dates that are already announced, which is
-       a minority of the index at any moment. Ask per symbol for the rest, and
-       also whenever the bulk answer is more than ~100 days out: a company
-       that reports every quarter has a nearer date the bulk call skipped,
-       and keeping the far one meant no alert for the real report. */
-    const held = earnings.get(c.t);
-    if (!held || (new Date(held.date) - today) / 864e5 > FAR_REPORT_DAYS) {
-      const one = await finnhub(`/calendar/earnings?symbol=${encodeURIComponent(c.t)}&from=${fmt(today)}&to=${fmt(horizon)}`);
-      for (const row of one?.earningsCalendar || []) remember({ ...row, symbol: c.t });
-    }
-
-    /* -- SEC filing history -- */
-    const sub = await sec(`${SEC_DATA}/submissions/CIK${c.cik}.json`, `submissions ${c.t}`);
-    const tenK = sub ? filingFromSubmissions(sub, c.cik, "10-K") : null;
-    const tenQ = sub ? filingFromSubmissions(sub, c.cik, "10-Q") : null;
-
-    /* -- 10-K contents, cached by accession -- */
-    let detail = null;
-    const cachePath = path.join(FILING_DIR, safeName + ".json");
-    if (tenK) {
-      let cached = null;
-      try { cached = JSON.parse(await fs.readFile(cachePath, "utf8")); } catch { /* first run */ }
-      const sameFiling = cached?.accession === tenK.accession;
-      if (sameFiling && cached.v === PARSER_VERSION) {
-        detail = cached.detail;
-        filingsCached++;
-      } else if (sameFiling && (SKIP_FILINGS || reparsed >= REPARSE_BUDGET)) {
-        /* older parser's reading of the right filing; re-read on a later night */
-        detail = cached.detail;
-        filingsCached++;
-      } else if (!SKIP_FILINGS) {
-        if (sameFiling) reparsed++;
-        const read = await fetchFilingDetail(c.t, tenK);
-        if (read !== undefined) {
-          /* Written even when nothing could be read, tied to this accession, so
-             the page never shows last year's text under this year's link and a
-             filing that cannot be parsed is not downloaded again every night. */
-          detail = read;
-          await fs.writeFile(cachePath, JSON.stringify({ accession: tenK.accession, v: PARSER_VERSION, detail }));
-          filingsFetched++;
+      if (!quoted(quote)) {
+        /* only a well-formed ticker: it becomes a file name and part of a page */
+        const alt = (await tickersForCik(c.cik)).find((t) => t !== c.t && TICKER.test(t));
+        const retry = alt ? await market(alt) : null;
+        if (retry && quoted(retry[0])) {
+          console.log(`${tag}  now trades as ${alt}: update data/sp500.json`);
+          renamed.push({ from: c.t, to: alt });
+          c = { ...c, t: alt };
+          [quote, metricRes] = retry;
+        } else {
+          console.log(`${tag}  skipped (no quote)`);
+          skipped.push(c.t);
+          continue;
         }
       }
-    }
+      const safeName = c.t.replace(/[^A-Z0-9.]/gi, "_");
+      const m = metricRes?.metric || {};
 
-    /* ---- financials: the company's own filings, frames only as a fallback ---- */
-    const fund = await fundamentalsFor(c, tenK, safeName);
-    let fin, history, finFy, sharesRestated = false;
-    if (fund) {
-      fundCount[fund.how]++;
-      ({ fin, history, fy: finFy } = fund.out);
-      sharesRestated = !!fund.out.sharesRestated;
-    } else {
-      fundCount.frames++;
-      const f = frames.get(c.cik) || {};
-      const yr = (k) => f[k]?.[year - 1] ?? null;
-      const prev = (k) => f[k]?.[year - 2] ?? null;
-      finFy = year - 1;
-      const ocf = yr("ocf"), capex = yr("capex");
-      fin = {
-        revenue: yr("revenue"), revenuePrev: prev("revenue"),
-        netIncome: yr("netIncome"), netIncomePrev: prev("netIncome"),
-        assets: yr("assets"), liabs: yr("liabs"), equity: yr("equity"),
-        cash: yr("cash"), debt: yr("debt"),
-        ocf, capex,
-        fcf: ocf !== null && capex !== null ? ocf - capex : null,
-        fy: finFy
-      };
-      history = {};
-      for (const concept of FRAME_CONCEPTS) {
-        const row = {};
-        for (let k = 0; k < HISTORY_YEARS; k++) {
-          const v = f[concept.key]?.[finFy - k];
-          if (v !== undefined && v !== null) row[finFy - k] = v;
+      /* The bulk calendar only carries dates that are already announced, which is
+         a minority of the index at any moment. Ask per symbol for the rest, and
+         also whenever the bulk answer is more than ~100 days out: a company
+         that reports every quarter has a nearer date the bulk call skipped,
+         and keeping the far one meant no alert for the real report. */
+      const held = earnings.get(c.t);
+      if (!held || (new Date(held.date) - today) / 864e5 > FAR_REPORT_DAYS) {
+        const one = await finnhub(`/calendar/earnings?symbol=${encodeURIComponent(c.t)}&from=${fmt(today)}&to=${fmt(horizon)}`);
+        for (const row of one?.earningsCalendar || []) remember({ ...row, symbol: c.t });
+      }
+
+      /* -- SEC filing history -- */
+      const sub = await sec(`${SEC_DATA}/submissions/CIK${c.cik}.json`, `submissions ${c.t}`);
+      const tenK = sub ? filingFromSubmissions(sub, c.cik, "10-K") : null;
+      const tenQ = sub ? filingFromSubmissions(sub, c.cik, "10-Q") : null;
+
+      /* -- 10-K contents, cached by accession -- */
+      let detail = null;
+      const cachePath = path.join(FILING_DIR, safeName + ".json");
+      if (tenK) {
+        let cached = null;
+        try { cached = JSON.parse(await fs.readFile(cachePath, "utf8")); } catch { /* first run */ }
+        const sameFiling = cached?.accession === tenK.accession;
+        if (sameFiling && cached.v === PARSER_VERSION) {
+          detail = cached.detail;
+          filingsCached++;
+        } else if (sameFiling && (SKIP_FILINGS || reparsed >= REPARSE_BUDGET)) {
+          /* older parser's reading of the right filing; re-read on a later night */
+          detail = cached.detail;
+          filingsCached++;
+        } else if (!SKIP_FILINGS) {
+          if (sameFiling) reparsed++;
+          const read = await fetchFilingDetail(c.t, tenK);
+          if (read !== undefined) {
+            /* Written even when nothing could be read, tied to this accession, so
+               the page never shows last year's text under this year's link and a
+               filing that cannot be parsed is not downloaded again every night. */
+            detail = read;
+            await fs.writeFile(cachePath, JSON.stringify({ accession: tenK.accession, v: PARSER_VERSION, detail }));
+            filingsFetched++;
+          }
         }
-        if (Object.keys(row).length) history[concept.key] = row;
       }
-    }
 
-    /* Average profit and revenue over the years on file (three at least), for
-       companies whose profits follow commodity prices: lib/analysis.mjs reads
-       them on half the latest year and half this average. */
-    if (fin) {
-      const yrs = Object.keys(history?.netIncome || {}).filter((y) => numOrNull(history.revenue?.[y]) !== null);
-      if (yrs.length >= 3) {
-        fin.niAvg = Math.round(yrs.reduce((a, y) => a + history.netIncome[y], 0) / yrs.length);
-        fin.revAvg = Math.round(yrs.reduce((a, y) => a + history.revenue[y], 0) / yrs.length);
-        fin.avgYears = yrs.length;
-      }
-    }
-
-    /* ---- price history and the analyst view, written per company ---- */
-    const detailPath = path.join(DETAIL_DIR, safeName + ".json");
-    let priorDetail = null;
-    try { priorDetail = JSON.parse(await fs.readFile(detailPath, "utf8")); } catch { /* first run */ }
-
-    const chart = (await priceHistory(c.t)) || priorDetail?.chart || null;
-    if (chart) chartsOk++;
-
-    /* Our own record of the close, one point per session. The external chart
-       sources have never worked from the Action's runners, so this is what
-       the price chart is actually drawn from; it grows by a point a night. */
-    const session = quote.t ? sessionDate(new Date(quote.t * 1000)) : runSession;
-    const closes = (priorDetail?.closes || []).filter((p) => p[0] !== session);
-    if (session && numOrNull(quote.c)) closes.push([session, +quote.c.toFixed(4)]);
-    closes.sort((a, b) => (a[0] < b[0] ? -1 : 1));
-    if (closes.length > MAX_CLOSES) closes.splice(0, closes.length - MAX_CLOSES);
-
-    const ageOf = (stamp) => (stamp ? (Date.now() - new Date(stamp)) / 864e5 : Infinity);
-    let analyst   = priorDetail?.analyst || null;
-    let analystAt = priorDetail?.analystAt || null;
-    let analystMissAt = priorDetail?.analystMissAt || null;
-
-    /* Two clocks: fresh data ages out after its jittered TTL, and a ticker that
-       came back empty backs off for a couple of days instead of being retried
-       every single run — which is what quietly ate the old budget. */
-    const missCooled = ageOf(analystMissAt) > ANALYST_MISS_TTL;
-    const due = missCooled && (analyst ? ageOf(analystAt) > analystTtl(c.t) : true);
-
-    if (due && analystSpent < ANALYST_BUDGET) {
-      const fresh = await analystView(c.t);
-      analystSpent++;
-      if (fresh) {
-        analyst = fresh; analystAt = new Date().toISOString(); analystMissAt = null;
-        analystOk++;
+      /* ---- financials: the company's own filings, frames only as a fallback ---- */
+      const fund = await fundamentalsFor(c, tenK, safeName);
+      let fin, history, finFy, sharesRestated = false;
+      if (fund) {
+        fundCount[fund.how]++;
+        ({ fin, history, fy: finFy } = fund.out);
+        sharesRestated = !!fund.out.sharesRestated;
       } else {
-        analystMissAt = new Date().toISOString();
-        analystEmpty++;
-        console.warn(`  ! ${c.t}: analyst view came back empty`);
+        fundCount.frames++;
+        const f = frames.get(c.cik) || {};
+        const yr = (k) => f[k]?.[year - 1] ?? null;
+        const prev = (k) => f[k]?.[year - 2] ?? null;
+        finFy = year - 1;
+        const ocf = yr("ocf"), capex = yr("capex");
+        fin = {
+          revenue: yr("revenue"), revenuePrev: prev("revenue"),
+          netIncome: yr("netIncome"), netIncomePrev: prev("netIncome"),
+          assets: yr("assets"), liabs: yr("liabs"), equity: yr("equity"),
+          cash: yr("cash"), debt: yr("debt"),
+          ocf, capex,
+          fcf: ocf !== null && capex !== null ? ocf - capex : null,
+          fy: finFy
+        };
+        history = {};
+        for (const concept of FRAME_CONCEPTS) {
+          const row = {};
+          for (let k = 0; k < HISTORY_YEARS; k++) {
+            const v = f[concept.key]?.[finFy - k];
+            if (v !== undefined && v !== null) row[finFy - k] = v;
+          }
+          if (Object.keys(row).length) history[concept.key] = row;
+        }
       }
-    }
 
-    /* Share-class sanity: another class's price range or per-share figures
-       (Berkshire B carried Class A's) are dropped rather than published. */
-    const px = numOrNull(quote.c);
-    const peNow = pickMetric(m, "peTTM", "peBasicExclExtraTTM", "peAnnual");
-    const annualEps = px && peNow && peNow > 0 ? px / peNow : null;
-    let lo = pickMetric(m, "52WeekLow"), hi = pickMetric(m, "52WeekHigh");
-    if (lo !== null && hi !== null && px && (px < lo * 0.5 || px > hi * 2)) {
-      console.warn(`  ! ${c.t}: 52-week range ${lo}–${hi} does not fit a ${px} price; dropped`);
-      lo = hi = null;
-    }
-    let nextReport = earnings.get(c.t) || null;
-    if (nextReport && !plausibleEps(nextReport.epsEst, annualEps)) {
-      console.warn(`  ! ${c.t}: EPS estimate ${nextReport.epsEst} is implausible against ${annualEps?.toFixed(2)} trailing; dropped`);
-      nextReport = { ...nextReport, epsEst: null, revEst: null };
-    }
-    if (analyst?.earnings?.length) {
-      const kept = analyst.earnings.filter((e) => plausibleEps(e.actual, annualEps) && plausibleEps(e.estimate, annualEps));
-      if (kept.length !== analyst.earnings.length) {
-        console.warn(`  ! ${c.t}: dropped ${analyst.earnings.length - kept.length} implausible EPS surprise rows`);
-        analyst = { ...analyst, earnings: kept };
+      /* Average profit and revenue over the years on file (three at least), for
+         companies whose profits follow commodity prices: lib/analysis.mjs reads
+         them on half the latest year and half this average. */
+      if (fin) {
+        const yrs = Object.keys(history?.netIncome || {}).filter((y) => numOrNull(history.revenue?.[y]) !== null);
+        if (yrs.length >= 3) {
+          fin.niAvg = Math.round(yrs.reduce((a, y) => a + history.netIncome[y], 0) / yrs.length);
+          fin.revAvg = Math.round(yrs.reduce((a, y) => a + history.revenue[y], 0) / yrs.length);
+          fin.avgYears = yrs.length;
+        }
       }
+
+      /* ---- price history and the analyst view, written per company ---- */
+      const detailPath = path.join(DETAIL_DIR, safeName + ".json");
+      let priorDetail = null;
+      try { priorDetail = JSON.parse(await fs.readFile(detailPath, "utf8")); } catch { /* first run */ }
+
+      const chart = (await priceHistory(c.t)) || priorDetail?.chart || null;
+      if (chart) chartsOk++;
+
+      /* Our own record of the close, one point per session. The external chart
+         sources have never worked from the Action's runners, so this is what
+         the price chart is actually drawn from; it grows by a point a night. */
+      const session = quote.t ? sessionDate(new Date(quote.t * 1000)) : runSession;
+      const closes = (priorDetail?.closes || []).filter((p) => p[0] !== session);
+      if (session && numOrNull(quote.c)) closes.push([session, +quote.c.toFixed(4)]);
+      closes.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+      if (closes.length > MAX_CLOSES) closes.splice(0, closes.length - MAX_CLOSES);
+
+      const ageOf = (stamp) => (stamp ? (Date.now() - new Date(stamp)) / 864e5 : Infinity);
+      let analyst   = priorDetail?.analyst || null;
+      let analystAt = priorDetail?.analystAt || null;
+      let analystMissAt = priorDetail?.analystMissAt || null;
+
+      /* Two clocks: fresh data ages out after its jittered TTL, and a ticker that
+         came back empty backs off for a couple of days instead of being retried
+         every single run — which is what quietly ate the old budget. */
+      const missCooled = ageOf(analystMissAt) > ANALYST_MISS_TTL;
+      const due = missCooled && (analyst ? ageOf(analystAt) > analystTtl(c.t) : true);
+
+      if (due && analystSpent < ANALYST_BUDGET) {
+        const fresh = await analystView(c.t);
+        analystSpent++;
+        if (fresh) {
+          analyst = fresh; analystAt = new Date().toISOString(); analystMissAt = null;
+          analystOk++;
+        } else {
+          analystMissAt = new Date().toISOString();
+          analystEmpty++;
+          console.warn(`  ! ${c.t}: analyst view came back empty`);
+        }
+      }
+
+      /* Share-class sanity: another class's price range or per-share figures
+         (Berkshire B carried Class A's) are dropped rather than published. */
+      const px = numOrNull(quote.c);
+      const peNow = pickMetric(m, "peTTM", "peBasicExclExtraTTM", "peAnnual");
+      const annualEps = px && peNow && peNow > 0 ? px / peNow : null;
+      let lo = pickMetric(m, "52WeekLow"), hi = pickMetric(m, "52WeekHigh");
+      if (lo !== null && hi !== null && px && (px < lo * 0.5 || px > hi * 2)) {
+        console.warn(`  ! ${c.t}: 52-week range ${lo}–${hi} does not fit a ${px} price; dropped`);
+        lo = hi = null;
+      }
+      let nextReport = earnings.get(c.t) || null;
+      if (nextReport && !plausibleEps(nextReport.epsEst, annualEps)) {
+        console.warn(`  ! ${c.t}: EPS estimate ${nextReport.epsEst} is implausible against ${annualEps?.toFixed(2)} trailing; dropped`);
+        nextReport = { ...nextReport, epsEst: null, revEst: null };
+      }
+      if (analyst?.earnings?.length) {
+        const kept = analyst.earnings.filter((e) => plausibleEps(e.actual, annualEps) && plausibleEps(e.estimate, annualEps));
+        if (kept.length !== analyst.earnings.length) {
+          console.warn(`  ! ${c.t}: dropped ${analyst.earnings.length - kept.length} implausible EPS surprise rows`);
+          analyst = { ...analyst, earnings: kept };
+        }
+      }
+
+      await fs.writeFile(detailPath, JSON.stringify({
+        t: c.t, updated: new Date().toISOString(),
+        fy: finFy, history, sharesRestated, chart, closes, analyst, analystAt, analystMissAt
+      }));
+
+      stocks.push({
+        t: c.t, n: c.n, s: c.s, cik: c.cik,
+
+        price:  numOrNull(quote.c),
+        change: numOrNull(quote.dp),
+        open:   numOrNull(quote.o),
+        prev:   numOrNull(quote.pc),
+
+        mc:   pickMetric(m, "marketCapitalization"),
+        pe:   peNow,
+        pb:   pickMetric(m, "pbQuarterly", "pbAnnual"),
+        ps:   pickMetric(m, "psTTM", "psAnnual"),
+        roe:  pickMetric(m, "roeTTM", "roeRfy"),
+        roa:  pickMetric(m, "roaTTM", "roaRfy"),
+        nm:   pickMetric(m, "netProfitMarginTTM", "netProfitMarginAnnual"),
+        gm:   pickMetric(m, "grossMarginTTM", "grossMarginAnnual"),
+        om:   pickMetric(m, "operatingMarginTTM", "operatingMarginAnnual"),
+        rg:   pickMetric(m, "revenueGrowthTTMYoy", "revenueGrowthQuarterlyYoy"),
+        rg5:  pickMetric(m, "revenueGrowth5Y"),
+        eg:   pickMetric(m, "epsGrowthTTMYoy", "epsGrowthQuarterlyYoy"),
+        beta: pickMetric(m, "beta"),
+        lo, hi,
+        dy:   pickMetric(m, "dividendYieldIndicatedAnnual", "currentDividendYieldTTM"),
+        payout: pickMetric(m, "payoutRatioTTM", "payoutRatioAnnual"),
+        de:   pickMetric(m, "totalDebt/totalEquityQuarterly", "totalDebt/totalEquityAnnual"),
+        cr:   pickMetric(m, "currentRatioQuarterly", "currentRatioAnnual"),
+        r13:  pickMetric(m, "13WeekPriceReturnDaily"),
+        r26:  pickMetric(m, "26WeekPriceReturnDaily"),
+        r52:  pickMetric(m, "52WeekPriceReturnDaily"),
+
+        /* more figures for the card's number grid. Forward P/E, five-year EPS
+           growth and interest cover also feed the score (value, growth and
+           stability), and the gap to the S&P 500 sets off one of the cons; the
+           rest are shown only. */
+        pef:      pickMetric(m, "forwardPE", "peForward", "forwardPeTTM"),
+        pfcf:     pickMetric(m, "pfcfShareTTM", "pfcfShareAnnual"),
+        evEbitda: pickMetric(m, "evEbitdaTTM", "evEbitdaAnnual", "currentEv/ebitdaTTM"),
+        qr:       pickMetric(m, "quickRatioQuarterly", "quickRatioAnnual"),
+        ic:       pickMetric(m, "netInterestCoverageTTM", "netInterestCoverageAnnual"),
+        eg5:      pickMetric(m, "epsGrowth5Y"),
+        dg5:      pickMetric(m, "dividendGrowthRate5Y"),
+        ytd:      pickMetric(m, "yearToDatePriceReturnDaily"),
+        rs52:     pickMetric(m, "priceRelativeToS&P50052Week"),
+        vol:      pickMetric(m, "10DayAverageTradingVolume", "3MonthAverageTradingVolume"),
+
+        earnings: nextReport,
+
+        fin,
+
+        /* the 10-K prose lives in data/filings/<TICKER>.json and is lazy-loaded by
+           the page — keeping it out of the snapshot keeps first paint fast */
+        sec: {
+          tenK: tenK && { date: tenK.date, period: tenK.period, url: tenK.url, index: tenK.index, accession: tenK.accession },
+          tenQ: tenQ && { date: tenQ.date, period: tenQ.period, url: tenQ.url, index: tenQ.index },
+          detail: !!(detail?.business || detail?.risks?.length)
+        },
+
+        /* deep data lives in data/detail/<TICKER>.json, opened on tap */
+        deep: { chart: !!chart, analyst: !!analyst, years: Object.keys(history.revenue || {}).length }
+      });
+
+    } catch (err) {
+      console.warn(`${tag}  skipped (${err.message})`);
+      skipped.push(c.t);
+      continue;
     }
-
-    await fs.writeFile(detailPath, JSON.stringify({
-      t: c.t, updated: new Date().toISOString(),
-      fy: finFy, history, sharesRestated, chart, closes, analyst, analystAt, analystMissAt
-    }));
-
-    stocks.push({
-      t: c.t, n: c.n, s: c.s, cik: c.cik,
-
-      price:  numOrNull(quote.c),
-      change: numOrNull(quote.dp),
-      open:   numOrNull(quote.o),
-      prev:   numOrNull(quote.pc),
-
-      mc:   pickMetric(m, "marketCapitalization"),
-      pe:   peNow,
-      pb:   pickMetric(m, "pbQuarterly", "pbAnnual"),
-      ps:   pickMetric(m, "psTTM", "psAnnual"),
-      roe:  pickMetric(m, "roeTTM", "roeRfy"),
-      roa:  pickMetric(m, "roaTTM", "roaRfy"),
-      nm:   pickMetric(m, "netProfitMarginTTM", "netProfitMarginAnnual"),
-      gm:   pickMetric(m, "grossMarginTTM", "grossMarginAnnual"),
-      om:   pickMetric(m, "operatingMarginTTM", "operatingMarginAnnual"),
-      rg:   pickMetric(m, "revenueGrowthTTMYoy", "revenueGrowthQuarterlyYoy"),
-      rg5:  pickMetric(m, "revenueGrowth5Y"),
-      eg:   pickMetric(m, "epsGrowthTTMYoy", "epsGrowthQuarterlyYoy"),
-      beta: pickMetric(m, "beta"),
-      lo, hi,
-      dy:   pickMetric(m, "dividendYieldIndicatedAnnual", "currentDividendYieldTTM"),
-      payout: pickMetric(m, "payoutRatioTTM", "payoutRatioAnnual"),
-      de:   pickMetric(m, "totalDebt/totalEquityQuarterly", "totalDebt/totalEquityAnnual"),
-      cr:   pickMetric(m, "currentRatioQuarterly", "currentRatioAnnual"),
-      r13:  pickMetric(m, "13WeekPriceReturnDaily"),
-      r26:  pickMetric(m, "26WeekPriceReturnDaily"),
-      r52:  pickMetric(m, "52WeekPriceReturnDaily"),
-
-      /* more figures for the card's number grid. Forward P/E, five-year EPS
-         growth and interest cover also feed the score (value, growth and
-         stability), and the gap to the S&P 500 sets off one of the cons; the
-         rest are shown only. */
-      pef:      pickMetric(m, "forwardPE", "peForward", "forwardPeTTM"),
-      pfcf:     pickMetric(m, "pfcfShareTTM", "pfcfShareAnnual"),
-      evEbitda: pickMetric(m, "evEbitdaTTM", "evEbitdaAnnual", "currentEv/ebitdaTTM"),
-      qr:       pickMetric(m, "quickRatioQuarterly", "quickRatioAnnual"),
-      ic:       pickMetric(m, "netInterestCoverageTTM", "netInterestCoverageAnnual"),
-      eg5:      pickMetric(m, "epsGrowth5Y"),
-      dg5:      pickMetric(m, "dividendGrowthRate5Y"),
-      ytd:      pickMetric(m, "yearToDatePriceReturnDaily"),
-      rs52:     pickMetric(m, "priceRelativeToS&P50052Week"),
-      vol:      pickMetric(m, "10DayAverageTradingVolume", "3MonthAverageTradingVolume"),
-
-      earnings: nextReport,
-
-      fin,
-
-      /* the 10-K prose lives in data/filings/<TICKER>.json and is lazy-loaded by
-         the page — keeping it out of the snapshot keeps first paint fast */
-      sec: {
-        tenK: tenK && { date: tenK.date, period: tenK.period, url: tenK.url, index: tenK.index, accession: tenK.accession },
-        tenQ: tenQ && { date: tenQ.date, period: tenQ.period, url: tenQ.url, index: tenQ.index },
-        detail: !!(detail?.business || detail?.risks?.length)
-      },
-
-      /* deep data lives in data/detail/<TICKER>.json, opened on tap */
-      deep: { chart: !!chart, analyst: !!analyst, years: Object.keys(history.revenue || {}).length }
-    });
 
     if ((i + 1) % 25 === 0 || i === companies.length - 1) {
       const mins = ((Date.now() - started) / 60000).toFixed(1);

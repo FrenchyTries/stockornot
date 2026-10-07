@@ -134,3 +134,12 @@ alter table public.alert_log enable row level security;
 -- ---------------------------------------------------------------------------
 -- select relname, relrowsecurity from pg_class where relname in ('alert_prefs', 'alert_log');
 -- select tablename, policyname, cmd from pg_policies where tablename in ('alert_prefs', 'alert_log');
+
+-- -------------------------------------------------------------------------
+-- Belt and braces. Row Level Security already gives signed-in users no way to
+-- write their own membership or the alert log. These also take away the
+-- privilege underneath, so switching RLS off by mistake in the dashboard
+-- still could not let anyone mark themselves a member. Only the service role
+-- (the nightly job, and a future payment webhook) writes these tables.
+revoke insert, update, delete on public.subscriptions from anon, authenticated;
+revoke insert, update, delete on public.alert_log from anon, authenticated;

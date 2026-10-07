@@ -31,7 +31,7 @@ export const stripTags = (html) =>
   decodeEntities(
     html
       .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
+      .replace(/<[^<>]+>/g, " ")
   )
     .replace(/\s+/g, " ")
     .trim();
@@ -47,7 +47,10 @@ function normalizeHtml(html) {
    Numbers are written like "1a" or "1b|2"; the letter may also be written
    "1.A", "1(a)" or "1 A", all of which real filers use. */
 function itemRe(numbers, word, flags) {
-  const gap = "(?:\\s|<[^>]*>)*";
+  /* [^<>], not [^>]: on a stray "<" with no closing ">" the looser class
+     makes every attempt scan to the end of the document, and a filing full
+     of them took minutes (it would have been hours on a large one). */
+  const gap = "(?:\\s|<[^<>]*>)*";
   const one = (n) => {
     const m = /^(\d+)([a-z])?$/i.exec(n);
     /* the letter must stand alone: "1. Business" is not "1B" */
@@ -60,13 +63,16 @@ function itemRe(numbers, word, flags) {
 /* True when index i sits inside a tag, e.g. in id="item1business_912593".
    Headings found there start the slice in the middle of markup. */
 function insideTag(html, i) {
-  return html.lastIndexOf("<", i) > html.lastIndexOf(">", i);
+  /* a tag is never this long; looking further back made every candidate
+     heading a scan of the whole document so far */
+  const before = html.slice(Math.max(0, i - 4000), i + 1);
+  return before.lastIndexOf("<") > before.lastIndexOf(">");
 }
 
 /* A real heading starts its own block; a cross-reference ("see Item 1A.
    Risk Factors") sits mid-sentence. Look back past tags and whitespace. */
 function startsBlock(html, i) {
-  const before = html.slice(Math.max(0, i - 400), i).replace(/<[^>]*>/g, "\n");
+  const before = html.slice(Math.max(0, i - 400), i).replace(/<[^<>]*>/g, "\n");
   return /(^|\n)\s*$/.test(before);
 }
 
