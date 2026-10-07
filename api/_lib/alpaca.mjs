@@ -31,6 +31,16 @@ export const oauthConfigured = () => Boolean(process.env.ALPACA_CLIENT_ID && pro
    cannot read as a plain number of dollars ("abc", "-1") and the cap becomes
    0, which refuses every live order: a typo in the setting must never widen
    what the site will spend. "$2,000" and "2000" both read as 2000. */
+/* The cap on a whole live batch, every order in it added together. Unset, it
+   is the per-order cap: without it one request of fifty capped orders spends
+   fifty times the cap. BROKER_MAX_BATCH_USD widens it on purpose. */
+export function maxLiveBatch() {
+  const raw = process.env.BROKER_MAX_BATCH_USD;
+  if (raw === undefined || String(raw).trim() === "") return maxLiveOrder();
+  const v = Number(String(raw).replace(/[$,\s]/g, ""));
+  return isFinite(v) && v >= 0 ? v : 0;
+}
+
 export function maxLiveOrder() {
   const raw = process.env.BROKER_MAX_ORDER_USD;
   if (raw === undefined || String(raw).trim() === "") return 5000;
@@ -154,7 +164,10 @@ export function buildOrder(o, env) {
   if (!side) return { error: "Side must be buy or sell." };
   const type = o.type === "limit" || o.type === "market" ? o.type : null;
   if (!type) return { error: "Order type must be market or limit." };
-  const clientId = CLIENT_ID.test(String(o.clientId || "")) ? String(o.clientId) : undefined;
+  /* Required, not optional: it is what stops a retry after a dropped answer
+     from buying the same thing twice. */
+  if (!CLIENT_ID.test(String(o.clientId || ""))) return { error: "This page is out of date. Reload it and review the orders again." };
+  const clientId = String(o.clientId);
 
   const out = { symbol, side, type, client_order_id: clientId };
   let cost;
@@ -176,10 +189,16 @@ export function buildOrder(o, env) {
     if (!(isFinite(limit) && limit > 0)) return { error: "A limit order needs a limit price." };
     if (!(isFinite(qty) && qty > 0)) return { error: "A limit order needs a number of shares." };
     out.qty = String(+qty.toFixed(6));
-    out.limit_price = limit >= 1 ? limit.toFixed(2) : limit.toFixed(4);
+    /* Rounded to the tick toward the cautious side, never past what was
+       typed: down for a buy, up for a sell. The cap is then checked on what
+       is actually sent. */
+    const tick = limit >= 1 ? 100 : 10000;
+    const sent = (side === "buy" ? Math.floor(limit * tick + 1e-9) : Math.ceil(limit * tick - 1e-9)) / tick;
+    if (!(sent > 0)) return { error: "That limit price rounds to nothing." };
+    out.limit_price = sent.toFixed(limit >= 1 ? 2 : 4);
     const whole = Number.isInteger(+out.qty);
     out.time_in_force = whole && o.tif === "gtc" ? "gtc" : "day";
-    cost = qty * limit;
+    cost = +out.qty * sent;
   }
 
   if (env === "live") {
@@ -190,7 +209,7 @@ export function buildOrder(o, env) {
   } else if (cost !== null && cost > 10_000_000) {
     return { error: "That is more than any paper account holds." };
   }
-  return { order: out };
+  return { order: out, cost };
 }
 
 /* Places one order. A client id the brokerage has already seen means this
@@ -204,10 +223,18 @@ export async function placeOrder(conn, order) {
     if (err.status === 422 && order.client_order_id && /client_order_id/i.test(err.message)) {
       const existing = await call(conn, "GET",
         "/v2/orders:by_client_order_id?client_order_id=" + encodeURIComponent(order.client_order_id)).catch(() => null);
-      if (existing && existing.symbol === order.symbol) return { ...shapeOrder(existing), duplicate: true };
+      if (existing && sameOrder(existing, order)) return { ...shapeOrder(existing), duplicate: true };
     }
     throw err;
   }
+}
+
+/* The earlier order under this client id really is this one: same ticker,
+   side, type and size. Anything else is a collision, reported as a failure. */
+function sameOrder(a, o) {
+  const n = (v) => (v === undefined || v === null || v === "" ? null : Number(v));
+  return a.symbol === o.symbol && a.side === o.side && a.type === o.type &&
+    n(a.qty) === n(o.qty) && n(a.notional) === n(o.notional);
 }
 
 export async function cancelOrder(conn, id) {
