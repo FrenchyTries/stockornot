@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-10-07T00:33:06.103Z",
-  "snapshotUpdated": "2026-10-07T00:33:05.917Z",
+  "ranAt": "2026-10-08T00:33:26.152Z",
+  "snapshotUpdated": "2026-10-08T00:33:25.939Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -9,6 +9,39 @@
   },
   "verdict": "published with warnings",
   "findings": [
+    {
+      "level": "warn",
+      "code": "capex-missing",
+      "msg": "34 companies report operating cash flow but no capital spending, so free cash flow is missing. data/fundamentals/<ticker>.json lists, under capexCandidates, the tags each one does report that look like capital spending.",
+      "tickers": [
+        "ABNB",
+        "ARE",
+        "LNT",
+        "APA",
+        "APP",
+        "ADP",
+        "CPT",
+        "CI",
+        "CMS",
+        "COP",
+        "ED",
+        "DLR",
+        "D",
+        "DTE",
+        "EQR",
+        "ESS",
+        "FRT",
+        "INCY",
+        "LLY",
+        "NEE",
+        "PSX",
+        "PLD",
+        "PSA",
+        "RL",
+        "REG"
+      ],
+      "count": 34
+    },
     {
       "level": "warn",
       "code": "balance-sheet-gap",
@@ -46,7 +79,7 @@
     {
       "level": "warn",
       "code": "filings-missing",
-      "msg": "23 companies have no filings.",
+      "msg": "32 companies have no filings.",
       "tickers": [
         "AOS",
         "AES",
@@ -70,9 +103,11 @@
         "LVS",
         "MLM",
         "MCD",
-        "SYF"
+        "MAA",
+        "MS",
+        "NRG"
       ],
-      "count": 23
+      "count": 32
     },
     {
       "level": "warn",
