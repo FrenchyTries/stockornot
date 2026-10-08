@@ -174,6 +174,7 @@ Set these in **Vercel → Project → Settings → Environment Variables**:
 | `ALPACA_CLIENT_ID`, `ALPACA_CLIENT_SECRET` | "Connect with Alpaca" | Register an OAuth app with Alpaca and set its redirect URI to `https://<your site>/api/broker-oauth`. Without these, people paste API keys instead. |
 | `BROKER_ALLOW_LIVE` | real money | Leave unset during development. `1` allows live accounts. |
 | `BROKER_MAX_ORDER_USD` | real money | Per-order cap on live accounts. Defaults to 5000 when unset. `2000` and `$2,000` both work; `0` or anything unreadable refuses every live order. |
+| `BROKER_MAX_BATCH_USD` | real money | Cap on one live batch, all its orders added together. Defaults to `BROKER_MAX_ORDER_USD`. The review sheet says so before anything is sent. Live orders are buys only. |
 | `FINNHUB_TOKEN` | headlines | The same key the Action uses. Powers `/api/news`, cached at the edge for 30 minutes per ticker. |
 
 To try it: open a paper account at alpaca.markets, create API keys on the paper

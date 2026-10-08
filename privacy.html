@@ -64,6 +64,8 @@
   <ul class="limits">
     <li><b>Your email address</b>, to sign you in and, if you ask for them, to send earnings alerts.</li>
     <li><b>That you agreed to the terms</b>: which version, and when, recorded as the account is created.</li>
+    <li><b>Sign-in records</b>: Supabase, which runs sign-in, logs the IP address and browser of each
+    sign-in and session, for security.</li>
     <li><b>Your cart</b>: the companies in it, when you added them and at what price, your notes and
     planned amounts, and a record of the last order sent for each, so a retry cannot place it twice.</li>
     <li><b>Your alert settings</b>, and a log of which alerts have been sent, so no report is emailed twice.</li>
@@ -108,17 +110,22 @@
 
   <h2>Cookies and browser storage</h2>
 
-  <p>The site sets one cookie, and only if you connect a brokerage account: the sealed connection
-  described above. Your cart, the cards you have swiped, your scoring style and, once you sign in,
-  your session are kept in your browser's own storage, because the app cannot work without them.
-  There are no advertising, analytics or tracking cookies, and nothing optional, so there is nothing
-  to accept or refuse and no cookie banner.</p>
+  <p>Cookies are set only for a brokerage connection: the sealed connection described above, and,
+  while you are signing in to Alpaca, a second one that lasts ten minutes and only checks that the
+  sign-in came back to the browser that started it. Everything else stays in your browser's own
+  storage, because the app cannot work without it: your cart, the cards you have swiped, the
+  companies you have opened, your scoring style, the two companies in Compare and, once you sign in,
+  your session. While a sign-in link is on its way, the address it was sent to is kept too, so the
+  site can tell you if a link signs you in to a different account. It goes once the link is used or
+  when you sign out, and in any case the first time the site opens more than a day later. There are no advertising, analytics or tracking cookies,
+  and nothing optional, so there is nothing to accept or refuse and no cookie banner.</p>
 
   <h2>Getting a copy, and deleting it</h2>
 
-  <p>Signed in, the Account tab has <b>Download my data</b>, a file with everything kept about you:
-  the account, the saved cart with its notes and amounts, the alert settings and the alerts sent.
-  Without an account, Export CSV in the cart gives you the cart, which is all there is.</p>
+  <p>Signed in, the Account tab has <b>Download my data</b>, a file with your account, the saved cart
+  with its notes and amounts, the alert settings and the alerts sent, and what this browser holds.
+  Supabase's sign-in records are kept by Supabase for security and are not in the file; write in for
+  a copy. Without an account, Export CSV in the cart gives you the cart.</p>
 
   <p>The Account tab also has <b>Delete my account</b>. It asks once more, then deletes the account,
   the email address and everything attached to it at once, for good, and disconnects this browser

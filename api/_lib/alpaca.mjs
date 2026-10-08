@@ -162,6 +162,9 @@ export function buildOrder(o, env) {
   if (!SYMBOL.test(symbol)) return { error: "Not a ticker this site knows." };
   const side = o.side === "sell" ? "sell" : o.side === "buy" ? "buy" : null;
   if (!side) return { error: "Side must be buy or sell." };
+  /* The site only ever buys. A live sell is refused outright: its cost
+     cannot be capped (a sell limited far below the market looks cheap). */
+  if (env === "live" && side === "sell") return { error: "Live orders on this site are buys only." };
   const type = o.type === "limit" || o.type === "market" ? o.type : null;
   if (!type) return { error: "Order type must be market or limit." };
   /* Required, not optional: it is what stops a retry after a dropped answer

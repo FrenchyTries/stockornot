@@ -69,3 +69,11 @@ test("delete_my_account deletes only the caller, and only a signed-in caller can
   assert.match(sql, /create policy "read own alert log" on public\.alert_log for select using \(auth\.uid\(\) = user_id\);/);
   assert.match(sql, /revoke insert, update, delete on public\.alert_log from anon, authenticated;/);
 });
+
+test("live orders are buys only; paper sells still work", () => {
+  const sell = { symbol: "AAPL", side: "sell", type: "limit", qty: 1, limitPrice: 0.01, clientId: id };
+  /* a sell limited far below the market would look cheap to the cap */
+  assert.match(buildOrder(sell, "live").error, /buys only/);
+  assert.ok(buildOrder(sell, "paper").order);
+  assert.ok(buildOrder({ symbol: "AAPL", side: "buy", type: "market", notional: 50, clientId: id }, "live").order);
+});

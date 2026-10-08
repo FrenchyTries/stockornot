@@ -93,8 +93,8 @@ create index if not exists subscriptions_status_idx on public.subscriptions (sta
 -- means "email me days_before days ahead of anything in my cart reporting".
 --
 -- alert_log: what has already been sent, so each company is emailed once per
--- report date. Written and read only by the nightly job with the service_role
--- key; no policy exists for ordinary users, so the browser cannot touch it.
+-- report date. Written only by the nightly job with the service_role key;
+-- each person may read their own rows (for Download my data), never write them.
 -- ===========================================================================
 
 create table if not exists public.alert_prefs (

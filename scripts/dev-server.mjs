@@ -11,7 +11,8 @@
      # open http://localhost:8080
 
    Optional env, exactly as on Vercel: FINNHUB_TOKEN, ALPACA_CLIENT_ID,
-   ALPACA_CLIENT_SECRET, BROKER_ALLOW_LIVE, BROKER_MAX_ORDER_USD. PORT picks
+   ALPACA_CLIENT_SECRET, BROKER_ALLOW_LIVE, BROKER_MAX_ORDER_USD,
+   BROKER_MAX_BATCH_USD. PORT picks
    the port.
    ========================================================================== */
 

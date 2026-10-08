@@ -1030,6 +1030,7 @@ function showToast(text, label, onAction, ms) {
 function hideToast() {
   clearTimeout(toastTimer);
   $("#toast").hidden = true;
+  $("#toast").classList.remove("toast-top");
 }
 
 function setCartOwner(owner) {
@@ -1843,6 +1844,13 @@ function planFor(row) {
   });
 }
 
+/* Real money: the server refuses a batch whose orders add up to more than
+   its batch cap, so the sheet says so before anything is sent. */
+function overBatchCap(total) {
+  var cap = (state.broker || {}).maxLiveBatch;
+  return review && review.env === "live" && num(cap) && total > cap ? cap : null;
+}
+
 function renderReview() {
   var list = $("#orderList");
   list.innerHTML = "";
@@ -1922,7 +1930,8 @@ function renderReview() {
   var needsConfirm = review && review.env === "live" && !$("#orderLiveCheck").checked;
   $("#orderLiveCheck").disabled = locked;
   Array.prototype.forEach.call($("#orderType").children, function (c) { c.disabled = locked; });
-  btn.disabled = !ready || locked || needsConfirm || !(review && review.env);
+  var batchCap = locked ? null : overBatchCap(total);
+  btn.disabled = !ready || locked || needsConfirm || !(review && review.env) || batchCap !== null;
   if (review && review.sending) btn.textContent = "Placing…";
   else if (review && review.placed) btn.textContent = review.summary || "Sent";
   else if (review && review.rows.some(function (x) { return x.result; })) btn.textContent = "Place the other " + ready;
@@ -1930,6 +1939,7 @@ function renderReview() {
   /* the outcome of the last send, if there was one, otherwise a warning */
   var bp = b.account && b.account.buyingPower;
   orderError(review && review.message ? review.message
+    : batchCap !== null ? "Live orders on this site are capped at " + usd(batchCap) + " a batch, all orders together. This comes to " + usd(total) + "; lower some amounts."
     : noAnswer ? "Rows marked \u201cno answer yet\u201d were sent " + relTime(noAnswer) + " but no reply came back. Placing them again as they are cannot buy twice: the brokerage refuses a repeat. If you change one, check Account \u2192 Recent orders first."
     : !locked && num(bp) && total > bp ? "That is more than the " + usd(bp) + " this account has available. Some orders will be refused." : "");
 }
@@ -2020,7 +2030,7 @@ function placeOrders() {
         });
       }
       mine.message = (answered.length ? answered.length + " were answered before this. " : "") + failure.error +
-        (failure.status === 409 ? "" : " Pressing Place again resends the same orders, which the brokerage will not duplicate.");
+        (failure.status === 409 || failure.status === 400 ? "" : " Pressing Place again resends the same orders, which the brokerage will not duplicate.");
     } else {
       mine.placed = true;
       var sentRows = rows.length;
@@ -2044,6 +2054,13 @@ function placeOrders() {
 
 var NOTICE_KEY = "ts.earnNoticeHidden";
 
+/* The earnings notice sits above the deck; the deck gives up its height, so
+   the buttons under it stay clear of the tab bar on a phone. */
+function fitDeck() {
+  var box = $("#earnNotice");
+  document.documentElement.style.setProperty("--notice-h", box.hidden ? "0px" : box.offsetHeight + "px");
+}
+
 function renderEarnNotice() {
   var box = $("#earnNotice");
   if (!box || !state.all.length) return;
@@ -2051,7 +2068,7 @@ function renderEarnNotice() {
   var sig = soon.map(function (u) { return u.t + u.date; }).join(",");
   var hidden = false;
   try { hidden = localStorage.getItem(NOTICE_KEY) === sig; } catch (e) {}
-  if (!soon.length || hidden) { box.hidden = true; return; }
+  if (!soon.length || hidden) { box.hidden = true; fitDeck(); return; }
   var first = soon[0];
   var when = first.days === 0 ? "today" : first.days === 1 ? "tomorrow" : "in " + first.days + " days";
   $("#earnNoticeText").textContent = first.t + " reports " + when +
@@ -2059,6 +2076,7 @@ function renderEarnNotice() {
     (soon.length > 1 ? " · " + (soon.length - 1) + " more in your cart in the next week" : "");
   box.hidden = false;
   box.dataset.sig = sig;
+  fitDeck();
 }
 
 function openEarnings() {
@@ -2130,6 +2148,12 @@ function renderEmailToggle() {
   if (!auth.isConfigured()) {
     box.disabled = true;
     note.textContent = "Email alerts need accounts, which are not set up on this copy of the site.";
+    return;
+  }
+  if (!state.user && state.authPending) {
+    /* a saved sign-in is still being checked; the listeners redraw this */
+    box.disabled = true;
+    note.textContent = "Checking…";
     return;
   }
   if (!state.user) {
@@ -2927,7 +2951,7 @@ function cmpFigures(s) {
   var e = s.earnings;
   var dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
   return {
-    rg:    fig(k.rg, num(s.rg) ? pct(s.rg) + (k.rgSuspect ? "*" : "") : "n/a"),
+    rg:    fig(num(k.rg) ? s.rg : null, num(s.rg) ? pct(s.rg) + (k.rgSuspect ? "*" : "") : "n/a"),
     rg5:   fig(s.rg5, num(s.rg5) ? pct(s.rg5) : "n/a"),
     eg:    fig(s.eg, num(s.eg) ? pct(s.eg) : "n/a"),
     gm:    fig(s.gm, num(s.gm) ? pctPlain(s.gm, 0) : "n/a"),
@@ -2941,8 +2965,10 @@ function cmpFigures(s) {
     pe:    fig(pePos ? s.pe : null, pePos ? x(s.pe) : k.losing ? "a loss" : "n/a"),
     fair:  fig(val.fair, x(val.fair, 0)),
     pef:   fig(pefPos ? s.pef : null, pefPos ? x(s.pef) : "n/a"),
-    pfcf:  fig(lens, val.cash ? (val.cash.none ? "no free cash flow" : x(lens, 1) + (val.kind === "ocf" ? " (operating)" : "")) : fin || "n/a"),
-    dy:    fig(s.dy, num(s.dy) && s.dy > 0 ? pctPlain(s.dy, 2) : "None"),
+    /* a REIT's multiple is on operating cash: never marked against another's free cash */
+    pfcf:  Object.assign(fig(lens, val.cash ? (val.cash.none ? "no free cash flow" : x(lens, 1) + (val.kind === "ocf" ? " (operating)" : "")) : fin || "n/a"), { kind: val.kind }),
+    /* the yield the score uses: one the provider's own figures contradict is not shown as fact */
+    dy:    k.dyDisputed ? fig(null, "disputed") : fig(k.dy, num(k.dy) && k.dy > 0 ? pctPlain(k.dy, 2) : "None"),
     price: fig(s.price, price(s.price)),
     day:   fig(null, el("span", "delta small " + dir, num(s.change) ? pct(s.change, 2) : "—")),
     r52:   fig(null, pct(s.r52, 0)),
@@ -2972,7 +2998,7 @@ var CMP_ROWS = [
   ["fair", "Fair P/E for its growth", 0, "8 + 1.5 × (growth + dividend yield): the P/E its growth would justify, as on the card."],
   ["pef", "Forward P/E", -1, "Price against next year's expected earnings. Analysts' forecasts, not scored."],
   ["pfcf", "Price / free cash flow", -1, "Market value against last year's free cash flow: the cash version of the P/E."],
-  ["dy", "Dividend yield", 0, "A year of dividends as a share of the price."],
+  ["dy", "Dividend yield", 0, "A year of dividends as a share of the price. Left out where the provider's yield and its payout ratio disagree."],
   ["Price"],
   ["price", "Price", 0],
   ["day", "Day's move", 0],
@@ -3039,6 +3065,8 @@ function renderCompare() {
     cells.forEach(function (c, i) {
       var td = el("td", best && best[i] ? "is-top" : "");
       if (c && c.nodeType) td.appendChild(c); else td.textContent = c;
+      /* not by colour alone: bold on screen, and said to a screen reader */
+      if (best && best[i]) td.appendChild(el("span", "sr-only", " (stronger)"));
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -3088,7 +3116,8 @@ function renderCompare() {
   CMP_ROWS.forEach(function (r) {
     if (r.length === 1) { section(r[0]); return; }
     var figs = cols.map(function (c) { return c.fig[r[0]]; });
-    row(r[1], figs.map(function (g) { return g.t; }), stronger(figs.map(function (g) { return g.v; }), r[2]), r[3]);
+    var way = r[0] === "pfcf" && figs[0].kind !== figs[1].kind ? 0 : r[2];
+    row(r[1], figs.map(function (g) { return g.t; }), stronger(figs.map(function (g) { return g.v; }), way), r[3]);
   });
 
   row("Full record", cols.map(function (c) {
@@ -3228,7 +3257,7 @@ function openStyles() {
 function chooseStyle(id) {
   state.style = styleById(id).id;
   save(LS.style, state.style);
-  renderDeck();
+  if (state.all.length) renderDeck();
   renderAccountTab();
   if (view === "compare") renderCompare();
   if ($("#dlgDetail").open && detailTicker && state.byTicker[detailTicker]) openDetail(state.byTicker[detailTicker]);
@@ -3350,7 +3379,19 @@ function wire() {
       go(a.getAttribute("data-view"));
     });
   });
-  function followUrl() { var v = viewInUrl(); if (v !== view) showView(v); }
+  /* The sign-in library takes its tokens out of the address once it has
+     read them, firing popstate and hashchange as it does. That is not the
+     reader asking for the deck: the tab they are on stays, once. */
+  var fromCallback = auth.isAuthCallback();
+  function followUrl() {
+    if (fromCallback && !location.hash.slice(1)) {
+      fromCallback = false;
+      if (view !== "deck") { try { history.replaceState(null, "", "#" + view); } catch (e) {} }
+      return;
+    }
+    var v = viewInUrl();
+    if (v !== view) showView(v);
+  }
   window.addEventListener("popstate", followUrl);
   window.addEventListener("hashchange", followUrl);
   $("#acctAlerts").addEventListener("click", openEarnings);
@@ -3440,7 +3481,9 @@ function wire() {
   $("#earnNoticeClose").addEventListener("click", function () {
     try { localStorage.setItem(NOTICE_KEY, $("#earnNotice").dataset.sig || ""); } catch (e) {}
     $("#earnNotice").hidden = true;
+    fitDeck();
   });
+  window.addEventListener("resize", fitDeck);
   $("#btnIcs").addEventListener("click", cartIcs);
   $("#earnEmail").addEventListener("change", function () {
     var box = $("#earnEmail");
@@ -3515,6 +3558,8 @@ function showAuthStep(which) {
   ["authPendingStep", "authEmailStep", "authCodeStep", "authSignedIn"].forEach(function (id) {
     $("#" + id).hidden = id !== which;
   });
+  /* "Delete everything" is only ever offered to the person who just asked for it */
+  $("#acctDeleteConfirm").hidden = true;
   authError("");
 }
 
@@ -3539,7 +3584,10 @@ function renderAccountTab() {
     showAuthStep("authPendingStep");
   } else if (!$("#authSignedIn").hidden || !$("#authPendingStep").hidden) {
     /* only a panel still saying "signed in" or "checking" needs to change;
-       resetting any other step would wipe a message or a half-typed code */
+       resetting any other step would wipe a message or a half-typed code.
+       After someone signs out, the agreement and the address are the next
+       person's to give. */
+    if (!$("#authSignedIn").hidden) { $("#authAgree").checked = false; $("#authEmail").value = ""; }
     showAuthStep("authEmailStep");
   }
 }
@@ -3574,6 +3622,7 @@ function refreshTier() {
 }
 
 function wireAuth() {
+  auth.tidyAsked();
   if (!auth.isConfigured()) return;
 
   var pending = "";
@@ -3588,8 +3637,14 @@ function wireAuth() {
      account it is, so a link someone sent for their own account cannot
      quietly collect what you add to the cart. */
   function sayWho(user) {
-    if (whoShown || !fromLink || !user || auth.linkWasAsked(user.email)) return;
-    whoShown = true;
+    if (whoShown || !fromLink || !user) return;
+    whoShown = true;                      /* checked once, shown at most once */
+    var asked = auth.linkWasAsked(user.email);
+    auth.forgetAsked();                   /* it has done its job */
+    if (asked) return;
+    /* at the top of the screen: at the bottom its Sign out would sit exactly
+       where Add to cart is, for twenty seconds */
+    $("#toast").classList.add("toast-top");
     showToast("Signed in as " + (user.email || "an account you did not ask for") + ". Not you?",
       "Sign out", function () { signOutAndForget().then(function () { renderAccountTab(); }); }, 20000);
   }
@@ -3667,6 +3722,7 @@ function wireAuth() {
   $("#acctDeleteKeep").addEventListener("click", function () { $("#acctDeleteConfirm").hidden = true; });
   $("#acctDeleteGo").addEventListener("click", function () {
     var btn = $("#acctDeleteGo");
+    var owned = !!(state.user && state.cartOwner === state.user.id);
     btn.disabled = true; btn.textContent = "Deleting…";
     auth.deleteAccount().then(function (r) {
       btn.disabled = false; btn.textContent = "Delete everything";
@@ -3679,10 +3735,13 @@ function wireAuth() {
         portfolio = null;
         renderBrokerPanel(); renderOrderBar();
       });
-      setCartOwner("");
-      setCart([]);
-      save(LS.cart, []);
-      cartChanged();
+      /* as on signing out: a cart that never joined the account stays */
+      if (owned) {
+        setCartOwner("");
+        setCart([]);
+        save(LS.cart, []);
+        cartChanged();
+      }
       $("#acctDeleteConfirm").hidden = true;
       state.user = null;
       refreshTier();
@@ -3729,6 +3788,7 @@ function wireAuth() {
       state.user = user;
       state.authPending = false;
       renderAccountTab();
+      if ($("#dlgEarnings").open) renderEmailToggle();
       setSyncNote("saved");
       refreshTier();
       if (user) {
@@ -3744,6 +3804,7 @@ function wireAuth() {
       state.user = user;
       refreshTier();
       renderAccountTab();
+      if ($("#dlgEarnings").open) renderEmailToggle();
       auth.tidyUrl();
       if (user && !same) { ensureCartOwner(user, fresh); sayWho(user); }
       if (!user && linkError) {

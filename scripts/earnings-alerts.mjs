@@ -156,27 +156,35 @@ You are getting this because earnings alerts are on for your cart.
   return { subject, text, html };
 }
 
+/* "sent"; "failed", when Resend answered no and nothing went out; or
+   "unknown", when the request timed out or Resend failed on its side, so the
+   email may have gone. Only "failed" may be retried tomorrow: retrying an
+   unknown could email the same report twice. */
 async function send(to, mail) {
   if (DRY) {
     console.log(`\n--- would send to ${to} ---\nSubject: ${mail.subject}\n\n${mail.text}\n`);
-    return true;
+    return "sent";
   }
   let res;
   try {
     res = await fetch(RESEND_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
-      /* the standard header mail apps turn into an "Unsubscribe" button */
-      body: JSON.stringify({ from: FROM, to: [to], subject: mail.subject, html: mail.html, text: mail.text,
+      /* replies, "unsubscribe" ones included, reach the inbox the email names;
+         the standard header mail apps turn into an "Unsubscribe" button */
+      body: JSON.stringify({ from: FROM, to: [to], reply_to: UNSUBSCRIBE, subject: mail.subject, html: mail.html, text: mail.text,
         headers: { "List-Unsubscribe": `<mailto:${UNSUBSCRIBE}?subject=unsubscribe>, <${SITE}/?alerts=off>` } }),
       signal: AbortSignal.timeout(20000)
     });
   } catch (err) {
-    console.warn(`  ! send to user failed: ${err.message}`);
-    return false;
+    console.warn(`  ! send to user, outcome unknown: ${err.message}`);
+    return "unknown";
   }
-  if (!res.ok) { console.warn(`  ! send to user failed: HTTP ${res.status} ${await res.text()}`); return false; }
-  return true;
+  if (!res.ok) {
+    console.warn(`  ! send to user failed: HTTP ${res.status} ${await res.text()}`);
+    return res.status >= 500 ? "unknown" : "failed";
+  }
+  return "sent";
 }
 
 /* ----------------------------------------------------------------- main */
@@ -236,14 +244,19 @@ async function main() {
       due = due.filter((u) => mine.has(`${u.t}|${u.date}`));
       if (!due.length) continue;
 
-      if (await send(to, compose(due, details, days))) {
+      const outcome = await send(to, compose(due, details, days));
+      if (outcome === "sent") {
         sent++; companies += due.length;
       } else {
         failed++;
-        /* not sent: release the claim so tomorrow's run tries again */
-        await Promise.all(due.map((u) => rest(
-          `alert_log?user_id=eq.${p.user_id}&ticker=eq.${encodeURIComponent(u.t)}&report_date=eq.${u.date}`,
-          { method: "DELETE" }).catch(() => null)));
+        /* refused, so nothing went out: release the claim and tomorrow's run
+           tries again. If it may have gone, the claim stays: a missed alert
+           is better than the same one twice. */
+        if (outcome === "failed") {
+          await Promise.all(due.map((u) => rest(
+            `alert_log?user_id=eq.${p.user_id}&ticker=eq.${encodeURIComponent(u.t)}&report_date=eq.${u.date}`,
+            { method: "DELETE" }).catch(() => null)));
+        }
       }
     } catch (err) {
       failed++;

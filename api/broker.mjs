@@ -37,6 +37,7 @@ function describe(conn) {
     oauth: alpaca.oauthConfigured(),
     liveAllowed: alpaca.liveAllowed(),
     maxLiveOrder: alpaca.liveAllowed() ? alpaca.maxLiveOrder() : null,
+    maxLiveBatch: alpaca.liveAllowed() ? alpaca.maxLiveBatch() : null,
     connected: Boolean(conn),
     env: conn?.env || null,
     via: conn?.via || null
