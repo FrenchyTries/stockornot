@@ -76,12 +76,14 @@ Later, before order placing comes to the app:
 
 ## Steps Claude does, one pull request a day
 
-- [ ] **1. Installable from the browser.** A manifest, icons and a service
+- [x] **1. Installable from the browser.** A manifest, icons and a service
       worker, so "Add to Home Screen" gives a full-screen app with its own
-      icon. Needs nothing from Apple. (In pull request #2.)
-- [ ] **2. Bottom tabs.** Deck, Compare, Cart and Track record, the way phone
-      apps are navigated, on the site and in the app alike. Needs nothing from
-      Apple, so it goes first while the enrolment is approved.
+      icon. Needs nothing from Apple. (Pull request #2.)
+- [x] **2. Bottom tabs.** Track, Compare, Deck in the middle, Cart and
+      Account, the way phone apps are navigated, on the site and in the app
+      alike. The cart and sign-in became tabs rather than pop-ups, and Compare
+      is new. Needs nothing from Apple, so it goes first while the enrolment
+      is approved.
 - [ ] **3. The iPhone shell.** Capacitor's settings and the build service's
       pipeline, with the Xcode project generated in the cloud on each build
       rather than committed, so dozens of generated files stay out of git.
@@ -90,8 +92,10 @@ Later, before order placing comes to the app:
       phone's share sheet, and push notifications a week before anything in
       the cart reports. Apple turns down a website in a wrapper (Guideline
       4.2), and these are the difference.
-- [ ] **5. Delete your account in the app.** Apple requires it (Guideline
-      5.1.1(v)); today it is an email.
+- [x] **5. Delete your account in the app.** Apple requires it (Guideline
+      5.1.1(v)). Account → Delete my account, through `delete_my_account()`
+      in `supabase/schema.sql`, which the owner runs once in Supabase's SQL
+      editor. Download my data sits beside it.
 - [ ] **6. First-run guide.** Three short screens: what the score is, how to
       swipe, what the cart does.
 - [ ] **7. The store listing.** Screenshots from `marketing/capture.cjs`

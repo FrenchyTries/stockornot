@@ -11,7 +11,8 @@
      # open http://localhost:8080
 
    Optional env, exactly as on Vercel: FINNHUB_TOKEN, ALPACA_CLIENT_ID,
-   ALPACA_CLIENT_SECRET, BROKER_ALLOW_LIVE, BROKER_MAX_ORDER_USD. PORT picks
+   ALPACA_CLIENT_SECRET, BROKER_ALLOW_LIVE, BROKER_MAX_ORDER_USD,
+   BROKER_MAX_BATCH_USD. PORT picks
    the port.
    ========================================================================== */
 
@@ -21,6 +22,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
+/* STATIC=public serves the folder Vercel publishes, to check nothing it
+   needs was left off the list in build-pages.mjs; by default, the repository. */
+const STATIC = process.env.STATIC ? path.resolve(ROOT, process.env.STATIC) : ROOT;
 const PORT = Number(process.env.PORT) || 8080;
 
 /* The response headers vercel.json declares (the Content-Security-Policy
@@ -88,13 +92,13 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
   if (p === "/") p = "/index.html";
-  const file = path.join(ROOT, path.normalize(p));
-  if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
+  const file = path.join(STATIC, path.normalize(p));
+  if (!file.startsWith(STATIC)) { res.writeHead(403); return res.end(); }
 
   if (await serveFile(res, file)) return;
   if (!path.extname(file) && await serveFile(res, file + ".html")) return;               /* cleanUrls */
   if (!path.extname(file) && await serveFile(res, path.join(file, "index.html"))) return; /* directory index */
-  if (await serveFile(res, path.join(ROOT, "404.html"), 404)) return;                   /* as Vercel does */
+  if (await serveFile(res, path.join(STATIC, "404.html"), 404)) return;                 /* as Vercel does */
   res.writeHead(404, { "Content-Type": "text/plain" });
   res.end("Not found");
 });

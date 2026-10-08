@@ -21,8 +21,10 @@ on:
         required: false
         default: ""
 
+# Read-only by default; only the refresh job may write, and only its last step
+# holds the token that can (see "Commit if anything changed").
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: refresh
@@ -34,10 +36,16 @@ jobs:
     # schedule (26 from October 2026); the job is plain Node either way.
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    permissions:
+      contents: write
 
     steps:
       # v5 of both run on Node 24; v4 ran on Node 20, which GitHub retired.
+      # persist-credentials: false keeps the write token out of .git/config,
+      # so the steps that download and parse outside data never hold it.
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v5
         with:
@@ -74,6 +82,7 @@ jobs:
 
       - name: Commit if anything changed
         env:
+          GH_TOKEN: ${{ github.token }}
           BUILT: data/snapshot.json data/audit.json data/filings data/detail data/fundamentals data/track.json
         run: |
           git config user.name  "stockornot-bot"
@@ -85,7 +94,9 @@ jobs:
           # commit those. No merge is attempted, and on its own files the run
           # that just did the work wins. Files the job deleted (a company that
           # left the index) stay deleted.
-          git fetch origin "${GITHUB_REF_NAME}"
+          # The token is used here and nowhere earlier in the job.
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch "$remote" "${GITHUB_REF_NAME}"
           paths=""
           for p in $BUILT; do [ -e "$p" ] && paths="$paths $p"; done
           keep="$RUNNER_TEMP/built.tar"
@@ -99,15 +110,35 @@ jobs:
             echo "Nothing changed."
           else
             git commit -m "Data refresh $(date -u +'%Y-%m-%d')"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            git push "$remote" "HEAD:${GITHUB_REF_NAME}"
           fi
 
-      # A week's warning before anything in a signed-in cart reports. Runs after
-      # the publish so a mail outage can never hold the data back, and skips
-      # itself cleanly until SUPABASE_SERVICE_ROLE_KEY and RESEND_API_KEY exist.
-      # Limited test runs never email anyone.
+  # A week's warning before anything in a signed-in cart reports. A job of its
+  # own, after the publish, so a mail outage can never hold the data back. It
+  # holds the database and mail keys, so it gets no write access to the
+  # repository, and the refresh job never sees those keys. It skips itself
+  # cleanly until SUPABASE_SERVICE_ROLE_KEY and RESEND_API_KEY exist, and
+  # limited test runs never email anyone.
+  alerts:
+    needs: refresh
+    if: ${{ !github.event.inputs.limit }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      # the branch tip, so the snapshot the refresh job just committed
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
       - name: Email earnings alerts
-        if: ${{ !github.event.inputs.limit }}
         continue-on-error: true
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

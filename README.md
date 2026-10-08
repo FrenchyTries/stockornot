@@ -74,6 +74,50 @@ button between them, or <kbd>Z</kbd>, takes back the last swipe: the company
 returns to the top, and leaves the cart again if that swipe put it there.
 <kbd>↑</kbd> / <kbd>↓</kbd> scroll, and <kbd>Enter</kbd> opens the full record.
 
+## The tabs
+
+Five tabs run along the bottom of a phone, and across the middle of the header
+on a wide screen, with the deck in the middle:
+
+| Tab | What it holds |
+|---|---|
+| **Track** | The track record: each week's top and bottom fifth by score, followed forward against the whole index (`data/track.json`, the same table as `/track`) |
+| **Compare** | Two companies head to head: the score and its factors, then the figures behind the five checks (growth, margins, cash and debt, valuation, price), with the stronger figure on each row marked. It opens on the two largest companies; tap either to swap it for any other, from the cart, the largest, or by ticker or name |
+| **Deck** | The cards |
+| **Cart** | The cart, below |
+| **Account** | Signing in, earnings alerts, the brokerage, membership and the site's pages |
+
+Each tab has its own address (`/#cart`, `/#compare`…), so the Back button steps
+between them and a link opens the same one. The arrow keys swipe only while the
+deck is showing.
+
+## Scoring styles
+
+The score can be read in six styles, chosen under Account (or *Try another
+style* under any score). Each weights the same five factors the way an investor
+has written that it matters: **Balanced** (the standard score), **Quality at a
+fair price** (after Warren Buffett), **Deep value, out of favour** (after Michael
+Burry, where a fallen price counts in its favour), **Growth at a reasonable
+price** (after Peter Lynch), **Defensive** (after Benjamin Graham) and **Growth
+and momentum** (after William O'Neil). Only the weights change, and the score is
+still a place among the 500, ranked under that style (`STYLES` in
+`lib/analysis.mjs`; the weights are on the method page, and a test keeps the
+two in step). The choice is kept in the browser. The track record and the
+company pages use Balanced. None of these investors is affiliated with
+StockOrNot.
+
+## Your data
+
+Creating an account asks for a tick agreeing to the terms; the version and the
+time are kept on the account (`TERMS_VERSION` in `lib/auth.mjs`, to change
+with `terms.html`). Signed in, Account has **Download my data** (a JSON file of
+everything kept: the account, the saved cart, alert settings and alerts sent)
+and **Delete my account**, which asks once more and then deletes the account
+and everything attached to it through `delete_my_account()` in
+`supabase/schema.sql`. That function, and the policy that lets people read
+their own alert log, take effect once the schema file is run again in
+Supabase's SQL editor; until then the button says to write in instead.
+
 ## The cart
 
 Swiping right stores the ticker, the price at the moment you added it, and a note
@@ -130,6 +174,7 @@ Set these in **Vercel → Project → Settings → Environment Variables**:
 | `ALPACA_CLIENT_ID`, `ALPACA_CLIENT_SECRET` | "Connect with Alpaca" | Register an OAuth app with Alpaca and set its redirect URI to `https://<your site>/api/broker-oauth`. Without these, people paste API keys instead. |
 | `BROKER_ALLOW_LIVE` | real money | Leave unset during development. `1` allows live accounts. |
 | `BROKER_MAX_ORDER_USD` | real money | Per-order cap on live accounts. Defaults to 5000 when unset. `2000` and `$2,000` both work; `0` or anything unreadable refuses every live order. |
+| `BROKER_MAX_BATCH_USD` | real money | Cap on one live batch, all its orders added together. Defaults to `BROKER_MAX_ORDER_USD`. The review sheet says so before anything is sent. Live orders are buys only. |
 | `FINNHUB_TOKEN` | headlines | The same key the Action uses. Powers `/api/news`, cached at the edge for 30 minutes per ticker. |
 
 To try it: open a paper account at alpaca.markets, create API keys on the paper
@@ -209,8 +254,12 @@ snapshot that is worse than yesterday's. Only data is committed.
 
 The site itself is served by Vercel, which also runs the functions under `api/`.
 **Vercel builds the 500 company pages, the sitemap and robots.txt on every
-deploy** (`buildCommand` in `vercel.json`, served from the repository root by
-`outputDirectory: "."`), from whatever data is committed.
+deploy** (`buildCommand` in `vercel.json`), from whatever data is committed.
+The build then copies the site, and only the site, into `public/`, which is
+what Vercel serves (`outputDirectory: "public"`): a fixed list in
+`scripts/build-pages.mjs`, so the project's notes, scripts and database schema
+are never published beside it. `STATIC=public node scripts/dev-server.mjs`
+serves that folder locally, to check nothing the site needs was left off.
 They are build output and are never committed; `.gitignore` keeps them out.
 The nightly job builds them too, but only to check they still build.
 [docs/LESSONS.md](docs/LESSONS.md) explains why.

@@ -18,6 +18,12 @@ import universe from "../data/sp500.json" with { type: "json" };
 const KNOWN = new Set(universe.companies.map((c) => c.t));
 
 export default async function handler(req, res) {
+  /* Only GET and HEAD: the CDN caches those, so a burst of requests for one
+     ticker costs one call to Finnhub. Any other method would skip the cache
+     and spend the shared quota (the nightly refresh uses the same key). */
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return send(res, 405, { error: "Use GET." }, { Allow: "GET, HEAD" });
+  }
   const q = query(req);
   const t = String(q.get("t") || "").toUpperCase();
   if (!KNOWN.has(t)) return send(res, 404, { error: "Unknown ticker." }, { "Cache-Control": "public, max-age=3600, s-maxage=86400" });
@@ -65,6 +71,6 @@ export default async function handler(req, res) {
       "Cache-Control": "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600"
     });
   } catch {
-    return send(res, 502, { error: "The news source did not answer." });
+    return send(res, 502, { error: "The news source did not answer." }, { "Cache-Control": "public, s-maxage=120" });
   }
 }

@@ -47,7 +47,7 @@
   <p class="doc-standfirst">No advertising, no analytics and no tracking scripts. What is kept
   is what the cart and the alerts need in order to work, and this page lists all of it.</p>
 
-  <p class="note">Last updated September 23, 2026.</p>
+  <p class="note">Last updated October 7, 2026.</p>
 
   <h2>Without an account</h2>
 
@@ -63,6 +63,9 @@
 
   <ul class="limits">
     <li><b>Your email address</b>, to sign you in and, if you ask for them, to send earnings alerts.</li>
+    <li><b>That you agreed to the terms</b>: which version, and when, recorded as the account is created.</li>
+    <li><b>Sign-in records</b>: Supabase, which runs sign-in, logs the IP address and browser of each
+    sign-in and session, for security.</li>
     <li><b>Your cart</b>: the companies in it, when you added them and at what price, your notes and
     planned amounts, and a record of the last order sent for each, so a retry cannot place it twice.</li>
     <li><b>Your alert settings</b>, and a log of which alerts have been sent, so no report is emailed twice.</li>
@@ -77,7 +80,8 @@
 
   <p>Alerts are off until you switch them on. When they are on, an email goes out through
   Resend a week before a company in your cart reports, listing the companies and what the
-  street expects. Turn them off at any time under Cart, then Earnings dates.</p>
+  street expects. Turn them off at any time under Account, then Earnings alerts, with the link at
+  the bottom of every alert, or by replying "unsubscribe".</p>
 
   <h2>A brokerage connection</h2>
 
@@ -93,23 +97,49 @@
     include IP addresses.</li>
     <li><b>Supabase</b> holds accounts and the data listed above, and sends the sign-in emails.</li>
     <li><b>Resend</b> sends earnings alerts, and only to people who switched them on.</li>
-    <li><b>esm.sh</b> serves the sign-in library to your browser when you sign in, so it sees
-    that request.</li>
+    <li><b>GitHub</b> runs the nightly job that sends the alerts. While it runs it reads the email
+    address, cart and alert settings of people who switched alerts on, and keeps none of them.</li>
     <li><b>Alpaca</b>, only if you connect a brokerage account.</li>
     <li><b>Finnhub</b> supplies market data and news. Its requests come from this site's server
     and carry nothing about you.</li>
   </ul>
 
-  <p>Nothing is sold, rented or shared for marketing. The typeface is served from this site,
-  not from a font service.</p>
+  <p>These are the only services that handle anything about you. Nothing is sold, rented, shared
+  for marketing, or used to train AI models. The typeface and the sign-in library are served from
+  this site, not from a font service or a code CDN.</p>
 
-  <h2>Deleting it</h2>
+  <h2>Cookies and browser storage</h2>
 
-  <p>You can empty the cart and switch alerts off at any time, and signing out removes the
-  session from that browser. To delete the account itself, with the email address and
-  everything attached to it, write to
-  <a href="mailto:hello@stockornot.com">hello@stockornot.com</a> from that address. It is
-  done within 30 days, and you get a reply when it is.</p>
+  <p>Cookies are set only for a brokerage connection: the sealed connection described above, and,
+  while you are signing in to Alpaca, a second one that lasts ten minutes and only checks that the
+  sign-in came back to the browser that started it. Everything else stays in your browser's own
+  storage, because the app cannot work without it: your cart, the cards you have swiped, the
+  companies you have opened, your scoring style, the two companies in Compare and, once you sign in,
+  your session. While a sign-in link is on its way, the address it was sent to is kept too, so the
+  site can tell you if a link signs you in to a different account. It goes once the link is used or
+  when you sign out, and in any case the first time the site opens more than a day later. There are no advertising, analytics or tracking cookies,
+  and nothing optional, so there is nothing to accept or refuse and no cookie banner.</p>
+
+  <h2>Getting a copy, and deleting it</h2>
+
+  <p>Signed in, the Account tab has <b>Download my data</b>, a file with your account, the saved cart
+  with its notes and amounts, the alert settings and the alerts sent, and what this browser holds.
+  Supabase's sign-in records are kept by Supabase for security and are not in the file; write in for
+  a copy. Without an account, Export CSV in the cart gives you the cart.</p>
+
+  <p>The Account tab also has <b>Delete my account</b>. It asks once more, then deletes the account,
+  the email address and everything attached to it at once, for good, and disconnects this browser
+  from any brokerage account. You can also empty the cart and switch alerts off at any time, and
+  signing out removes the session from that browser. If anything here does not work, write to
+  <a href="mailto:hello@stockornot.com">hello@stockornot.com</a> from the account's address: a copy
+  or a deletion is done within 30 days, and you get a reply when it is.</p>
+
+  <h2>Do Not Track, and children</h2>
+
+  <p>There is nothing here to track you with: no advertising, no analytics and no third-party
+  scripts, so every visitor is treated the way a browser's Do Not Track signal asks, whether or not
+  it is sent. StockOrNot is meant for adults; it is not for anyone under 18, and it does not knowingly
+  keep information about children under 13.</p>
 
   <h2>Changes</h2>
 
@@ -123,6 +153,7 @@
     <a href="/method">How the score works</a>
     <a href="/pricing">Pricing</a>
     <a href="/privacy" aria-current="page">Privacy</a>
+    <a href="/terms">Terms</a>
   </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
   <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own

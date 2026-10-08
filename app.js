@@ -17,7 +17,8 @@
    ========================================================================== */
 import {
   num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos, rangeSummary,
-  FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext
+  FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext, inputs, valuation,
+  STYLES, DEFAULT_STYLE, styleById, styleFactors
 } from "./lib/analysis.mjs";
 import * as auth from "./lib/auth.mjs";
 import * as tier from "./lib/tier.mjs";
@@ -29,7 +30,7 @@ import { CHECK_ICONS } from "./lib/icons.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
-var LS = { cart: "ts.cart", seen: "ts.seen", owner: "ts.cartOwner" };
+var LS = { cart: "ts.cart", seen: "ts.seen", owner: "ts.cartOwner", style: "ts.style" };
 
 function load(k, fb) {
   try { var raw = localStorage.getItem(k); return raw === null ? fb : JSON.parse(raw); }
@@ -64,6 +65,7 @@ var state = {
   sectors: null,          /* per-sector sorted metrics, built once per snapshot */
   scoreCtx: null,         /* the same, for the score's sector half */
   broker:  null,          /* last /api/broker status; null until asked */
+  style:   styleById(load(LS.style, DEFAULT_STYLE)).id,   /* the scoring style chosen, kept in this browser */
   orderType: "market"     /* market (dollars) | limit (whole shares) */
 };
 
@@ -377,20 +379,29 @@ function scoreRing(res, big) {
   box.appendChild(el("span", "sr-label", lab.word));
   var rank = sectorRankText(res.place, big);
   if (rank) box.appendChild(el("span", "sr-rank", rank));
+  /* any style but the standard one says so wherever its score shows */
+  var st = styleById(res.style);
+  if (st.id !== DEFAULT_STYLE) box.appendChild(el("span", "sr-style", st.short));
   box.title = !num(v) ? "Not enough reported data to score this one"
-    : res.place ? "Ahead of " + v + "% of the S&P 500 on its fundamentals" +
+    : (res.place ? "Ahead of " + v + "% of the S&P 500 on its fundamentals" +
         (res.place.sector ? ", and " + sectorRankText(res.place, true) : "")
-    : "Fundamentals score " + v + " out of 100, " + lab.word.toLowerCase();
+      : "Fundamentals score " + v + " out of 100, " + lab.word.toLowerCase()) +
+      (st.id !== DEFAULT_STYLE ? ", in the " + st.label + " style" : "");
   return box;
 }
 
+/* The factors the score's style reads. Balanced reads all five in their usual
+   order; any other style lists its own, heaviest first, with each weight. */
 function factorBars(res) {
   var box = el("div", "factor-list");
-  FACTORS.forEach(function (f) {
-    var val = res.factors[f.id];
+  var styled = res.style && res.style !== DEFAULT_STYLE;
+  styleFactors(res.factors, res.style).forEach(function (f) {
+    var val = f.value;
     var row = el("div", "factor-row" + (num(val) ? "" : " is-na"));
     var lab = el("div", "factor-label");
-    lab.appendChild(el("span", "fl-name", f.label));
+    var name = el("span", "fl-name", f.label);
+    if (styled) name.appendChild(el("span", "fl-weight", Math.round(f.weight * 100) + "%"));
+    lab.appendChild(name);
     lab.appendChild(el("span", "fl-blurb", f.blurb));
     row.appendChild(lab);
     var meter = el("div", "factor-meter");
@@ -585,7 +596,7 @@ function makeCard(s, depth) {
   idb.appendChild(el("p", "c-name", s.n));
   idb.appendChild(el("span", "c-sector", s.s));
   top.appendChild(idb);
-  var res = scoreStock(s, state.scoreCtx);
+  var res = scoreStock(s, state.scoreCtx, state.style);
   top.appendChild(scoreRing(res, false));
   body.appendChild(top);
 
@@ -595,7 +606,7 @@ function makeCard(s, depth) {
   var dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
   var delta = el("div", "delta " + dir);
   delta.appendChild(el("span", "arrow", dir === "up" ? "▲" : dir === "down" ? "▼" : "–"));
-  delta.appendChild(el("span", "", num(s.change) ? pct(s.change, 2) + " today" : "no change data"));
+  delta.appendChild(el("span", "", num(s.change) ? pct(s.change, 2) + " " + sessionWord() : "no change data"));
   pr.appendChild(delta);
   var mcTag = el("span", "c-cap", cap(s.mc) + " market cap");
   pr.appendChild(mcTag);
@@ -990,7 +1001,7 @@ function restoreToCart(item) {
   state.cart.sort(function (a, b) { return String(b.addedAt || "").localeCompare(String(a.addedAt || "")); });
   persistCart();
   renderCartCount(); renderEarnNotice();
-  if ($("#dlgCart").open) renderCart();
+  if (view === "cart") renderCart();
 }
 
 /* ---------------------------------------------------------------- toast */
@@ -999,7 +1010,7 @@ var toastTimer = null;
 
 /* One line, and a way back. A modal dialog covers everything outside it, so
    the toast moves into whichever dialog is open. */
-function showToast(text, label, onAction) {
+function showToast(text, label, onAction, ms) {
   var box = $("#toast");
   var host = document.querySelector("dialog[open]") || document.body;
   if (box.parentNode !== host) host.appendChild(box);
@@ -1013,12 +1024,13 @@ function showToast(text, label, onAction) {
   void box.offsetWidth;
   box.classList.add("is-in");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(hideToast, 6000);
+  toastTimer = setTimeout(hideToast, ms || 6000);
 }
 
 function hideToast() {
   clearTimeout(toastTimer);
   $("#toast").hidden = true;
+  $("#toast").classList.remove("toast-top");
 }
 
 function setCartOwner(owner) {
@@ -1033,8 +1045,8 @@ function cartChanged() {
   renderCartCount();
   renderEarnNotice();
   renderOrderBar();
-  var dlg = $("#dlgCart");
-  if (dlg.open && !dlg.contains(document.activeElement && document.activeElement.matches("input, textarea") ? document.activeElement : null)) renderCart();
+  var box = $("#viewCart");
+  if (view === "cart" && !box.contains(document.activeElement && document.activeElement.matches("input, textarea") ? document.activeElement : null)) renderCart();
 }
 
 function persistCart() {
@@ -1176,6 +1188,14 @@ function signOutAndForget() {
     return auth.signOut();
   }).then(function () {
     clearTimeout(sync.timer); clearTimeout(sync.retryTimer);
+    /* Signing out on a shared computer has to end the brokerage connection
+       too: its cookie belongs to the browser, not the account, and would
+       otherwise leave the account and its orders to whoever sits down next. */
+    broker.disconnect().then(function (r) {
+      if (r.ok) state.broker = r.data;
+      portfolio = null;
+      renderBrokerPanel(); renderOrderBar();
+    });
     if (owned) {
       setCartOwner("");
       setCart([]);
@@ -1225,15 +1245,18 @@ function addToCart(s) {
 }
 
 function flashCart() {
-  var b = $("#btnCart");
+  var b = $("#cartCount");
   b.classList.remove("bump");
   void b.offsetWidth;
   b.classList.add("bump");
 }
 
 function renderCartCount() {
-  $("#cartCount").textContent = state.cart.length;
-  $("#btnCart").classList.toggle("has-items", state.cart.length > 0);
+  var n = state.cart.length;
+  var badge = $("#cartCount");
+  badge.textContent = n > 99 ? "99+" : String(n);
+  badge.hidden = n === 0;
+  $("#tabCart").setAttribute("aria-label", n ? "Cart, " + n + (n === 1 ? " company" : " companies") : "Cart");
 }
 
 var NOTE_MAX = 600;
@@ -1397,9 +1420,12 @@ function renderCart() {
   renderOrderBar();
 }
 
-function openCart() {
+function openCart() { go("cart"); }
+
+/* The cart tab, each time it is shown: drawn fresh, and the brokerage asked
+   whether it is still connected. */
+function showCart() {
   renderCart();
-  openDialog($("#dlgCart"));
   refreshBroker().then(function (b) { if (b && b.connected) loadPortfolio(); });
 }
 
@@ -1415,7 +1441,7 @@ function exportCsv() {
     var now = live && num(live.price) ? live.price : "";
     var chg = now !== "" && num(i.priceAtAdd) && i.priceAtAdd > 0
       ? (((now - i.priceAtAdd) / i.priceAtAdd) * 100).toFixed(2) : "";
-    rows.push([i.t, text(i.n), text(i.sector), String(i.addedAt || "").slice(0, 10),
+    rows.push([text(i.t), text(i.n), text(i.sector), text(String(i.addedAt || "").slice(0, 10)),
                num(i.priceAtAdd) ? i.priceAtAdd : "", now, chg, num(i.amount) ? i.amount : "", text(i.note)]);
   });
   /* A text cell that starts with = + - @ is run as a formula by spreadsheet
@@ -1473,7 +1499,7 @@ function loadPortfolio() {
     /* A failed refresh keeps what was already on screen and says why. */
     if (r.ok) { portfolio = r.data; portfolioError = ""; }
     else portfolioError = r.error || "Could not load holdings and orders.";
-    if ($("#dlgCart").open) renderCart();
+    if (view === "cart") renderCart();
     if ($("#dlgBroker").open) renderAccount();
     return portfolio;
   });
@@ -1818,6 +1844,13 @@ function planFor(row) {
   });
 }
 
+/* Real money: the server refuses a batch whose orders add up to more than
+   its batch cap, so the sheet says so before anything is sent. */
+function overBatchCap(total) {
+  var cap = (state.broker || {}).maxLiveBatch;
+  return review && review.env === "live" && num(cap) && total > cap ? cap : null;
+}
+
 function renderReview() {
   var list = $("#orderList");
   list.innerHTML = "";
@@ -1897,7 +1930,8 @@ function renderReview() {
   var needsConfirm = review && review.env === "live" && !$("#orderLiveCheck").checked;
   $("#orderLiveCheck").disabled = locked;
   Array.prototype.forEach.call($("#orderType").children, function (c) { c.disabled = locked; });
-  btn.disabled = !ready || locked || needsConfirm || !(review && review.env);
+  var batchCap = locked ? null : overBatchCap(total);
+  btn.disabled = !ready || locked || needsConfirm || !(review && review.env) || batchCap !== null;
   if (review && review.sending) btn.textContent = "Placing…";
   else if (review && review.placed) btn.textContent = review.summary || "Sent";
   else if (review && review.rows.some(function (x) { return x.result; })) btn.textContent = "Place the other " + ready;
@@ -1905,6 +1939,7 @@ function renderReview() {
   /* the outcome of the last send, if there was one, otherwise a warning */
   var bp = b.account && b.account.buyingPower;
   orderError(review && review.message ? review.message
+    : batchCap !== null ? "Live orders on this site are capped at " + usd(batchCap) + " a batch, all orders together. This comes to " + usd(total) + "; lower some amounts."
     : noAnswer ? "Rows marked \u201cno answer yet\u201d were sent " + relTime(noAnswer) + " but no reply came back. Placing them again as they are cannot buy twice: the brokerage refuses a repeat. If you change one, check Account \u2192 Recent orders first."
     : !locked && num(bp) && total > bp ? "That is more than the " + usd(bp) + " this account has available. Some orders will be refused." : "");
 }
@@ -1995,7 +2030,7 @@ function placeOrders() {
         });
       }
       mine.message = (answered.length ? answered.length + " were answered before this. " : "") + failure.error +
-        (failure.status === 409 ? "" : " Pressing Place again resends the same orders, which the brokerage will not duplicate.");
+        (failure.status === 409 || failure.status === 400 ? "" : " Pressing Place again resends the same orders, which the brokerage will not duplicate.");
     } else {
       mine.placed = true;
       var sentRows = rows.length;
@@ -2005,7 +2040,7 @@ function placeOrders() {
     }
     if (review === mine) renderReview();
     renderOrderBar();
-    if ($("#dlgCart").open) renderCart();
+    if (view === "cart") renderCart();
     refreshBroker().then(loadPortfolio);
   });
 }
@@ -2019,6 +2054,13 @@ function placeOrders() {
 
 var NOTICE_KEY = "ts.earnNoticeHidden";
 
+/* The earnings notice sits above the deck; the deck gives up its height, so
+   the buttons under it stay clear of the tab bar on a phone. */
+function fitDeck() {
+  var box = $("#earnNotice");
+  document.documentElement.style.setProperty("--notice-h", box.hidden ? "0px" : box.offsetHeight + "px");
+}
+
 function renderEarnNotice() {
   var box = $("#earnNotice");
   if (!box || !state.all.length) return;
@@ -2026,7 +2068,7 @@ function renderEarnNotice() {
   var sig = soon.map(function (u) { return u.t + u.date; }).join(",");
   var hidden = false;
   try { hidden = localStorage.getItem(NOTICE_KEY) === sig; } catch (e) {}
-  if (!soon.length || hidden) { box.hidden = true; return; }
+  if (!soon.length || hidden) { box.hidden = true; fitDeck(); return; }
   var first = soon[0];
   var when = first.days === 0 ? "today" : first.days === 1 ? "tomorrow" : "in " + first.days + " days";
   $("#earnNoticeText").textContent = first.t + " reports " + when +
@@ -2034,6 +2076,7 @@ function renderEarnNotice() {
     (soon.length > 1 ? " · " + (soon.length - 1) + " more in your cart in the next week" : "");
   box.hidden = false;
   box.dataset.sig = sig;
+  fitDeck();
 }
 
 function openEarnings() {
@@ -2105,6 +2148,12 @@ function renderEmailToggle() {
   if (!auth.isConfigured()) {
     box.disabled = true;
     note.textContent = "Email alerts need accounts, which are not set up on this copy of the site.";
+    return;
+  }
+  if (!state.user && state.authPending) {
+    /* a saved sign-in is still being checked; the listeners redraw this */
+    box.disabled = true;
+    note.textContent = "Checking…";
     return;
   }
   if (!state.user) {
@@ -2639,16 +2688,19 @@ function openDetail(s) {
     body.innerHTML = "";
 
     /* --- the score, and what drove it --- */
-    var scoreRes = scoreStock(s, state.scoreCtx);
+    var scoreRes = scoreStock(s, state.scoreCtx, state.style);
     var scoreBox = el("div", "score-detail");
     var scoreHead = el("div", "score-head");
     scoreHead.appendChild(scoreRing(scoreRes, true));
     var blurb = el("div", "score-blurb");
+    var st = styleById(scoreRes.style);
+    var styled = st.id !== DEFAULT_STYLE;   /* a style may read fewer than five */
     blurb.appendChild(el("p", "", !num(scoreRes.overall) ? "Not enough reported data to score this one."
       : (scoreRes.place
-          ? "Ahead of " + scoreRes.overall + "% of the S&P 500 on the five factors below, weighted. "
-          : "A weighted blend of the five factors below. ") +
+          ? "Ahead of " + scoreRes.overall + "% of the S&P 500 on the " + (styled ? "" : "five ") + "factors below, weighted. "
+          : "A weighted blend of the factors below. ") +
         "It describes what the last filing and the current price look like. It is not a forecast, and it knows nothing about the business beyond these numbers."));
+    blurb.appendChild(styleLine(st));
     scoreHead.appendChild(blurb);
     if (scoreRes.notes && scoreRes.notes.length) {
       var notes = el("ul", "score-notes");
@@ -2773,24 +2825,519 @@ function openDetail(s) {
   });
 }
 
+/* ============================================================ COMPARE ===
+   Two companies head to head: the score and its factors under the chosen
+   style, then the figures behind the five checks as numbers, with the
+   stronger of the two marked on each row. It opens on the two largest
+   companies in the index; tapping either one swaps it. The pair is kept in
+   this browser. */
+
+var CMP_KEY = "ts.compare";
+var SWAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9l4-4 4 4M8 15l4 4 4-4"/></svg>';
+var cmpPair = null;      /* [left, right] tickers */
+var pickSide = 0;        /* the side the picker is choosing for */
+
+var idOf = function (s) { return s.cik || s.t; };
+
+/* The largest companies by market value, one share class each, leaving out
+   any company in `skip` (tickers). */
+function largest(n, skip) {
+  var seen = new Set((skip || []).map(function (t) { return state.byTicker[t] ? idOf(state.byTicker[t]) : t; }));
+  var out = [];
+  state.all.slice().sort(function (a, b) { return (b.mc || 0) - (a.mc || 0); }).forEach(function (s) {
+    if (out.length >= n || seen.has(idOf(s))) return;
+    seen.add(idOf(s));
+    out.push(s);
+  });
+  return out;
+}
+
+function comparePair() {
+  if (cmpPair && cmpPair.length === 2 && cmpPair.every(function (t) { return state.byTicker[t]; })) return cmpPair;
+  var saved = load(CMP_KEY, null);
+  var pair = Array.isArray(saved)
+    ? saved.filter(function (t) { return typeof t === "string" && state.byTicker[t]; }).slice(0, 2) : [];
+  /* a first visit, or a company that has left the index: the largest fill in */
+  largest(2, pair).forEach(function (s) { if (pair.length < 2) pair.push(s.t); });
+  cmpPair = pair;
+  return pair;
+}
+
+function setSide(side, t) {
+  var pair = comparePair().slice();
+  if (pair[side] !== t) {
+    /* the same allowance as the deck: a company opened here counts as opened */
+    if (!tier.withinAllowance(state.viewed, t, state.tier)) {
+      $("#pickMsg").textContent = "That is past the companies your plan can open." +
+        (state.tier === "anon" ? " Sign in for more." : "");
+      return;
+    }
+    tier.recordViewed(state.viewed, t);
+    renderAllowance();
+    /* choosing the company on the other side swaps the two */
+    if (pair[1 - side] === t) pair[1 - side] = pair[side];
+    pair[side] = t;
+    cmpPair = pair;
+    save(CMP_KEY, pair);
+  }
+  closeDialog($("#dlgPick"));
+  renderCompare();
+}
+
+/* Tickers that start with what was typed come first, then names that hold it. */
+function findCompanies(q) {
+  q = q.trim().toUpperCase();
+  if (!q) return [];
+  var starts = [], within = [];
+  state.all.forEach(function (s) {
+    if (s.t.indexOf(q) === 0) starts.push(s);
+    else if (q.length >= 2 && String(s.n || "").toUpperCase().indexOf(q) >= 0) within.push(s);
+  });
+  starts.sort(function (a, b) { return a.t.length - b.t.length || (a.t < b.t ? -1 : 1); });
+  return starts.concat(within).slice(0, 8);
+}
+
+function openPicker(side) {
+  pickSide = side;
+  $("#pickTitle").textContent = "Swap " + comparePair()[side];
+  $("#pickInput").value = "";
+  $("#pickMsg").textContent = "";
+  renderPickList();
+  openDialog($("#dlgPick"));
+}
+
+/* What was typed, or with nothing typed, the cart and the largest companies. */
+function renderPickList() {
+  var box = $("#pickList");
+  box.innerHTML = "";
+  var pair = comparePair();
+  function group(title, list) {
+    if (!list.length) return;
+    if (title) box.appendChild(el("h3", "pick-h", title));
+    list.forEach(function (s) {
+      var b = el("button", "search-hit");
+      b.type = "button";
+      b.appendChild(el("b", "", s.t));
+      b.appendChild(el("span", "", s.n + (s.t === pair[pickSide] ? " · showing now" : s.t === pair[1 - pickSide] ? " · on the other side" : "")));
+      b.addEventListener("click", function () { setSide(pickSide, s.t); });
+      box.appendChild(b);
+    });
+  }
+  var q = $("#pickInput").value;
+  if (q.trim()) {
+    var hits = findCompanies(q);
+    if (hits.length) group("", hits);
+    else box.appendChild(el("p", "block-note", "Nothing in the S&P 500 matches that."));
+    return;
+  }
+  group("In your cart", state.cart.map(function (i) { return state.byTicker[i.t]; }).filter(Boolean).slice(0, 12));
+  group("Largest companies", largest(10));
+}
+
+/* The figures behind the five checks, as numbers, worked out the way the
+   card's checks work them out (lib/insight.mjs), traps included: a bank's
+   revenue swing, cash flow and debt are not read as such, and a gap in the
+   filings is said rather than shown as zero. Each is { v: number to compare,
+   or null; t: what to show }. */
+function cmpFigures(s) {
+  var k = inputs(s), f = s.fin || {}, val = valuation(s, k);
+  var fin = k.financial ? "n/a, a financial" : null;
+  var fig = function (v, t) { return { v: num(v) ? v : null, t: t }; };
+  var fcfOk = !k.financial && num(f.fcf);
+  var fcfm = fcfOk && num(f.revenue) && f.revenue > 0 ? (f.fcf / f.revenue) * 100 : null;
+  var net = !k.financial && num(f.cash) && num(f.debt) ? f.cash - f.debt : null;
+  var pePos = num(s.pe) && s.pe > 0, pefPos = num(s.pef) && s.pef > 0;
+  var lens = val.cash && !val.cash.none ? val.cash.multiple : null;
+  var e = s.earnings;
+  var dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
+  return {
+    rg:    fig(num(k.rg) ? s.rg : null, num(s.rg) ? pct(s.rg) + (k.rgSuspect ? "*" : "") : "n/a"),
+    rg5:   fig(s.rg5, num(s.rg5) ? pct(s.rg5) : "n/a"),
+    eg:    fig(s.eg, num(s.eg) ? pct(s.eg) : "n/a"),
+    gm:    fig(s.gm, num(s.gm) ? pctPlain(s.gm, 0) : "n/a"),
+    nm:    fig(s.nm, num(s.nm) ? pctPlain(s.nm, 1) : "n/a"),
+    roe:   fig(k.roeOk ? s.roe : null, k.roeOk ? pctPlain(s.roe, 0) : "n/a"),
+    fcfm:  fig(fcfm, num(fcfm) ? pctPlain(fcfm, 0) : fin || (num(f.ocf) ? "no capital spending filed" : "n/a")),
+    fcf:   fig(fcfOk ? f.fcf : null, fcfOk ? money(f.fcf) : fin || "n/a"),
+    net:   fig(net, num(net) ? money(net) : fin || "n/a"),
+    years: fig(k.financial ? null : k.debtYears === Infinity ? 1e9 : k.debtYears,
+      fin || (num(k.debtYears) ? k.debtYears.toFixed(1) + " yrs" : k.debtYears === Infinity ? "no cash flow" : "n/a")),
+    pe:    fig(pePos ? s.pe : null, pePos ? x(s.pe) : k.losing ? "a loss" : "n/a"),
+    fair:  fig(val.fair, x(val.fair, 0)),
+    pef:   fig(pefPos ? s.pef : null, pefPos ? x(s.pef) : "n/a"),
+    /* a REIT's multiple is on operating cash: never marked against another's free cash */
+    pfcf:  Object.assign(fig(lens, val.cash ? (val.cash.none ? "no free cash flow" : x(lens, 1) + (val.kind === "ocf" ? " (operating)" : "")) : fin || "n/a"), { kind: val.kind }),
+    /* the yield the score uses: one the provider's own figures contradict is not shown as fact */
+    dy:    k.dyDisputed ? fig(null, "disputed") : fig(k.dy, num(k.dy) && k.dy > 0 ? pctPlain(k.dy, 2) : "None"),
+    price: fig(s.price, price(s.price)),
+    day:   fig(null, el("span", "delta small " + dir, num(s.change) ? pct(s.change, 2) : "—")),
+    r52:   fig(null, pct(s.r52, 0)),
+    mc:    fig(null, cap(s.mc)),
+    next:  fig(null, e && e.date && daysUntil(e.date) >= 0 ? dateShort(e.date).replace(/, \d{4}$/, "") : "—")
+  };
+}
+
+/* [key, label, which way is stronger (1 higher, -1 lower, 0 neither), hint];
+   a one-item row is a heading. */
+var CMP_ROWS = [
+  ["Growth"],
+  ["rg", "Revenue, 12 months", 1, "Revenue over the last twelve months against the twelve before. *Far out of line with the five-year trend: for a bank, usually interest income moving with rates."],
+  ["rg5", "Revenue, 5-year average", 1, "Average yearly revenue growth over five years."],
+  ["eg", "Earnings per share, 12 months", 1, "Earnings per share over the last twelve months against the twelve before."],
+  ["Profitability"],
+  ["gm", "Gross margin", 1, "What is left of each dollar of sales after the direct cost of making it."],
+  ["nm", "Net margin", 1, "Profit after everything, as a share of revenue."],
+  ["roe", "Return on equity", 1, "Profit against the shareholders' money in the business. Left out where equity is negative or a sliver."],
+  ["Cash and debt"],
+  ["fcfm", "Free cash flow, of revenue", 1, "Cash from operations minus capital spending, as a share of revenue."],
+  ["fcf", "Free cash flow", 0, "Cash from operations minus capital spending, from the last annual filing."],
+  ["net", "Cash minus debt", 0, "Cash less long-term debt at the last fiscal year end. Below zero is net debt."],
+  ["years", "Years to repay debt", -1, "Years of operating cash flow it would take to pay off the long-term debt. Under 3 is comfortable."],
+  ["Valuation"],
+  ["pe", "P/E", -1, "Price against the last twelve months of earnings per share."],
+  ["fair", "Fair P/E for its growth", 0, "8 + 1.5 × (growth + dividend yield): the P/E its growth would justify, as on the card."],
+  ["pef", "Forward P/E", -1, "Price against next year's expected earnings. Analysts' forecasts, not scored."],
+  ["pfcf", "Price / free cash flow", -1, "Market value against last year's free cash flow: the cash version of the P/E."],
+  ["dy", "Dividend yield", 0, "A year of dividends as a share of the price. Left out where the provider's yield and its payout ratio disagree."],
+  ["Price"],
+  ["price", "Price", 0],
+  ["day", "Day's move", 0],
+  ["r52", "Past year", 0, "The share price over the last 52 weeks, without dividends."],
+  ["mc", "Market cap", 0],
+  ["next", "Next earnings", 0]
+];
+
+function renderCompare() {
+  var body = $("#cmpBody");
+  body.innerHTML = "";
+  var note = $("#cmpStyle");
+  note.innerHTML = "";
+  note.appendChild(styleLine(styleById(state.style)));
+  if (!state.all.length) {
+    body.appendChild(el("p", "block-note", "Loading the S&P 500…"));
+    return;
+  }
+
+  var cols = comparePair().map(function (t) {
+    var s = state.byTicker[t];
+    return { s: s, res: scoreStock(s, state.scoreCtx, state.style), fig: cmpFigures(s) };
+  });
+
+  var table = el("table", "cmp-table");
+  table.appendChild(el("caption", "sr-only", cols[0].s.t + " and " + cols[1].s.t + " side by side"));
+  var head = el("thead");
+  var hr = el("tr");
+  hr.appendChild(el("td", "cmp-corner"));
+  cols.forEach(function (c, side) {
+    var th = el("th");
+    th.scope = "col";
+    var b = el("button", "cmp-co");
+    b.type = "button";
+    b.setAttribute("aria-label", c.s.t + ", " + c.s.n + ": swap for another company");
+    var top = el("span", "cmp-co-t");
+    top.appendChild(el("b", "", c.s.t));
+    top.insertAdjacentHTML("beforeend", SWAP_ICON);      /* a constant */
+    b.appendChild(top);
+    b.appendChild(el("span", "cmp-name", c.s.n));
+    b.addEventListener("click", function () { openPicker(side); });
+    th.appendChild(b);
+    hr.appendChild(th);
+  });
+  head.appendChild(hr);
+  table.appendChild(head);
+
+  var tbody = el("tbody");
+  function section(title) {
+    var tr = el("tr", "cmp-sec");
+    var th = el("th", "", title);
+    th.scope = "colgroup";
+    th.colSpan = cols.length + 1;
+    tr.appendChild(th);
+    tbody.appendChild(tr);
+  }
+  /* cells: one per company, each a string or a node; best: the cells to mark */
+  function row(label, cells, best, hint) {
+    var tr = el("tr");
+    var th = el("th", "", label);
+    th.scope = "row";
+    if (hint) th.title = hint;
+    tr.appendChild(th);
+    cells.forEach(function (c, i) {
+      var td = el("td", best && best[i] ? "is-top" : "");
+      if (c && c.nodeType) td.appendChild(c); else td.textContent = c;
+      /* not by colour alone: bold on screen, and said to a screen reader */
+      if (best && best[i]) td.appendChild(el("span", "sr-only", " (stronger)"));
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  /* the stronger of the two, when both have the figure and they differ */
+  function stronger(vals, way) {
+    if (!way || !num(vals[0]) || !num(vals[1]) || vals[0] === vals[1]) return null;
+    var left = way > 0 ? vals[0] > vals[1] : vals[0] < vals[1];
+    return [left, !left];
+  }
+  function meter(v) {
+    var wrap = el("span");
+    wrap.appendChild(el("span", "", num(v) ? String(Math.round(v)) : "n/a"));
+    var m = el("span", "cmp-meter");
+    var fill = el("i");
+    fill.style.width = num(v) ? clamp(v, 0, 100) + "%" : "0";
+    m.appendChild(fill);
+    wrap.appendChild(m);
+    return wrap;
+  }
+
+  section("Score");
+  row("Score", cols.map(function (c) {
+    var box = el("span");
+    box.appendChild(el("b", "cmp-big", num(c.res.overall) ? String(c.res.overall) : "—"));
+    box.appendChild(el("span", "cmp-sub", scoreLabel(c.res.overall).word));
+    return box;
+  }), stronger(cols.map(function (c) { return c.res.overall; }), 1),
+    "Its place in the S&P 500, 1 to 99: better than that share of the index.");
+  row("In its sector", cols.map(function (c) {
+    /* "#2 of 73", and the sector under it in small type */
+    var m = (sectorRankText(c.res.place) || "").match(/^(#\d+ of \d+) in (.+)$/);
+    if (!m) return "—";
+    var box = el("span");
+    box.appendChild(el("span", "", m[1]));
+    box.appendChild(el("span", "cmp-sub", m[2]));
+    return box;
+  }));
+  var styled = state.style !== DEFAULT_STYLE;
+  var weighed = cols.map(function (c) { return styleFactors(c.res.factors, state.style); });
+  weighed[0].forEach(function (f, i) {
+    var vals = weighed.map(function (list) { return list[i].value; });
+    row(f.label + (styled ? " · " + Math.round(f.weight * 100) + "%" : ""), vals.map(meter),
+      stronger(vals.map(function (v) { return num(v) ? Math.round(v) : null; }), 1), f.blurb);
+  });
+
+  CMP_ROWS.forEach(function (r) {
+    if (r.length === 1) { section(r[0]); return; }
+    var figs = cols.map(function (c) { return c.fig[r[0]]; });
+    var way = r[0] === "pfcf" && figs[0].kind !== figs[1].kind ? 0 : r[2];
+    row(r[1], figs.map(function (g) { return g.t; }), stronger(figs.map(function (g) { return g.v; }), way), r[3]);
+  });
+
+  row("Full record", cols.map(function (c) {
+    var b = el("button", "link-btn", "Open " + c.s.t);
+    b.type = "button";
+    b.addEventListener("click", function () { openDetail(c.s); });
+    return b;
+  }));
+
+  table.appendChild(tbody);
+  body.appendChild(table);
+}
+
+/* ======================================================= TRACK RECORD ===
+   The weekly groups scripts/track.mjs follows, newest first, as on the
+   /track page. Fetched the first time the tab is shown. */
+
+var MEANINGFUL_DAYS = 60;       /* about three months of sessions, as on /track */
+var trackLoad = null;
+
+function showTrack() {
+  if (trackLoad) return;
+  trackLoad = fetch("data/track.json", { cache: "no-cache" })
+    .then(function (r) {
+      if (r.status === 404) return null;            /* not started yet */
+      if (!r.ok) throw new Error("http " + r.status);
+      return r.json();
+    })
+    .then(renderTrack, function () {
+      trackLoad = null;                            /* asked again next time */
+      var body = $("#trackBody");
+      body.innerHTML = "";
+      body.appendChild(el("p", "block-note", "The track record did not load. Check the connection, then open this tab again."));
+    });
+}
+
+function renderTrack(track) {
+  var body = $("#trackBody");
+  body.innerHTML = "";
+  var groups = (track && Array.isArray(track.groups) ? track.groups : []).slice().reverse();
+  $("#trackNote").textContent = track && track.started ? "Since " + dateShort(track.started) : "";
+  if (!groups.length) {
+    body.appendChild(el("p", "empty-note", "The first group is picked on the first nightly run. Come back in a week."));
+    return;
+  }
+  var table = el("table", "doc-table list track-table");
+  var head = el("thead");
+  var hr = el("tr");
+  [["Picked", ""], ["Top fifth", "num"], ["Bottom fifth", "num"], ["All 500", "num"], ["Top vs all", "num"]].forEach(function (h) {
+    var th = el("th", h[1], h[0]);
+    th.scope = "col";
+    hr.appendChild(th);
+  });
+  head.appendChild(hr);
+  table.appendChild(head);
+  var tbody = el("tbody");
+  function cell(v, tone) {
+    var td = el("td", "num");
+    var ok = num(v);
+    var dir = !ok ? "flat" : v > 1.0005 ? "up" : v < 0.9995 ? "down" : "flat";
+    td.appendChild(el("span", tone ? "delta " + dir : "", ok ? pct((v - 1) * 100, 1) : "—"));
+    return td;
+  }
+  var longest = 0;
+  groups.forEach(function (g) {
+    longest = Math.max(longest, g.days || 0);
+    var tr = el("tr");
+    var th = el("th", "", dateShort(g.start));
+    th.scope = "row";
+    th.appendChild(el("span", "track-days", g.days + (g.days === 1 ? " session" : " sessions")));
+    tr.appendChild(th);
+    tr.appendChild(cell(g.top, true));
+    tr.appendChild(cell(g.bottom, true));
+    tr.appendChild(cell(g.index, false));
+    tr.appendChild(cell(num(g.top) && g.index > 0 ? g.top / g.index : null, true));
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  var wrap = el("div", "table-scroll");
+  wrap.appendChild(table);
+  body.appendChild(wrap);
+  if (longest < MEANINGFUL_DAYS) {
+    body.appendChild(el("p", "block-note", "The oldest group has been followed for " + longest + " trading " +
+      (longest === 1 ? "session" : "sessions") + ". Over weeks, prices move for reasons no score can see; read nothing into this until it has run for months."));
+  }
+}
+
 /* ============================================================== CHROME === */
 
 function openDialog(dlg) { if (!dlg.open) dlg.showModal(); }
 function closeDialog(dlg) { if (dlg.open) dlg.close(); }
 
-/* "Prices at the Sep 22 close": the session the figures describe, which is
-   what matters, rather than how long ago a job ran. */
-function renderDataAge() {
-  var text = !state.updated ? "No data yet"
-    : state.session ? "Prices at the " + dateShort(state.session).replace(/, \d{4}$/, "") + " close"
-    : "Updated " + relTime(state.updated);
-  var title = state.updated ? "Snapshot built " + new Date(state.updated).toLocaleString() : "";
-  ["#dataAge", "#footAge"].forEach(function (sel) {
-    var n = $(sel);
-    if (!n) return;
-    n.textContent = text;
-    n.title = title;
+/* ------------------------------------------------------- scoring style ---
+   The same five factors weighted the way a known investor has said matters
+   (STYLES in lib/analysis.mjs). The choice applies at once, behind the
+   sheet, so the score on the card can be watched changing. */
+
+/* "Scored in the Balanced style. Try another style" */
+function styleLine(st) {
+  var p = el("p", "style-line");
+  p.appendChild(document.createTextNode(st.id === DEFAULT_STYLE ? "Scored in the Balanced style. "
+    : "Scored in the " + st.label + " style, after " + st.after + ". "));
+  var b = el("button", "link-btn", st.id === DEFAULT_STYLE ? "Try another style" : "Change");
+  b.type = "button";
+  b.addEventListener("click", openStyles);
+  p.appendChild(b);
+  return p;
+}
+
+function weightsText(st) {
+  return styleFactors(null, st.id).map(function (f) { return f.label + " " + Math.round(f.weight * 100) + "%"; }).join(" · ");
+}
+
+function openStyles() {
+  var list = $("#styleList");
+  Array.prototype.slice.call(list.querySelectorAll(".style-opt")).forEach(function (n) { n.remove(); });
+  STYLES.forEach(function (st) {
+    var opt = el("label", "style-opt");
+    var input = el("input");
+    input.type = "radio";
+    input.name = "scoreStyle";
+    input.value = st.id;
+    input.checked = st.id === state.style;
+    input.addEventListener("change", function () { if (input.checked) chooseStyle(st.id); });
+    opt.appendChild(input);
+    var txt = el("span", "style-txt");
+    txt.appendChild(el("b", "", st.label));
+    if (st.after) txt.appendChild(el("span", "style-after", "After " + st.after + ", from " + st.source));
+    txt.appendChild(el("span", "style-blurb", st.blurb));
+    txt.appendChild(el("span", "style-weights", weightsText(st)));
+    opt.appendChild(txt);
+    list.appendChild(opt);
   });
+  openDialog($("#dlgStyle"));
+}
+
+function chooseStyle(id) {
+  state.style = styleById(id).id;
+  save(LS.style, state.style);
+  if (state.all.length) renderDeck();
+  renderAccountTab();
+  if (view === "compare") renderCompare();
+  if ($("#dlgDetail").open && detailTicker && state.byTicker[detailTicker]) openDetail(state.byTicker[detailTicker]);
+}
+
+/* --------------------------------------------------------------- tabs ---
+   Five tabs, one shown at a time. The address carries the tab (#cart,
+   #compare…), so Back steps between them and a shared link opens the same
+   one; the deck is the address with no hash. Anything else after a # (a
+   sign-in link's tokens) is not a tab, and is left alone for auth to read. */
+
+var VIEWS = { deck: "#deck", compare: "#viewCompare", cart: "#viewCart", track: "#viewTrack", account: "#viewAccount" };
+var view = "deck";
+
+function viewInUrl() {
+  var h = location.hash.slice(1);
+  return Object.prototype.hasOwnProperty.call(VIEWS, h) ? h : "deck";
+}
+
+function showView(name, focus) {
+  if (!VIEWS[name]) name = "deck";
+  var changed = name !== view;
+  view = name;
+  Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).hidden = k !== name; });
+  Array.prototype.forEach.call(document.querySelectorAll("#tabbar [data-view]"), function (a) {
+    if (a.getAttribute("data-view") === name) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  if (name === "cart") showCart();
+  else if (name === "account") showAccount();
+  else if (name === "compare") renderCompare();
+  else if (name === "track") showTrack();
+  else deckShown();
+  if (!changed) return;
+  window.scrollTo(0, 0);
+  /* chosen from the bar: start the reader at the tab's heading */
+  var h = focus && $(VIEWS[name] + " h1");
+  if (h) h.focus({ preventScroll: true });
+}
+
+function go(name) {
+  if (name === view) { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  if (!auth.isAuthCallback()) {
+    try { history.pushState(null, "", name === "deck" ? location.pathname + location.search : "#" + name); } catch (e) {}
+  }
+  showView(name, true);
+}
+
+/* Back on the deck: the top card was hidden while another tab showed, so its
+   scroll fade is measured again. */
+function deckShown() {
+  var sc = cards[0] && $(".card-scroll", cards[0].node);
+  if (sc) sc.dispatchEvent(new Event("scroll"));
+}
+
+/* The top bar says "Not investment advice" on every tab, and the date of the
+   prices only once it has gone stale: a nightly run that stopped is the one
+   time the date needs saying. The card says which close its move is from. */
+var STALE_DAYS = 4;          /* a Friday close read on the Tuesday after a holiday is still the latest */
+
+function snapshotDay() {
+  return state.session || (state.updated ? String(state.updated).slice(0, 10) : null);
+}
+
+function renderDataAge() {
+  var box = $("#dataAge");
+  var day = snapshotDay();
+  var age = day ? Math.floor((Date.now() - Date.parse(day + "T12:00:00Z")) / 864e5) : null;
+  box.hidden = !(age > STALE_DAYS);
+  var shown = dateShort(day);
+  if (shown.slice(-4) === String(new Date().getFullYear())) shown = shown.replace(/, \d{4}$/, "");
+  box.textContent = box.hidden ? "" : "Prices from " + shown;
+  box.title = state.updated ? "Not updated since " + new Date(state.updated).toLocaleString() : "";
+}
+
+/* "today" while the snapshot is today's close, "on Oct 6" after that */
+function sessionWord() {
+  var day = snapshotDay();
+  var today = new Date().toLocaleDateString("en-CA");      /* YYYY-MM-DD, local */
+  return !day || day === today ? "today" : "on " + dateShort(day).replace(/, \d{4}$/, "");
 }
 
 function setupScreen(reason) {
@@ -2823,8 +3370,40 @@ function repoUrl() {
 
 function wire() {
 
-  $("#btnCart").addEventListener("click", openCart);
   window.addEventListener("storage", onStorage);
+
+  Array.prototype.forEach.call(document.querySelectorAll("#tabbar [data-view]"), function (a) {
+    a.addEventListener("click", function (ev) {
+      if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button) return;   /* a new browser tab */
+      ev.preventDefault();
+      go(a.getAttribute("data-view"));
+    });
+  });
+  /* The sign-in library takes its tokens out of the address once it has
+     read them, firing popstate and hashchange as it does. That is not the
+     reader asking for the deck: the tab they are on stays, once. */
+  var fromCallback = auth.isAuthCallback();
+  function followUrl() {
+    if (fromCallback && !location.hash.slice(1)) {
+      fromCallback = false;
+      if (view !== "deck") { try { history.replaceState(null, "", "#" + view); } catch (e) {} }
+      return;
+    }
+    var v = viewInUrl();
+    if (v !== view) showView(v);
+  }
+  window.addEventListener("popstate", followUrl);
+  window.addEventListener("hashchange", followUrl);
+  $("#acctAlerts").addEventListener("click", openEarnings);
+  $("#acctStyle").addEventListener("click", openStyles);
+  $("#pickInput").addEventListener("input", renderPickList);
+  $("#pickInput").addEventListener("keydown", function (ev) {
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    var hit = findCompanies(ev.target.value)[0];
+    if (hit) setSide(pickSide, hit.t);
+  });
+  $("#acctBroker").addEventListener("click", openBroker);
 
   Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (b) {
     b.addEventListener("click", function () { closeDialog(b.closest("dialog")); });
@@ -2868,7 +3447,7 @@ function wire() {
   });
   $("#orderLiveCheck").addEventListener("change", renderReview);
   $("#btnPlace").addEventListener("click", placeOrders);
-  $("#dlgOrders").addEventListener("close", function () { if ($("#dlgCart").open) renderCart(); });
+  $("#dlgOrders").addEventListener("close", function () { if (view === "cart") renderCart(); });
 
   /* ---- brokerage ---- */
   $("#brokerEnv").addEventListener("change", function () { $("#brokerOauth").href = broker.oauthUrl(pickedEnv()); });
@@ -2891,7 +3470,7 @@ function wire() {
       if (r.ok) state.broker = r.data;
       portfolio = null;
       renderAccount(); renderBrokerPanel(); renderOrderBar();
-      if ($("#dlgCart").open) renderCart();
+      if (view === "cart") renderCart();
     });
   });
   $("#brokerRefresh").addEventListener("click", function () { brokerError(""); refreshBroker().then(loadPortfolio); });
@@ -2902,7 +3481,9 @@ function wire() {
   $("#earnNoticeClose").addEventListener("click", function () {
     try { localStorage.setItem(NOTICE_KEY, $("#earnNotice").dataset.sig || ""); } catch (e) {}
     $("#earnNotice").hidden = true;
+    fitDeck();
   });
+  window.addEventListener("resize", fitDeck);
   $("#btnIcs").addEventListener("click", cartIcs);
   $("#earnEmail").addEventListener("change", function () {
     var box = $("#earnEmail");
@@ -2944,6 +3525,7 @@ function wire() {
        on a focused button or link (Enter should press that), and never with
        a modifier (Ctrl+D is the browser's bookmark). */
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (view !== "deck") return;
     var t = ev.target;
     if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
     if (document.querySelector("dialog[open]")) return;
@@ -2973,41 +3555,52 @@ function authError(msg) {
 }
 
 function showAuthStep(which) {
-  ["authEmailStep", "authCodeStep", "authSignedIn"].forEach(function (id) {
+  ["authPendingStep", "authEmailStep", "authCodeStep", "authSignedIn"].forEach(function (id) {
     $("#" + id).hidden = id !== which;
   });
+  /* "Delete everything" is only ever offered to the person who just asked for it */
+  $("#acctDeleteConfirm").hidden = true;
   authError("");
 }
 
-function renderAuthButton() {
-  var btn = $("#btnAuth");
-  if (!auth.isConfigured()) { btn.hidden = true; return; }
-  btn.hidden = false;
-
-  /* Three states, not two. The library loads from a CDN, so for the first
-     moment of every page load we do not yet know who you are. Saying "Sign in"
-     during that gap tells an already-signed-in person they have been thrown
-     out, which is how this looked broken even when the session was fine. */
-  var label = state.user
-    ? (state.user.email || "Account").split("@")[0]
-    : state.authPending ? "Signing in…" : "Sign in";
-  $("#authLabel").textContent = label;
-  btn.classList.toggle("accent", !state.user && !state.authPending);
-  btn.classList.toggle("is-pending", !state.user && !!state.authPending);
+/* The account tab: who is signed in, or the way to sign in. Three states, not
+   two. The sign-in library loads on demand, so for the first moment of every
+   page load we do not yet know who you are. Offering a sign-in form during
+   that gap tells an already-signed-in person they have been thrown out. */
+function renderAccountTab() {
+  var on = auth.isConfigured();
+  $("#authBox").hidden = !on;
+  $("#authOff").hidden = on;
+  var st = styleById(state.style);
+  $("#acctStyleNote").textContent = st.label + (st.after ? ", after " + st.after : ", the standard score");
+  $("#acctPlan").textContent = tier.DEV_UNLIMITED ? "Not taking payment yet, so everything is open"
+    : tier.TIER_LABEL[state.tier] + (state.tier === "member" ? "" : " · see what membership adds");
+  if (!on) return;
+  $("#authTitle").textContent = state.user ? "Signed in" : "Keep your cart";
+  if (state.user) {
+    $("#authWho").textContent = state.user.email || "your account";
+    if ($("#authSignedIn").hidden) showAuthStep("authSignedIn");
+  } else if (state.authPending) {
+    showAuthStep("authPendingStep");
+  } else if (!$("#authSignedIn").hidden || !$("#authPendingStep").hidden) {
+    /* only a panel still saying "signed in" or "checking" needs to change;
+       resetting any other step would wipe a message or a half-typed code.
+       After someone signs out, the agreement and the address are the next
+       person's to give. */
+    if (!$("#authSignedIn").hidden) { $("#authAgree").checked = false; $("#authEmail").value = ""; }
+    showAuthStep("authEmailStep");
+  }
 }
 
 var startAuth = function () {};   /* set by wireAuth */
 
-function openAuth() {
+/* The tab loads the sign-in library the first time it is shown. */
+function showAccount() {
   startAuth();
-  if (state.user) {
-    $("#authWho").textContent = state.user.email || "your account";
-    showAuthStep("authSignedIn");
-  } else {
-    showAuthStep("authEmailStep");
-  }
-  openDialog($("#dlgAuth"));
+  renderAccountTab();
 }
+
+function openAuth() { go("account"); }
 
 /* One place decides the tier, and every path that could change it calls here.
    Re-rendering afterwards matters: someone who pays in another tab should see
@@ -3016,33 +3609,52 @@ function refreshTier() {
   var before = state.tier;
   if (!state.user) {
     state.tier = "anon";
-    if (before !== state.tier) { renderDeck(); renderCartCount(); }
+    if (before !== state.tier) { renderDeck(); renderCartCount(); renderAccountTab(); }
     return;
   }
   auth.getClient().then(function (client) {
     return tier.tierFor(client, state.user);
   }).then(function (t) {
     state.tier = t || "free";
-    if (state.tier !== before) { renderDeck(); renderCartCount(); }
+    if (state.tier !== before) { renderDeck(); renderCartCount(); renderAccountTab(); }
     else renderAllowance();
   });
 }
 
 function wireAuth() {
+  auth.tidyAsked();
   if (!auth.isConfigured()) return;
-
-  $("#btnAuth").addEventListener("click", openAuth);
 
   var pending = "";
   /* a sign-in that happens on this page load (a link or a code), as opposed
      to a session restored from storage */
   var fresh = auth.isAuthCallback();
+  var fromLink = fresh;
   var linkError = auth.callbackError();
+  var whoShown = false;
+
+  /* A link signed this browser in, but nobody asked for one here: say whose
+     account it is, so a link someone sent for their own account cannot
+     quietly collect what you add to the cart. */
+  function sayWho(user) {
+    if (whoShown || !fromLink || !user) return;
+    whoShown = true;                      /* checked once, shown at most once */
+    var asked = auth.linkWasAsked(user.email);
+    auth.forgetAsked();                   /* it has done its job */
+    if (asked) return;
+    /* at the top of the screen: at the bottom its Sign out would sit exactly
+       where Add to cart is, for twenty seconds */
+    $("#toast").classList.add("toast-top");
+    showToast("Signed in as " + (user.email || "an account you did not ask for") + ". Not you?",
+      "Sign out", function () { signOutAndForget().then(function () { renderAccountTab(); }); }, 20000);
+  }
 
   $("#authEmailStep").addEventListener("submit", function (e) {
     e.preventDefault();
     var email = $("#authEmail").value.trim();
     if (!email) return;
+    /* an account is created on first sign-in, so agreeing comes first, every time */
+    if (!$("#authAgree").checked) return authError("Tick the box to agree to the terms first.");
     var btn = $("#authSend");
     btn.disabled = true; btn.textContent = "Sending…";
     auth.sendCode(email).then(function (r) {
@@ -3074,17 +3686,81 @@ function wireAuth() {
     showAuthStep("authEmailStep");
   });
 
+  /* everything kept about you, as a file: the account, the saved cart and
+     alerts, and what this browser holds */
+  $("#acctExport").addEventListener("click", function () {
+    var btn = $("#acctExport");
+    btn.disabled = true; btn.textContent = "Gathering…";
+    auth.myData().then(function (r) {
+      btn.disabled = false; btn.textContent = "Download my data";
+      if (!r.ok) return authError(r.error);
+      var out = {
+        exported_at: new Date().toISOString(),
+        from: "StockOrNot (stockornot.com)",
+        stored_in_your_account: r.data,
+        stored_in_this_browser: {
+          cart: cartRecords(),
+          scoring_style: state.style,
+          companies_swiped_past: state.seen.length,
+          compare: load(CMP_KEY, null)
+        }
+      };
+      var blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "stockornot-my-data-" + new Date().toISOString().slice(0, 10) + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    });
+  });
+
+  $("#acctDelete").addEventListener("click", function () {
+    authError("");
+    $("#acctDeleteConfirm").hidden = false;
+    $("#acctDeleteKeep").focus();
+  });
+  $("#acctDeleteKeep").addEventListener("click", function () { $("#acctDeleteConfirm").hidden = true; });
+  $("#acctDeleteGo").addEventListener("click", function () {
+    var btn = $("#acctDeleteGo");
+    var owned = !!(state.user && state.cartOwner === state.user.id);
+    btn.disabled = true; btn.textContent = "Deleting…";
+    auth.deleteAccount().then(function (r) {
+      btn.disabled = false; btn.textContent = "Delete everything";
+      if (!r.ok) { $("#acctDeleteConfirm").hidden = true; return authError(r.error); }
+      /* the account's copy of the cart is gone, so this browser's goes too,
+         and the brokerage cookie with it, as on signing out */
+      clearTimeout(sync.timer); clearTimeout(sync.retryTimer);
+      broker.disconnect().then(function (b) {
+        if (b.ok) state.broker = b.data;
+        portfolio = null;
+        renderBrokerPanel(); renderOrderBar();
+      });
+      /* as on signing out: a cart that never joined the account stays */
+      if (owned) {
+        setCartOwner("");
+        setCart([]);
+        save(LS.cart, []);
+        cartChanged();
+      }
+      $("#acctDeleteConfirm").hidden = true;
+      state.user = null;
+      refreshTier();
+      renderAccountTab();
+      showToast("Your account and everything in it has been deleted.");
+    });
+  });
+
   $("#authSignOut").addEventListener("click", function () {
     var btn = $("#authSignOut");
     btn.disabled = true; btn.textContent = "Saving and signing out…";
     signOutAndForget().then(function (done) {
       btn.disabled = false; btn.textContent = "Sign out";
-      if (done) closeDialog($("#dlgAuth"));
+      if (done) renderAccountTab();
     });
   });
 
   /* The sign-in library is only loaded for someone who is signed in, is
-     arriving from a sign-in link, or opens the sign-in dialog (or signs in
+     arriving from a sign-in link, or opens the account tab (or signs in
      from another tab). Everyone else never downloads it. */
   var started = false;
   startAuth = function () {
@@ -3110,22 +3786,15 @@ function wireAuth() {
     auth.onAuthChange(function (user) {
       var same = user && state.user && state.user.id === user.id;
       state.user = user;
-      renderAuthButton();
-      setSyncNote("saved");
       state.authPending = false;
+      renderAccountTab();
+      if ($("#dlgEarnings").open) renderEmailToggle();
+      setSyncNote("saved");
       refreshTier();
       if (user) {
         auth.tidyUrl();
         /* token refreshes arrive here too; only a new person needs the check */
-        if (!same) ensureCartOwner(user, fresh);
-        if ($("#dlgAuth").open) {
-          $("#authWho").textContent = user.email || "your account";
-          showAuthStep("authSignedIn");
-        }
-      } else if ($("#dlgAuth").open && !$("#authSignedIn").hidden) {
-        /* only a dialog still saying "signed in" needs to change; resetting
-           any other step would wipe a message or a half-typed code */
-        showAuthStep("authEmailStep");
+        if (!same) { ensureCartOwner(user, fresh); sayWho(user); }
       }
     });
 
@@ -3134,9 +3803,10 @@ function wireAuth() {
       state.authPending = false;
       state.user = user;
       refreshTier();
-      renderAuthButton();
+      renderAccountTab();
+      if ($("#dlgEarnings").open) renderEmailToggle();
       auth.tidyUrl();
-      if (user && !same) ensureCartOwner(user, fresh);
+      if (user && !same) { ensureCartOwner(user, fresh); sayWho(user); }
       if (!user && linkError) {
         openAuth();
         showAuthStep("authEmailStep");
@@ -3156,11 +3826,12 @@ function init() {
   }
   /* Decided synchronously, before any network call: either a session is already
      in storage or this page load is the return leg of a sign-in link. Either
-     way somebody is signed in, and the header should not claim otherwise. */
+     way somebody is signed in, and the account tab should not claim otherwise. */
   state.authPending = auth.isConfigured() && (auth.hasStoredSession() || auth.isAuthCallback());
   wireAuth();
-  renderAuthButton();
+  renderAccountTab();
   renderCartCount();
+  showView(viewInUrl());
   showMessage("Loading the S&P 500…", "Pulling the latest snapshot.", []);
 
   loadSnapshot()
@@ -3187,7 +3858,17 @@ function init() {
 
       renderDeck();
       renderEarnNotice();
+      /* a tab opened before the prices arrived is drawn again with them */
+      if (view === "cart") renderCart();
+      else if (view === "compare") renderCompare();
       brokerReturn();
+
+      /* "Turn them off" in an alert email lands here: open the alert settings
+         straight away (signing in first, if need be, is part of that dialog) */
+      if (new URLSearchParams(location.search).get("alerts") === "off") {
+        history.replaceState(null, "", location.pathname);
+        openEarnings();
+      }
     });
 }
 

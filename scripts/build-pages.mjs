@@ -39,6 +39,10 @@ async function readJSON(p) {
   try { return JSON.parse(await fs.readFile(p, "utf8")); } catch { return null; }
 }
 
+/* JSON inside a <script> element: a "</script>" in any string (a company
+   name, a ticker from upstream) would otherwise end the element early. */
+const ldJson = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
+
 /* ------------------------------------------------------------- fragments */
 
 function head(title, description, canonical, extra = "") {
@@ -93,6 +97,7 @@ const foot = (updated) => `</main>
     <a href="/method">How the score works</a>
     <a href="/pricing">Pricing</a>
     <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
   </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
   <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
@@ -177,8 +182,8 @@ function companyPage(s, filing, deep, siblings, updated, session) {
   };
 
   const extra =
-    `<script type="application/ld+json">${JSON.stringify(jsonld)}</script>\n` +
-    `<script type="application/ld+json">${JSON.stringify(breadcrumb)}</script>`;
+    `<script type="application/ld+json">${ldJson(jsonld)}</script>\n` +
+    `<script type="application/ld+json">${ldJson(breadcrumb)}</script>`;
 
   const dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
   const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "–";
@@ -423,6 +428,7 @@ async function main() {
     { loc: `${SITE}/track`, pri: "0.6", freq: "weekly" },
     { loc: `${SITE}/pricing`, pri: "0.6", freq: "monthly" },
     { loc: `${SITE}/privacy`, pri: "0.3", freq: "yearly" },
+    { loc: `${SITE}/terms`, pri: "0.3", freq: "yearly" },
     ...snap.stocks.map((s) => ({ loc: `${SITE}/stock/${slug(s.t)}`, pri: "0.7", freq: "daily" }))
   ];
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
@@ -434,7 +440,49 @@ ${urls.map((u) => `  <url><loc>${u.loc}</loc><lastmod>${today}</lastmod><changef
   await fs.writeFile(path.join(ROOT, "robots.txt"),
     `User-agent: *\nAllow: /\n\nSitemap: ${SITE}/sitemap.xml\n`);
 
-  console.log(`Built ${written} company pages + index, the track record, sitemap with ${urls.length} URLs.`);
+  const published = await assemblePublic();
+  console.log(`Built ${written} company pages + index, the track record, sitemap with ${urls.length} URLs; ` +
+    `${published} files published in public/.`);
+}
+
+/* ------------------------------------------------------- what is published
+
+   Vercel serves the folder vercel.json names as outputDirectory, and only
+   that folder. It used to be the whole repository, which put the project's
+   notes, its scripts and the database schema on the open web beside the
+   site. Now it is public/, assembled here from this list and nothing else:
+   a file the site does not need cannot be published by accident. The
+   functions under api/ are deployed from the repository as before. */
+const PUBLIC_FILES = [
+  "index.html", "404.html", "method.html", "pricing.html", "privacy.html", "terms.html", "track.html",
+  "app.js", "pricing.js", "styles.css", "sw.js", "manifest.webmanifest",
+  "favicon.svg", "apple-touch-icon.png", "og.png", "sitemap.xml", "robots.txt",
+  "data/snapshot.json"
+];
+const PUBLIC_DIRS = ["stock", "lib", "fonts", "icons", "data/detail", "data/filings"];
+/* copied when they exist: the track record starts on the first nightly run */
+const PUBLIC_IF_ANY = ["data/track.json"];
+
+async function assemblePublic() {
+  const out = path.join(ROOT, "public");
+  await fs.rm(out, { recursive: true, force: true });
+  for (const f of PUBLIC_FILES) {
+    await fs.mkdir(path.dirname(path.join(out, f)), { recursive: true });
+    await fs.copyFile(path.join(ROOT, f), path.join(out, f));
+  }
+  for (const d of PUBLIC_DIRS) await fs.cp(path.join(ROOT, d), path.join(out, d), { recursive: true });
+  for (const f of PUBLIC_IF_ANY) {
+    try { await fs.copyFile(path.join(ROOT, f), path.join(out, f)); }
+    catch (err) { if (err.code !== "ENOENT") throw err; }
+  }
+  let n = 0;
+  const count = async (dir) => {
+    for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) await count(path.join(dir, e.name)); else n++;
+    }
+  };
+  await count(out);
+  return n;
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

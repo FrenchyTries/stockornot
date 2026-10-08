@@ -90,8 +90,8 @@ async function phoneShots(browser) {
   await page.screenshot({ path: path.join(RAW, "03-books.png") });
 
   await card("NVDA");
-  await page.click("#btnCart");
-  await page.waitForSelector("#dlgCart[open]");
+  await page.click('#tabbar [data-view="cart"]');
+  await page.waitForSelector("#viewCart:not([hidden])");
   await settle(page);
   await page.screenshot({ path: path.join(RAW, "04-cart.png") });
   await ctx.close();

@@ -45,13 +45,18 @@ export function query(req) {
 }
 
 export function parseCookies(req) {
-  const out = {};
+  const out = Object.create(null);
   for (const part of String(req.headers.cookie || "").split(/;\s*/)) {
     const i = part.indexOf("=");
     if (i <= 0) continue;
+    const name = part.slice(0, i);
+    /* The first of a name wins. Browsers send the cookie set for the most
+       specific path first, which is ours (Path=/api); a second one with the
+       same name planted at Path=/ must not override it. */
+    if (name in out) continue;
     /* Every cookie on the domain arrives here, not only ours. One with a
        stray "%" in it must not take the whole function down. */
-    try { out[part.slice(0, i)] = decodeURIComponent(part.slice(i + 1)); } catch { /* not ours */ }
+    try { out[name] = decodeURIComponent(part.slice(i + 1)); } catch { /* not ours */ }
   }
   return out;
 }

@@ -43,6 +43,8 @@ const KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND = process.env.RESEND_API_KEY;
 const FROM  = process.env.ALERT_FROM || "StockOrNot <alerts@stockornot.com>";
 const SITE  = (process.env.SITE_ORIGIN || "https://stockornot.com").replace(/\/+$/, "");
+/* where "unsubscribe" replies go: the address the privacy page gives */
+const UNSUBSCRIBE = "hello@stockornot.com";
 const DRY   = process.env.DRY_RUN === "1";
 const RESEND_URL = process.env.RESEND_URL || "https://api.resend.com/emails";   /* overridable for tests */
 
@@ -128,7 +130,7 @@ function compose(due, details, days) {
       `  ${SITE}/stock/${slug(r.u.t)}`, ""
     ]),
     "You are getting this because earnings alerts are on for your StockOrNot cart.",
-    `Turn them off under Cart > Earnings dates at ${SITE}.`,
+    `Turn them off: ${SITE}/?alerts=off (or reply with "unsubscribe").`,
     "Not investment advice."
   ].join("\n");
 
@@ -147,32 +149,42 @@ ${rows.map((r) => `<div style="border-top:1px solid #e4e2dc;padding:14px 0">
   <p style="margin:10px 0 0;font-size:14px"><a href="${SITE}/?t=${encodeURIComponent(r.u.t)}" style="color:#1a4f8a">Open the card</a></p>
 </div>`).join("")}
 <p style="margin:14px 0 0;font-size:12px;color:#78756a;border-top:1px solid #e4e2dc;padding-top:12px">
-You are getting this because earnings alerts are on for your cart. Turn them off under Cart &rsaquo; Earnings dates at
-<a href="${SITE}" style="color:#78756a">${esc(SITE.replace(/^https?:\/\//, ""))}</a>. Not investment advice.</p>
+You are getting this because earnings alerts are on for your cart.
+<a href="${SITE}/?alerts=off" style="color:#78756a">Turn them off</a>, or reply with "unsubscribe". Not investment advice.</p>
 </div></body></html>`;
 
   return { subject, text, html };
 }
 
+/* "sent"; "failed", when Resend answered no and nothing went out; or
+   "unknown", when the request timed out or Resend failed on its side, so the
+   email may have gone. Only "failed" may be retried tomorrow: retrying an
+   unknown could email the same report twice. */
 async function send(to, mail) {
   if (DRY) {
     console.log(`\n--- would send to ${to} ---\nSubject: ${mail.subject}\n\n${mail.text}\n`);
-    return true;
+    return "sent";
   }
   let res;
   try {
     res = await fetch(RESEND_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to: [to], subject: mail.subject, html: mail.html, text: mail.text }),
+      /* replies, "unsubscribe" ones included, reach the inbox the email names;
+         the standard header mail apps turn into an "Unsubscribe" button */
+      body: JSON.stringify({ from: FROM, to: [to], reply_to: UNSUBSCRIBE, subject: mail.subject, html: mail.html, text: mail.text,
+        headers: { "List-Unsubscribe": `<mailto:${UNSUBSCRIBE}?subject=unsubscribe>, <${SITE}/?alerts=off>` } }),
       signal: AbortSignal.timeout(20000)
     });
   } catch (err) {
-    console.warn(`  ! send to user failed: ${err.message}`);
-    return false;
+    console.warn(`  ! send to user, outcome unknown: ${err.message}`);
+    return "unknown";
   }
-  if (!res.ok) { console.warn(`  ! send to user failed: HTTP ${res.status} ${await res.text()}`); return false; }
-  return true;
+  if (!res.ok) {
+    console.warn(`  ! send to user failed: HTTP ${res.status} ${await res.text()}`);
+    return res.status >= 500 ? "unknown" : "failed";
+  }
+  return "sent";
 }
 
 /* ----------------------------------------------------------------- main */
@@ -232,14 +244,19 @@ async function main() {
       due = due.filter((u) => mine.has(`${u.t}|${u.date}`));
       if (!due.length) continue;
 
-      if (await send(to, compose(due, details, days))) {
+      const outcome = await send(to, compose(due, details, days));
+      if (outcome === "sent") {
         sent++; companies += due.length;
       } else {
         failed++;
-        /* not sent: release the claim so tomorrow's run tries again */
-        await Promise.all(due.map((u) => rest(
-          `alert_log?user_id=eq.${p.user_id}&ticker=eq.${encodeURIComponent(u.t)}&report_date=eq.${u.date}`,
-          { method: "DELETE" }).catch(() => null)));
+        /* refused, so nothing went out: release the claim and tomorrow's run
+           tries again. If it may have gone, the claim stays: a missed alert
+           is better than the same one twice. */
+        if (outcome === "failed") {
+          await Promise.all(due.map((u) => rest(
+            `alert_log?user_id=eq.${p.user_id}&ticker=eq.${encodeURIComponent(u.t)}&report_date=eq.${u.date}`,
+            { method: "DELETE" }).catch(() => null)));
+        }
       }
     } catch (err) {
       failed++;

@@ -37,6 +37,7 @@ function describe(conn) {
     oauth: alpaca.oauthConfigured(),
     liveAllowed: alpaca.liveAllowed(),
     maxLiveOrder: alpaca.liveAllowed() ? alpaca.maxLiveOrder() : null,
+    maxLiveBatch: alpaca.liveAllowed() ? alpaca.maxLiveBatch() : null,
     connected: Boolean(conn),
     env: conn?.env || null,
     via: conn?.via || null
@@ -123,15 +124,26 @@ export default async function handler(req, res) {
         return send(res, 400, { error: "Live orders need the real-money box ticked." });
       }
 
+      const built = list.map((raw) => alpaca.buildOrder(raw, conn.env));
+      /* Real money: the whole batch together stays under its own cap, so one
+         request cannot multiply the per-order cap by the number of orders. */
+      if (conn.env === "live") {
+        const total = built.reduce((sum, b) => sum + (b.cost || 0), 0);
+        const cap = alpaca.maxLiveBatch();
+        if (total > cap) {
+          return send(res, 400, { error: `Live orders on this site are capped at $${cap.toLocaleString("en-US")} a batch. This one comes to $${Math.round(total).toLocaleString("en-US")}.` });
+        }
+      }
+
       /* Sequential on purpose: the brokerage checks buying power per order,
          and firing them in parallel makes which ones fail a race. */
       const results = [];
-      for (const raw of list) {
-        const built = alpaca.buildOrder(raw, conn.env);
+      for (let i = 0; i < list.length; i++) {
+        const raw = list[i], b = built[i];
         const symbol = String(raw?.symbol || "").toUpperCase();
-        if (built.error) { results.push({ symbol, ok: false, error: built.error }); continue; }
+        if (b.error) { results.push({ symbol, ok: false, error: b.error }); continue; }
         try {
-          const placed = await alpaca.placeOrder(conn, built.order);
+          const placed = await alpaca.placeOrder(conn, b.order);
           results.push({ symbol, ok: true, order: placed, duplicate: Boolean(placed.duplicate) });
         } catch (err) {
           results.push({ symbol, ok: false, error: err.message });

@@ -33,10 +33,13 @@ conflict, say so and ask; don't quietly break the rule.
 7. **Never turn on GitHub Pages**, for any repository. The sites are hosted on
    Vercel and nowhere else. A second, auto-generated copy of 500 finance pages
    on github.io looks like an SEO content farm.
-8. **Never commit build output.** `stock/`, `sitemap.xml` and `robots.txt` are
-   built by Vercel on every deploy (`buildCommand` and `outputDirectory` in
-   `vercel.json`) and are in `.gitignore`. Don't take them out of `.gitignore`
-   or "fix" a missing page by committing it.
+8. **Never commit build output.** `stock/`, `track.html`, `sitemap.xml`,
+   `robots.txt` and `public/` are built by Vercel on every deploy
+   (`buildCommand` and `outputDirectory` in `vercel.json`) and are in
+   `.gitignore`. Don't take them out of `.gitignore` or "fix" a missing page by
+   committing it. Only what `scripts/build-pages.mjs` copies into `public/` is
+   published; add a new public file to that list, never publish the whole
+   repository.
 9. **No encoded or compressed payloads**: no base64 blobs, no embedded
    archives, no script that unpacks something and runs it. Installers copy
    plain, readable files.

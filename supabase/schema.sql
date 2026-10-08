@@ -93,8 +93,8 @@ create index if not exists subscriptions_status_idx on public.subscriptions (sta
 -- means "email me days_before days ahead of anything in my cart reporting".
 --
 -- alert_log: what has already been sent, so each company is emailed once per
--- report date. Written and read only by the nightly job with the service_role
--- key; no policy exists for ordinary users, so the browser cannot touch it.
+-- report date. Written only by the nightly job with the service_role key;
+-- each person may read their own rows (for Download my data), never write them.
 -- ===========================================================================
 
 create table if not exists public.alert_prefs (
@@ -126,11 +126,48 @@ create table if not exists public.alert_log (
 );
 
 alter table public.alert_log enable row level security;
--- deliberately no policies: service_role only
+-- Only the service role writes it. Each person may read their own rows, so
+-- "Download my data" in the app holds everything kept about them.
+drop policy if exists "read own alert log" on public.alert_log;
+create policy "read own alert log" on public.alert_log for select using (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------------------
 -- Check: both tables have rowsecurity = true; alert_prefs has four policies,
--- alert_log has none.
+-- alert_log has one (read own).
 -- ---------------------------------------------------------------------------
 -- select relname, relrowsecurity from pg_class where relname in ('alert_prefs', 'alert_log');
 -- select tablename, policyname, cmd from pg_policies where tablename in ('alert_prefs', 'alert_log');
+
+-- -------------------------------------------------------------------------
+-- Belt and braces. Row Level Security already gives signed-in users no way to
+-- write their own membership or the alert log. These also take away the
+-- privilege underneath, so switching RLS off by mistake in the dashboard
+-- still could not let anyone mark themselves a member. Only the service role
+-- (the nightly job, and a future payment webhook) writes these tables.
+revoke insert, update, delete on public.subscriptions from anon, authenticated;
+revoke insert, update, delete on public.alert_log from anon, authenticated;
+
+-- -------------------------------------------------------------------------
+-- Delete my account, from the app (Apple requires it of any app with sign-in).
+-- The function runs with the owner's rights but can only ever delete the
+-- person calling it: auth.uid() is the signed-in user, and nothing else is
+-- taken as input. Every table above refers to auth.users with "on delete
+-- cascade", so the cart, alert settings, alert log and membership row go with
+-- the account. Once membership takes payment, cancel the payment provider's
+-- subscription before this runs.
+create or replace function public.delete_my_account()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not signed in';
+  end if;
+  delete from auth.users where id = auth.uid();
+end;
+$$;
+
+revoke all on function public.delete_my_account() from public, anon;
+grant execute on function public.delete_my_account() to authenticated;

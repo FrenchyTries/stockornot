@@ -39,21 +39,11 @@
     <span>Stock<b>OrNot</b></span>
   </div>
 
+  <!-- on every tab: what this is not. The prices' date joins it only if it goes stale. -->
   <div class="topmeta">
-    <span id="dataAge">loading…</span>
+    <span class="stale" id="dataAge" hidden></span>
+    <a class="advice" href="/terms">Not investment advice</a>
     <span class="allowance" id="allowance" hidden></span>
-  </div>
-
-  <div class="topbar-actions">
-    <button type="button" class="ghost-btn" id="btnAuth" aria-haspopup="dialog" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      <span id="authLabel">Sign in</span>
-    </button>
-    <button type="button" class="ghost-btn accent" id="btnCart" aria-haspopup="dialog">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.2 10.4a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 2-1.6L20.5 8H6"/><circle cx="10" cy="20" r="1.2"/><circle cx="17" cy="20" r="1.2"/></svg>
-      <span>Cart</span>
-      <span class="pill" id="cartCount">0</span>
-    </button>
   </div>
 </header>
 
@@ -67,7 +57,7 @@
 </div>
 
 <main>
-  <section class="stage" id="deck" aria-label="Company deck">
+  <section class="stage view" id="deck" aria-label="Company deck">
     <div class="deck-wrap">
 
       <div class="deck" id="deckEl">
@@ -97,7 +87,219 @@
 
     </div>
   </section>
+
+  <!-- ============================ COMPARE ============================ -->
+  <section class="view page" id="viewCompare" aria-labelledby="compareTitle" hidden>
+    <header class="page-head">
+      <h1 id="compareTitle" tabindex="-1">Compare</h1>
+      <span class="head-note">Two companies, head to head</span>
+    </header>
+
+    <p class="block-note first">Tap either company to swap it. On each row the stronger figure is in blue.</p>
+    <div id="cmpStyle"></div>
+
+    <div class="cmp-body" id="cmpBody"></div>
+    <p class="block-note">Not investment advice. The score describes the latest filings; it does not predict the price.</p>
+  </section>
+
+  <!-- ============================ CART ============================ -->
+  <section class="view page" id="viewCart" aria-labelledby="cartTitle" hidden>
+    <header class="page-head">
+      <h1 id="cartTitle" tabindex="-1">Your cart</h1>
+      <span class="head-note" id="cartSummary"></span>
+      <span class="sync-note" id="cartSync" hidden></span>
+    </header>
+
+    <section class="broker-panel" id="brokerPanel" aria-live="polite"></section>
+
+    <p class="empty-note" id="cartEmpty" hidden>
+      Nothing in here yet. Swipe right on a company and it lands in this list at the
+      price you saw, so you can come back and see what it did next.
+    </p>
+
+    <div class="cart-list" id="cartList"></div>
+
+    <div class="order-bar" id="orderBar" hidden>
+      <div class="ob-total">
+        <span class="ob-label">Planned</span>
+        <b id="obTotal">$0</b>
+        <span class="ob-bp" id="obBp"></span>
+      </div>
+      <form class="ob-split" id="obSplit">
+        <label for="obSplitAmt">Split</label>
+        <span class="money-in"><span aria-hidden="true">$</span><input id="obSplitAmt" type="number" inputmode="decimal" min="1" step="1" placeholder="1000"></span>
+        <button type="submit" class="ghost-btn">evenly</button>
+      </form>
+      <button type="button" class="primary-btn" id="btnReview" disabled>Review orders</button>
+    </div>
+
+    <div class="sheet-foot" id="cartFoot" hidden>
+      <button type="button" class="ghost-btn" id="btnEarnings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+        <span>Earnings dates</span>
+      </button>
+      <button type="button" class="ghost-btn" id="btnExport">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>
+        <span>Export CSV</span>
+      </button>
+      <button type="button" class="link-btn danger" id="btnClearCart">Empty the cart</button>
+    </div>
+  </section>
+
+  <!-- ============================ TRACK RECORD ============================ -->
+  <section class="view page" id="viewTrack" aria-labelledby="trackTitle" hidden>
+    <header class="page-head">
+      <h1 id="trackTitle" tabindex="-1">Track record</h1>
+      <span class="head-note" id="trackNote"></span>
+    </header>
+    <p class="page-lead">
+      Every week the top fifth of the S&amp;P 500 by score and the bottom fifth are written down
+      with that day's prices, then followed beside the whole index. It only moves forward:
+      nothing here is a backtest, and nothing can be tuned after the fact.
+    </p>
+    <div id="trackBody"><p class="block-note">Loading…</p></div>
+    <p class="block-note">Picked by the Balanced score, whatever style you have chosen. Price only,
+      equal weight, without dividends or trading costs. <a href="/track">How it is counted</a></p>
+  </section>
+
+  <!-- ============================ ACCOUNT ============================ -->
+  <section class="view page narrow" id="viewAccount" aria-labelledby="accountTitle" hidden>
+    <header class="page-head">
+      <h1 id="accountTitle" tabindex="-1">Account</h1>
+    </header>
+
+    <div class="panel" id="authBox">
+      <h2 class="panel-h" id="authTitle">Keep your cart</h2>
+
+      <!-- still finding out: a session in storage, or a sign-in link arriving -->
+      <p class="auth-blurb" id="authPendingStep" hidden>Checking your sign-in…</p>
+
+      <!-- signed out: step 1, ask for the email -->
+      <form class="auth-step" id="authEmailStep">
+        <p class="auth-blurb">
+          Your cart lives in this browser right now, so it disappears if you switch
+          devices or clear your history. Sign in and it follows you.
+        </p>
+        <label class="auth-label" for="authEmail">Email address</label>
+        <input class="auth-input" type="email" id="authEmail" name="email"
+               autocomplete="email" inputmode="email" required placeholder="you@example.com">
+        <label class="switch auth-agree">
+          <input type="checkbox" id="authAgree" required>
+          <span>I agree to the <a href="/terms" target="_blank" rel="noopener">terms</a> and have read the
+          <a href="/privacy" target="_blank" rel="noopener">privacy policy</a>. StockOrNot is not investment advice.</span>
+        </label>
+        <button type="submit" class="primary-btn wide" id="authSend">Email me a sign-in link</button>
+        <p class="auth-fine">
+          No password to make up or forget. We use your
+          address to save your cart and nothing else without asking.
+        </p>
+      </form>
+
+      <!-- signed out: step 2, the code -->
+      <form class="auth-step" id="authCodeStep" hidden>
+        <p class="auth-blurb">
+          Check <b id="authSentTo"></b>. Click the sign-in link in the email and you're
+          done. It expires in a few minutes.
+        </p>
+        <p class="auth-or"><span>or, if the email gave you a code</span></p>
+        <label class="auth-label" for="authCode">Six-digit code</label>
+        <input class="auth-input code" type="text" id="authCode" name="code"
+               inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*"
+               maxlength="6" placeholder="000000">
+        <button type="submit" class="primary-btn wide" id="authVerify">Sign in with the code</button>
+        <button type="button" class="link-btn" id="authBack">Use a different address</button>
+      </form>
+
+      <!-- signed in -->
+      <div class="auth-step" id="authSignedIn" hidden>
+        <p class="auth-blurb">
+          Signed in as <b id="authWho"></b>. Your cart saves automatically and will be
+          here on any device you sign in from. Signing out saves it one last time,
+          then clears it from this browser.
+        </p>
+        <button type="button" class="ghost-btn wide" id="authSignOut">Sign out</button>
+        <div class="acct-data">
+          <button type="button" class="link-btn" id="acctExport">Download my data</button>
+          <button type="button" class="link-btn danger" id="acctDelete">Delete my account</button>
+        </div>
+        <!-- deleting is asked twice: it cannot be undone -->
+        <div class="acct-confirm" id="acctDeleteConfirm" hidden>
+          <p class="auth-blurb">
+            This deletes your account for good: the email address, the saved cart with its notes and
+            amounts, and your alert settings. It cannot be undone. A brokerage account at Alpaca is
+            not touched; this browser just disconnects from it.
+          </p>
+          <button type="button" class="danger-btn wide" id="acctDeleteGo">Delete everything</button>
+          <button type="button" class="ghost-btn wide" id="acctDeleteKeep">Keep my account</button>
+        </div>
+      </div>
+
+      <p class="auth-error" id="authError" role="alert" hidden></p>
+    </div>
+    <p class="auth-blurb" id="authOff" hidden>
+      Accounts are not set up on this copy of the site, so the cart stays in this browser.
+    </p>
+
+    <div class="row-list">
+      <button type="button" class="row-link" id="acctStyle" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+        <span><b>Scoring style</b><small id="acctStyleNote">Balanced, the standard score</small></span>
+      </button>
+      <button type="button" class="row-link" id="acctAlerts">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span><b>Earnings alerts</b><small>An email a week before anything in your cart reports</small></span>
+      </button>
+      <button type="button" class="row-link" id="acctBroker">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16M6 10v8M10 10v8M14 10v8M18 10v8M3 20h18M12 3l9 5H3z"/></svg>
+        <span><b>Brokerage</b><small id="acctBrokerNote">Connect Alpaca to place the cart's orders</small></span>
+      </button>
+      <a class="row-link" href="/pricing">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18M7 15h4"/></svg>
+        <span><b>Membership</b><small id="acctPlan">See what it includes</small></span>
+      </a>
+    </div>
+
+    <h2 class="block-h row-list-h">About</h2>
+    <div class="row-list">
+      <a class="row-link" href="/method"><span><b>How the score works</b></span></a>
+      <a class="row-link" href="/stock"><span><b>Every company</b></span></a>
+      <a class="row-link" href="/privacy"><span><b>Privacy</b></span></a>
+      <a class="row-link" href="/terms"><span><b>Terms</b></span></a>
+    </div>
+    <p class="block-note acct-fine">
+      <b>Not investment advice.</b> Every figure here comes from
+      <a href="https://finnhub.io" target="_blank" rel="noopener">Finnhub</a> or the company's own
+      <a href="https://www.sec.gov/edgar" target="_blank" rel="noopener">SEC filings</a>
+      and may be stale, mis-parsed or wrong. Read the actual 10-K before you buy anything.
+    </p>
+  </section>
 </main>
+
+<!-- The five tabs: a bar along the bottom on phones, in the header on a wide
+     screen. Each is a link, so Back and a shared link land on the same tab. -->
+<nav class="tabbar" id="tabbar" aria-label="Sections">
+  <a class="tab" href="#track" data-view="track">
+    <span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg></span>
+    <span class="tab-label">Track</span>
+  </a>
+  <a class="tab" href="#compare" data-view="compare">
+    <span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="7" height="16" rx="1.8"/><rect x="13.5" y="4" width="7" height="16" rx="1.8"/></svg></span>
+    <span class="tab-label">Compare</span>
+  </a>
+  <a class="tab" href="#deck" data-view="deck" aria-current="page">
+    <span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="7" width="15" height="13.5" rx="2.5"/><path d="M7.5 4h9"/></svg></span>
+    <span class="tab-label">Deck</span>
+  </a>
+  <a class="tab" href="#cart" data-view="cart" id="tabCart">
+    <span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.2 10.4a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 2-1.6L20.5 8H6"/><circle cx="10" cy="20" r="1.2"/><circle cx="17" cy="20" r="1.2"/></svg></span>
+    <span class="tab-label">Cart</span>
+    <span class="tab-badge" id="cartCount" hidden>0</span>
+  </a>
+  <a class="tab" href="#account" data-view="account">
+    <span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+    <span class="tab-label">Account</span>
+  </a>
+</nav>
 
 <!-- ============================ DETAIL ============================ -->
 <dialog class="sheet full" id="dlgDetail" aria-labelledby="detailTitle">
@@ -133,113 +335,7 @@
   </div>
 </dialog>
 
-<!-- ============================ CART ============================ -->
-<dialog class="sheet wide" id="dlgCart" aria-labelledby="cartTitle">
-  <div class="sheet-inner">
-    <header class="sheet-head">
-      <h2 id="cartTitle">Your cart</h2>
-      <span class="head-note" id="cartSummary"></span>
-      <span class="sync-note" id="cartSync" hidden></span>
-      <button type="button" class="icon-btn" data-close aria-label="Close cart">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-    </header>
 
-    <div class="sheet-body">
-      <section class="broker-panel" id="brokerPanel" aria-live="polite"></section>
-
-      <p class="empty-note" id="cartEmpty" hidden>
-        Nothing in here yet. Swipe right on a company and it lands in this list at the
-        price you saw, so you can come back and see what it did next.
-      </p>
-
-      <div class="cart-list" id="cartList"></div>
-
-      <div class="order-bar" id="orderBar" hidden>
-        <div class="ob-total">
-          <span class="ob-label">Planned</span>
-          <b id="obTotal">$0</b>
-          <span class="ob-bp" id="obBp"></span>
-        </div>
-        <form class="ob-split" id="obSplit">
-          <label for="obSplitAmt">Split</label>
-          <span class="money-in"><span aria-hidden="true">$</span><input id="obSplitAmt" type="number" inputmode="decimal" min="1" step="1" placeholder="1000"></span>
-          <button type="submit" class="ghost-btn">evenly</button>
-        </form>
-        <button type="button" class="primary-btn" id="btnReview" disabled>Review orders</button>
-      </div>
-
-      <div class="sheet-foot" id="cartFoot" hidden>
-        <button type="button" class="ghost-btn" id="btnEarnings">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
-          <span>Earnings dates</span>
-        </button>
-        <button type="button" class="ghost-btn" id="btnExport">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>
-          <span>Export CSV</span>
-        </button>
-        <button type="button" class="link-btn danger" id="btnClearCart">Empty the cart</button>
-      </div>
-    </div>
-  </div>
-</dialog>
-
-<!-- ============================ ACCOUNT ============================ -->
-<dialog class="sheet" id="dlgAuth" aria-labelledby="authTitle">
-  <div class="sheet-inner">
-    <header class="sheet-head">
-      <h2 id="authTitle">Keep your cart</h2>
-      <button type="button" class="icon-btn" data-close aria-label="Close">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-    </header>
-
-    <div class="sheet-body">
-      <!-- signed out: step 1, ask for the email -->
-      <form class="auth-step" id="authEmailStep">
-        <p class="auth-blurb">
-          Your cart lives in this browser right now, so it disappears if you switch
-          devices or clear your history. Sign in and it follows you.
-        </p>
-        <label class="auth-label" for="authEmail">Email address</label>
-        <input class="auth-input" type="email" id="authEmail" name="email"
-               autocomplete="email" inputmode="email" required placeholder="you@example.com">
-        <button type="submit" class="primary-btn wide" id="authSend">Email me a sign-in link</button>
-        <p class="auth-fine">
-          No password to make up or forget. We use your
-          address to save your cart and nothing else without asking.
-        </p>
-      </form>
-
-      <!-- signed out: step 2, the code -->
-      <form class="auth-step" id="authCodeStep" hidden>
-        <p class="auth-blurb">
-          Check <b id="authSentTo"></b>. Click the sign-in link in the email and you're
-          done, and you can close this. It expires in a few minutes.
-        </p>
-        <p class="auth-or"><span>or, if the email gave you a code</span></p>
-        <label class="auth-label" for="authCode">Six-digit code</label>
-        <input class="auth-input code" type="text" id="authCode" name="code"
-               inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*"
-               maxlength="6" placeholder="000000">
-        <button type="submit" class="primary-btn wide" id="authVerify">Sign in with the code</button>
-        <button type="button" class="link-btn" id="authBack">Use a different address</button>
-      </form>
-
-      <!-- signed in -->
-      <div class="auth-step" id="authSignedIn" hidden>
-        <p class="auth-blurb">
-          Signed in as <b id="authWho"></b>. Your cart saves automatically and will be
-          here on any device you sign in from. Signing out saves it one last time,
-          then clears it from this browser.
-        </p>
-        <button type="button" class="ghost-btn wide" id="authSignOut">Sign out</button>
-      </div>
-
-      <p class="auth-error" id="authError" role="alert" hidden></p>
-    </div>
-  </div>
-</dialog>
 
 <!-- signing in with a cart this account does not have yet -->
 <dialog class="sheet" id="dlgOwner" aria-labelledby="ownerTitle">
@@ -363,6 +459,50 @@
   </div>
 </dialog>
 
+<!-- ============================ COMPARE: SWAP A SIDE ============================ -->
+<dialog class="sheet" id="dlgPick" aria-labelledby="pickTitle">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="pickTitle">Swap</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <label class="sr-only" for="pickInput">Find a company by ticker or name</label>
+      <input type="search" id="pickInput" class="pick-input" placeholder="Ticker or name" autocomplete="off"
+             spellcheck="false" autocapitalize="characters" enterkeyhint="go">
+      <p class="block-note" id="pickMsg" role="status"></p>
+      <div class="pick-list" id="pickList"></div>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================ SCORING STYLE ============================ -->
+<dialog class="sheet" id="dlgStyle" aria-labelledby="styleTitle">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="styleTitle">Scoring style</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <p class="auth-blurb">
+        The same five factors, weighted the way different investors have said matters. The score
+        is still a place among the S&amp;P 500, ranked under the style you pick.
+      </p>
+      <fieldset class="style-list" id="styleList"><legend class="sr-only">Scoring style</legend></fieldset>
+      <button type="button" class="primary-btn wide" data-close>Done</button>
+      <p class="auth-fine style-fine">
+        Each style is our reading of what that investor has published. None of them is affiliated
+        with StockOrNot or has endorsed it, and none of this is how they invest today. The track
+        record and the company pages use Balanced. Not investment advice.
+      </p>
+    </div>
+  </div>
+</dialog>
+
 <!-- ============================ EARNINGS ============================ -->
 <dialog class="sheet wide" id="dlgEarnings" aria-labelledby="earnTitle">
   <div class="sheet-inner">
@@ -395,21 +535,6 @@
   </div>
 </dialog>
 
-<footer class="sitefoot">
-  <p class="foot-age" id="footAge"></p>
-  <nav class="foot-nav" aria-label="Footer">
-    <a href="/stock">Companies</a>
-    <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
-    <a href="/privacy">Privacy</a>
-  </nav>
-  <p>
-    <b>Not investment advice.</b> Every figure here comes from
-    <a href="https://finnhub.io" target="_blank" rel="noopener">Finnhub</a> or the company's own
-    <a href="https://www.sec.gov/edgar" target="_blank" rel="noopener">SEC filings</a>
-    and may be stale, mis-parsed or wrong. Read the actual 10-K before you buy anything.
-  </p>
-</footer>
 
 <!-- a short confirmation with a way back; app.js moves it into an open dialog -->
 <div class="toast" id="toast" role="status" aria-live="polite" hidden>

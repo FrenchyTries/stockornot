@@ -6,14 +6,15 @@
    page, today's scripts and today's prices, exactly as without this file.
    Only when the network fails does it answer from what it kept.
 
-   It keeps only what the deck needs to open: the page, its styles, scripts
-   and font, and the snapshot. Company pages, charts, news and the brokerage
-   are never kept, and nothing from another site is touched.
+   It keeps only what the app needs to open: the page, its styles, scripts
+   and font, the snapshot and the track record. Company pages, charts, news
+   and the brokerage are never kept, and nothing from another site is touched.
    ========================================================================== */
 
 const CACHE = "stockornot-v1";
 const SHELL = ["/", "/styles.css", "/app.js", "/favicon.svg", "/fonts/inter-var.woff2", "/data/snapshot.json"];
-const KEEP = (path) => SHELL.includes(path) || path.startsWith("/lib/");
+/* the track record too, once it exists; it is not in SHELL, which must all load */
+const KEEP = (path) => SHELL.includes(path) || path.startsWith("/lib/") || path === "/data/track.json";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
