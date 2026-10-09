@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-10-08T00:33:26.152Z",
-  "snapshotUpdated": "2026-10-08T00:33:25.939Z",
+  "ranAt": "2026-10-09T00:35:10.148Z",
+  "snapshotUpdated": "2026-10-09T00:35:09.824Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -79,7 +79,7 @@
     {
       "level": "warn",
       "code": "filings-missing",
-      "msg": "32 companies have no filings.",
+      "msg": "35 companies have no filings.",
       "tickers": [
         "AOS",
         "AES",
@@ -107,7 +107,7 @@
         "MS",
         "NRG"
       ],
-      "count": 32
+      "count": 35
     },
     {
       "level": "warn",
@@ -142,11 +142,12 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "1 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "2 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
-        "MKC 2027-01-20"
+        "MKC 2027-01-20",
+        "PEP 2027-02-01"
       ],
-      "count": 1
+      "count": 2
     },
     {
       "level": "warn",
