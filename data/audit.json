@@ -1,10 +1,10 @@
 {
-  "ranAt": "2026-10-09T00:35:10.148Z",
-  "snapshotUpdated": "2026-10-09T00:35:09.824Z",
+  "ranAt": "2026-10-10T00:33:44.518Z",
+  "snapshotUpdated": "2026-10-10T00:33:44.343Z",
   "companies": 501,
   "deep": {
     "present": 501,
-    "charts": 499,
+    "charts": 501,
     "analysts": 500
   },
   "verdict": "published with warnings",
@@ -112,13 +112,12 @@
     {
       "level": "warn",
       "code": "revenue-implausible",
-      "msg": "3 companies' filed revenue is more than 3× off what their price/sales implies.",
+      "msg": "2 companies' filed revenue is more than 3× off what their price/sales implies.",
       "tickers": [
         "CPT filed 0.0B vs ~1.6B",
-        "EVRG filed 6.0B vs ~1.4B",
-        "MU filed 37.4B vs ~133.2B"
+        "EVRG filed 6.0B vs ~1.4B"
       ],
-      "count": 3
+      "count": 2
     },
     {
       "level": "warn",
