@@ -3555,7 +3555,7 @@ function authError(msg) {
 }
 
 function showAuthStep(which) {
-  ["authPendingStep", "authEmailStep", "authCodeStep", "authSignedIn"].forEach(function (id) {
+  ["authPendingStep", "authEmailStep", "authCodeStep", "authPassStep", "authSignedIn"].forEach(function (id) {
     $("#" + id).hidden = id !== which;
   });
   /* "Delete everything" is only ever offered to the person who just asked for it */
@@ -3573,8 +3573,11 @@ function renderAccountTab() {
   $("#authOff").hidden = on;
   var st = styleById(state.style);
   $("#acctStyleNote").textContent = st.label + (st.after ? ", after " + st.after : ", the standard score");
-  $("#acctPlan").textContent = tier.DEV_UNLIMITED ? "Not taking payment yet, so everything is open"
-    : tier.TIER_LABEL[state.tier] + (state.tier === "member" ? "" : " · see what membership adds");
+  /* While everything is free there is nothing to join, and a row leading to a
+     page that cannot take payment reads as unfinished (App Review sends those
+     back), so it stays out of sight until membership opens. */
+  $("#acctMember").hidden = tier.DEV_UNLIMITED;
+  $("#acctPlan").textContent = tier.TIER_LABEL[state.tier] + (state.tier === "member" ? "" : " · see what membership adds");
   if (!on) return;
   $("#authTitle").textContent = state.user ? "Signed in" : "Keep your cart";
   if (state.user) {
@@ -3655,6 +3658,14 @@ function wireAuth() {
     if (!email) return;
     /* an account is created on first sign-in, so agreeing comes first, every time */
     if (!$("#authAgree").checked) return authError("Tick the box to agree to the terms first.");
+    /* App Review's account: a password, since the reviewer cannot read our mail */
+    if (auth.isReviewEmail(email)) {
+      pending = email;
+      $("#authPassWho").textContent = email;
+      showAuthStep("authPassStep");
+      $("#authPass").focus();
+      return;
+    }
     var btn = $("#authSend");
     btn.disabled = true; btn.textContent = "Sending…";
     auth.sendCode(email).then(function (r) {
@@ -3683,6 +3694,25 @@ function wireAuth() {
 
   $("#authBack").addEventListener("click", function () {
     $("#authCode").value = "";
+    showAuthStep("authEmailStep");
+  });
+
+  $("#authPassStep").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var pass = $("#authPass").value;
+    if (!pass) return authError("Enter the password from the App Review notes.");
+    var btn = $("#authPassGo");
+    btn.disabled = true; btn.textContent = "Signing in…";
+    fresh = true;
+    auth.signInForReview(pending, pass).then(function (r) {
+      btn.disabled = false; btn.textContent = "Sign in";
+      $("#authPass").value = "";
+      if (!r.ok) return authError(r.error);
+    });
+  });
+
+  $("#authPassBack").addEventListener("click", function () {
+    $("#authPass").value = "";
     showAuthStep("authEmailStep");
   });
 

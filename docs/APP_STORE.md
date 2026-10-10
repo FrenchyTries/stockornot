@@ -58,6 +58,22 @@ Now:
 - [ ] **Create an App Store Connect API key** (Users and Access → Integrations
       → Team keys, role App Manager) and enter it in the build service only.
 - [ ] **Install TestFlight** on your iPhone and accept the first test build.
+- [ ] **Run all of `supabase/schema.sql`** in Supabase's SQL editor, if not
+      done since pull request #3. Until it runs, Delete my account tells
+      people to email instead, and "email us to delete" is one of the most
+      common reasons Apple sends an app back.
+- [ ] **Create the App Review account.** Supabase → Authentication → Users →
+      Add user → Create new user: `review@stockornot.com`, a long password
+      from a password manager, and tick Auto Confirm User. It is the one
+      account that signs in with a password (see step 7); the password goes
+      in App Store Connect's review notes and nowhere else. Optionally have
+      `review@stockornot.com` forward to `hello@`, so anything sent to it
+      lands somewhere.
+- [ ] **Put a code in the sign-in email.** Supabase → Authentication →
+      Emails → Magic Link: add `{{ .Token }}` to the template (it needs your
+      own sender, under SMTP Settings; Resend, which sends the alerts, works).
+      In the iPhone app the emailed link opens Safari, which signs Safari in
+      and leaves the app signed out, so the app signs in with the code.
 - [ ] **Create an Apple push key** (Certificates, Identifiers & Profiles →
       Keys → Apple Push Notifications service) for earnings alerts; it goes
       into the GitHub Actions secrets, where the alerts are sent from, never
@@ -87,7 +103,12 @@ Later, before order placing comes to the app:
 - [ ] **3. The iPhone shell.** Capacitor's settings and the build service's
       pipeline, with the Xcode project generated in the cloud on each build
       rather than committed, so dozens of generated files stay out of git.
-      Order placing is switched off in the app build. First TestFlight build.
+      Order placing is switched off in the app build, and so is everything
+      about membership, including the Pricing link in the header and footer
+      of the method, privacy and terms pages: the app is free at launch, and
+      a page with a price and no way to pay reads as unfinished. Sign-in in
+      the app asks for the emailed code rather than relying on the link (see
+      "Put a code in the sign-in email" above). First TestFlight build.
 - [ ] **4. Things only an app does.** A small vibration on each swipe, the
       phone's share sheet, and push notifications a week before anything in
       the cart reports. Apple turns down a website in a wrapper (Guideline
@@ -99,12 +120,38 @@ Later, before order placing comes to the app:
 - [ ] **6. First-run guide.** Three short screens: what the score is, how to
       swipe, what the cart does.
 - [ ] **7. The store listing.** Screenshots from `marketing/capture.cjs`
-      (already 1290 × 2796), description and keywords, the privacy answers
-      (an email address and a cart; no tracking, no ads), age rating, and notes
-      for the reviewer with a test account.
+      (1290 × 2796), retaken from the app build after the last change to any
+      screen they show: the ones in `marketing/` date from September 23,
+      before the tabs, so none of them can be used as they are. Description
+      and keywords, the privacy answers (an email address and a cart; no
+      tracking, no ads), age rating, and notes for the reviewer: sign-in is
+      optional and everything works without it; to try the account features,
+      including Delete my account, sign in as `review@stockornot.com` with the
+      password given there. That address alone is asked for a password rather
+      than sent an email (`REVIEW_EMAIL` in `lib/supabase-config.js`).
 - [ ] **8. Submit,** and answer the review.
 
 ## Before submitting, check
+
+The five things that most often send an app back, crashes and controls that
+do nothing far ahead of the rest:
+
+1. **It works on a real phone.** Every tab, button and link, tried in the
+   TestFlight build on an iPhone, not only in a browser. Nothing crashes and
+   nothing does nothing. (On October 10 a script tapped all 77 controls in the
+   five tabs of the website at iPhone size and followed 518 links: none dead.)
+2. **The reviewer can get in.** The App Review account signs in with the
+   password in the review notes, and the notes say sign-in is optional.
+3. **Nothing looks unfinished.** No "coming soon", "not yet", "opening soon",
+   disabled buttons or dead links anywhere in the app. Membership stays out
+   of the app until it can be bought there.
+4. **Every screenshot is a real screen** of the build being submitted, showing
+   nothing the app cannot do: no brokerage, no order placing, no membership.
+5. **Delete my account works inside the app,** end to end, on the review
+   account (then recreate it), not by asking for an email (Guideline
+   5.1.1(v)).
+
+And for this app in particular:
 
 - Nothing in the app reads as advice: the "not investment advice" line is on
   every screen that shows a score.
