@@ -79,17 +79,23 @@ const attr = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
 /* The output folder is deleted before every build, so refuse anything that
    could be more than an old build: the repository or a folder above it, a
-   folder of the repository other than mobile/, the home folder, or a
-   non-empty folder without the index.html and app.js of a build. */
+   folder of the repository other than mobile/, the home folder, a git
+   checkout, or a non-empty folder that this script did not write (it leaves
+   MARK in every build). A Mac's disk ignores case, so paths are compared
+   that way there. */
+const MARK = ".stockornot-app-build";
+
 async function checkOutDir() {
-  const inside = (parent, p) => { const r = path.relative(parent, p); return !r.startsWith("..") && !path.isAbsolute(r); };
+  const fold = process.platform === "darwin" || process.platform === "win32" ? (p) => p.toLowerCase() : (p) => p;
+  const inside = (parent, p) => { const r = path.relative(fold(parent), fold(p)); return !r.startsWith("..") && !path.isAbsolute(r); };
   const refuse = (why) => { throw new Error(`Refusing to build into ${OUT}: ${why}. Set APP_OUT to an empty folder.`); };
   if (inside(OUT, ROOT)) refuse("it holds the repository");
   if (inside(ROOT, OUT) && !inside(path.join(ROOT, "mobile"), OUT)) refuse("inside the repository, it must be under mobile/");
-  if (OUT === path.join(ROOT, "mobile")) refuse("that is the app project itself");
+  if (fold(OUT) === fold(path.join(ROOT, "mobile"))) refuse("that is the app project itself");
   if (inside(OUT, os.homedir())) refuse("it holds the home folder");
   const entries = await fs.readdir(OUT).catch(() => []);
-  if (entries.length && !(entries.includes("index.html") && entries.includes("app.js"))) refuse("it is not empty and holds no earlier build");
+  if (entries.includes(".git")) refuse("it is a git checkout");
+  if (entries.length && !entries.includes(MARK)) refuse("it is not empty and holds no earlier build");
 }
 
 /* ----------------------------------------------- the Content-Security-Policy
@@ -201,6 +207,7 @@ async function main() {
   await checkOutDir();
   await fs.rm(OUT, { recursive: true, force: true });
   await fs.mkdir(OUT, { recursive: true });
+  await fs.writeFile(path.join(OUT, MARK), "Written by scripts/build-app.mjs, which empties this folder before each build.\n");
 
   for (const f of FILES) {
     await fs.mkdir(path.dirname(path.join(OUT, f)), { recursive: true });

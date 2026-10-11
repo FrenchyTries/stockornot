@@ -277,7 +277,8 @@ password, it is the Mac's own login password, and nothing shows as you type.
      Filesystem.
    - If the Console shows something blocked by the Content Security Policy:
      in Terminal (still in the `mobile` folder) run `CSP=off npm run sync`,
-     press ⌘R again, and tell Claude.
+     press ⌘R again, and tell Claude. A `CSP=off` build is only for finding
+     the problem: never archive it (step 10 rebuilds without it).
 9. **Try it on the iPhone.** Plug it in and tap Trust on the phone. On the
    iPhone: Settings → Privacy & Security → **Developer Mode** → on → restart
    (the switch appears once the phone has been connected to Xcode). Pick the
@@ -312,9 +313,12 @@ password, it is the Mac's own login password, and nothing shows as you type.
    - Force-quit and reopen: still signed in.
    - The header and the close buttons of the sheets sit clear of the camera
      cut-out at the top.
-10. **Send it to Apple.** At the top of Xcode pick "Any iOS Device (arm64)",
-    then Product → Archive. When the Organizer window opens: Distribute App →
-    App Store Connect → Distribute. Xcode makes the certificates it needs.
+10. **Send it to Apple.** First, in Terminal in the `mobile` folder, run
+    `npm run sync` (exactly that, with no `CSP=off` in front), so the build
+    that goes to Apple is the current code with its security policy. Then at
+    the top of Xcode pick "Any iOS Device (arm64)", then Product → Archive.
+    When the Organizer window opens: Distribute App → App Store Connect →
+    Distribute. Xcode makes the certificates it needs.
 11. **TestFlight.** App Store Connect → Apps → StockOrNot → TestFlight. Wait
     for the build to finish processing (an email comes; minutes to half an
     hour). Internal Testing → + → a group with yourself in it, then install

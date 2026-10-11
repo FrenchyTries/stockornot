@@ -67,7 +67,7 @@ test("imports in Node with nothing to talk to", () => {
   assert.equal(web.canShare, false);
   assert.equal(web.canNotify(), false);
   assert.deepEqual(Object.keys(web).sort(), [
-    "SITE", "apiUrl", "askNotify", "canNotify", "canShare", "dataFetch", "dragEnd", "dragStart",
+    "SITE", "apiUrl", "askNotify", "cameFromApp", "canNotify", "canShare", "dataFetch", "dragEnd", "dragStart",
     "inApp", "notifyPermission", "notifyWanted", "onNotificationTap", "onResume", "openUrl",
     "reschedule", "routeLinks", "saveFile", "setNotifyWanted", "share", "tap", "tick"
   ]);
@@ -140,6 +140,7 @@ test("the app asks the website for data, then falls back to its own copy", async
 
   const live = await app.dataFetch("data/snapshot.json", { cache: "no-cache" });
   assert.deepEqual(await live.json(), { from: "site" });
+  assert.equal(app.cameFromApp("data/snapshot.json"), false);
   assert.equal(calls[0][0], "https://stockornot.com/data/snapshot.json");
   assert.equal(calls[0][1].cache, undefined, "the default cache mode, so no preflight");
   assert.ok(calls[0][1].signal, "with a deadline");
@@ -149,6 +150,11 @@ test("the app asks the website for data, then falls back to its own copy", async
   const offline = await app.dataFetch("data/detail/AAPL.json", { cache: "no-cache" });
   assert.deepEqual(await offline.json(), { from: "bundle" });
   assert.deepEqual(calls[1], ["/data/detail/AAPL.json", { cache: "no-cache" }]);
+  assert.equal(app.cameFromApp("data/detail/AAPL.json"), true, "remembered as the copy in the app");
+  site = () => json({ from: "site" });
+  await app.dataFetch("data/detail/AAPL.json");
+  assert.equal(app.cameFromApp("data/detail/AAPL.json"), false, "until the site answers again");
+  site = () => { throw new TypeError("Load failed"); };
 
   site = () => json({ error: "nope" }, 500);
   const refused = await app.dataFetch("data/track.json");
@@ -238,15 +244,19 @@ test("share: shared, cancelled or failed", async () => {
   answers.Share.share = { activityType: "" };
 });
 
-test("saveFile writes to the cache folder and hands the file to the share sheet", async () => {
+test("saveFile writes to the cache folder, hands the file to the share sheet, then deletes it", async () => {
   log.length = 0;
   assert.equal(await phone.saveFile("stockornot-cart-2026-10-11.csv", "text/csv", "\ufeffa,b"), "shared");
   assert.deepEqual(log, [
     ["Filesystem.writeFile", { path: "stockornot-cart-2026-10-11.csv", data: "\ufeffa,b", directory: "CACHE", encoding: "utf8" }],
-    ["Share.share", { title: "stockornot-cart-2026-10-11.csv", files: ["file:///cache/stockornot-cart-2026-10-11.csv"] }]
+    ["Share.share", { title: "stockornot-cart-2026-10-11.csv", files: ["file:///cache/stockornot-cart-2026-10-11.csv"] }],
+    ["Filesystem.deleteFile", { path: "stockornot-cart-2026-10-11.csv", directory: "CACHE" }]
   ]);
+  /* a cancelled share leaves nothing behind either */
+  log.length = 0;
   answers.Share.share = () => Promise.reject(new Error("Share canceled"));
   assert.equal(await phone.saveFile("a.json", "application/json", "{}"), "cancelled");
+  assert.deepEqual(log.at(-1), ["Filesystem.deleteFile", { path: "a.json", directory: "CACHE" }]);
   answers.Share.share = {};
   const write = answers.Filesystem.writeFile;
   answers.Filesystem.writeFile = () => Promise.reject(new Error("disk full"));

@@ -120,14 +120,30 @@ function relTime(iso) {
 /* ============================================================== DATA ===== */
 
 function loadSnapshot() {
+  function read(r) {
+    if (r.status === 404) throw new Error("missing");
+    if (!r.ok) throw new Error("http " + r.status);
+    return r.json().then(function (snap) {
+      if (!snap || !Array.isArray(snap.stocks) || !snap.stocks.length) throw new Error("empty");
+      return snap;
+    });
+  }
   return native.dataFetch("data/snapshot.json", { cache: "no-cache" })
-    .then(function (r) {
-      if (r.status === 404) throw new Error("missing");
-      if (!r.ok) throw new Error("http " + r.status);
-      return r.json();
+    .then(read)
+    .then(function (snap) {
+      state.snapshotFromApp = native.inApp && native.cameFromApp("data/snapshot.json");
+      return snap;
+    }, function (err) {
+      /* In the app, a live file that arrived but cannot be read (cut short,
+         or a format this build does not know) must not stop the app while
+         the copy built into it is fine. */
+      if (!native.inApp) throw err;
+      return fetch("/data/snapshot.json").then(read).then(function (snap) {
+        state.snapshotFromApp = true;
+        return snap;
+      });
     })
     .then(function (snap) {
-      if (!snap || !Array.isArray(snap.stocks) || !snap.stocks.length) throw new Error("empty");
       state.all = snap.stocks;
       state.updated = snap.updated;
       state.session = snap.session || null;
@@ -2114,13 +2130,29 @@ var reminderTimer = null;
 var NOTIFY_ON = "On: a notification at 9 a.m. a week before each report.";
 var NOTIFY_DENIED = "Notifications are off for StockOrNot. Turn them on in Settings \u2192 Notifications.";
 
+/* The data the phone's pending reminders were built from, by its "updated"
+   stamp. An offline launch reads the copy built into the app, which can be
+   weeks older: its report dates may have moved, or all be past. Rebuilding
+   from it would move reminders to the wrong day or cancel them. So the list
+   is never replaced from older data than built it, and the copy in the app
+   replaces it only when that copy is known to be newer (a new version of the
+   app opened before it could reach the site). */
+var NOTIFY_DATA = "ts.notifyData";
+
 function scheduleReminders() {
   if (!native.canNotify() || !native.notifyWanted()) return;
   clearTimeout(reminderTimer);
   reminderTimer = setTimeout(function () {
     /* turned off in the meantime: that already cleared the list */
     if (!state.all.length || !native.notifyWanted()) return;
-    native.reschedule(earn.reminders(state.cart, state.byTicker));
+    var built = null;
+    try { built = localStorage.getItem(NOTIFY_DATA); } catch (e) { /* private mode */ }
+    var now = String(state.updated || "");
+    if (built && now < built) return;
+    if (state.snapshotFromApp && !(built && now > built)) return;
+    native.reschedule(earn.reminders(state.cart, state.byTicker)).then(function (ok) {
+      if (ok && now) try { localStorage.setItem(NOTIFY_DATA, now); } catch (e) { /* private mode */ }
+    });
   }, 1000);
 }
 
@@ -2149,6 +2181,7 @@ function setLocalNotify(on) {
     clearTimeout(reminderTimer);
     native.setNotifyWanted(false);
     native.reschedule([]);
+    try { localStorage.removeItem(NOTIFY_DATA); } catch (e) { /* private mode */ }
     note.textContent = "Off.";
     return;
   }
