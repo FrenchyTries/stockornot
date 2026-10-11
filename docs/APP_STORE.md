@@ -281,7 +281,9 @@ password, it is the Mac's own login password, and nothing shows as you type.
    - If the Console shows something blocked by the Content Security Policy:
      in Terminal (still in the `mobile` folder) run `CSP=off npm run sync`,
      press ⌘R again, and tell Claude. A `CSP=off` build is only for finding
-     the problem: never archive it (step 10 rebuilds without it).
+     the problem: never archive it. If you needed it, stop after step 9 and
+     do step 10 only once Claude's fix is merged and a plain `npm run sync`
+     shows no Content Security Policy errors here.
 9. **Try it on the iPhone.** Plug it in and tap Trust on the phone. If the
    iPhone is not offered at the top of Xcode: Xcode → Open Developer Tool →
    Device Hub → select the iPhone → Pair. Then on the iPhone: Settings →

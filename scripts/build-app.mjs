@@ -93,6 +93,8 @@ async function checkOutDir() {
   if (inside(ROOT, OUT) && !inside(path.join(ROOT, "mobile"), OUT)) refuse("inside the repository, it must be under mobile/");
   if (fold(OUT) === fold(path.join(ROOT, "mobile"))) refuse("that is the app project itself");
   if (inside(OUT, os.homedir())) refuse("it holds the home folder");
+  const st = await fs.lstat(OUT).catch(() => null);
+  if (st && !st.isDirectory()) refuse("it is not a folder");
   const entries = await fs.readdir(OUT).catch(() => []);
   if (entries.includes(".git")) refuse("it is a git checkout");
   if (entries.length && !entries.includes(MARK)) refuse("it is not empty and holds no earlier build");
