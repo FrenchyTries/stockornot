@@ -210,8 +210,9 @@ password, it is the Mac's own login password, and nothing shows as you type.
    sw_vers
    ```
 2. **Install Xcode.** App Store → search Xcode → Get. Start this first; it is
-   the slowest step (many gigabytes). While it downloads, install **Node.js
-   22 LTS** with the macOS installer from https://nodejs.org.
+   the slowest step (many gigabytes). While it downloads, install **Node.js**
+   with the "LTS" macOS installer from https://nodejs.org (version 22 or
+   later; the LTS is 24 now, which is fine).
 3. **Finish setting up Xcode,** once it has installed:
    ```bash
    sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -220,7 +221,7 @@ password, it is the Mac's own login password, and nothing shows as you type.
    xcodebuild -downloadPlatform iOS
    node -v && git --version
    ```
-   The last line should print `v22` something and a git version.
+   The last line should print `v22` or `v24` something and a git version.
 4. **Sign Xcode in.** Open Xcode → Settings → Accounts → + → Apple Account,
    and sign in. Your team shows with "(Individual)" after it.
 5. **Check the website is ready for the app** (needs the October 11 pull
@@ -266,9 +267,11 @@ password, it is the Mac's own login password, and nothing shows as you type.
      open" below.
 8. **Try it in the Simulator.** At the top of Xcode pick **iPhone 17 Pro** and
    press ⌘R (use Xcode's Run button; `npx cap run` does not work with Xcode
-   27). Then, to look inside it: Mac Safari → Settings → Advanced → tick
-   "Show features for web developers", then Safari's Develop menu → Simulator
-   → localhost.
+   27). In Xcode 27 the simulated iPhone appears in the **Device Hub** window
+   (there is no separate Simulator app any more). Then, to look inside it:
+   Mac Safari → Settings → Advanced → tick "Show features for web
+   developers", then Safari's Develop menu → the simulated iPhone →
+   localhost.
    - **Console:** no red errors mentioning MIME, Content Security Policy or
      CORS.
    - **Network:** `snapshot.json` comes from stockornot.com with status 200.
@@ -279,12 +282,15 @@ password, it is the Mac's own login password, and nothing shows as you type.
      in Terminal (still in the `mobile` folder) run `CSP=off npm run sync`,
      press ⌘R again, and tell Claude. A `CSP=off` build is only for finding
      the problem: never archive it (step 10 rebuilds without it).
-9. **Try it on the iPhone.** Plug it in and tap Trust on the phone. On the
-   iPhone: Settings → Privacy & Security → **Developer Mode** → on → restart
-   (the switch appears once the phone has been connected to Xcode). Pick the
-   iPhone at the top of Xcode and press ⌘R. If the phone says "Untrusted
-   Developer": Settings → General → VPN & Device Management → your Apple ID →
-   Trust. Then check, about 30 minutes:
+9. **Try it on the iPhone.** Plug it in and tap Trust on the phone. If the
+   iPhone is not offered at the top of Xcode: Xcode → Open Developer Tool →
+   Device Hub → select the iPhone → Pair. Then on the iPhone: Settings →
+   Privacy & Security → **Developer Mode** → on → restart (the switch appears
+   once the phone has been paired). Also turn on Settings → Apps → Safari →
+   Advanced → **Web Inspector**, so the Mac's Safari can look inside the app.
+   Pick the iPhone at the top of Xcode and press ⌘R. If the phone says
+   "Untrusted Developer": Settings → General → VPN & Device Management → your
+   Apple ID → Trust. Then check, about 30 minutes:
    - It opens with Wi-Fi on. Force-quit it, turn on Airplane Mode, open it
      again: the deck still shows.
    - Swiping a card gives a small tap, and a tick as it crosses the line.
@@ -293,7 +299,8 @@ password, it is the Mac's own login password, and nothing shows as you type.
    - Every link opens in a Safari sheet inside the app with a Done button:
      "Not investment advice", "How the score works", Terms and Privacy in the
      sign-in box, the rows at the bottom of Account, the SEC filing links, a
-     headline. None of those pages shows Pricing.
+     headline. None of those pages shows Pricing. (Contact support is the
+     exception: it opens Mail.)
    - Cart: no Amount boxes, no order bar, nothing about a brokerage. Export
      CSV → Save to Files works.
    - Cart → Earnings dates → "Notify me on this iPhone" → iOS asks for
@@ -304,13 +311,13 @@ password, it is the Mac's own login password, and nothing shows as you type.
      ```js
      Capacitor.Plugins.LocalNotifications.schedule({notifications:[{id:1,title:"Test",body:"x",schedule:{at:new Date(Date.now()+60000)}}]})
      ```
-   - Sign in with your own email and the code from it.
+   - Sign in with your own email and the code from it. Force-quit the app
+     and reopen it: still signed in.
    - Sign out, then sign in as `review@stockornot.com`: tick the terms box
      first, then the app asks for the password.
    - Account → Download my data → the share sheet.
    - Account → Delete my account on the review account. Then recreate it in
      Supabase, exactly as before.
-   - Force-quit and reopen: still signed in.
    - The header and the close buttons of the sheets sit clear of the camera
      cut-out at the top.
 10. **Send it to Apple.** First, in Terminal in the `mobile` folder, run
@@ -323,10 +330,13 @@ password, it is the Mac's own login password, and nothing shows as you type.
     for the build to finish processing (an email comes; minutes to half an
     hour). Internal Testing → + → a group with yourself in it, then install
     from the TestFlight app on the iPhone and go through step 9 again
-    quickly. Internal testing needs no review by Apple.
-12. **Screenshots.** In the Simulator, on the iPhone 17 Pro Max (1320 × 2868)
-    and again on the iPhone 17 Pro (1206 × 2622), go to each screen to show and
-    press ⌘S; they land on the Desktop. See "Store listing" for what to show.
+    quickly, leaving out the Console test (a TestFlight build cannot be
+    looked inside). Internal testing needs no review by Apple.
+12. **Screenshots.** Run the app on the simulated iPhone 17 Pro Max
+    (1320 × 2868) and again on the iPhone 17 Pro (1206 × 2622). In Device
+    Hub, go to each screen to show and click the **Screenshot** button under
+    the device (on an older Xcode with the Simulator app: ⌘S); the PNG lands
+    on the Desktop at full size. See "Store listing" for what to show.
 13. **Submit.** On the version page in App Store Connect: the screenshots,
     the text from "Store listing", the build (+ next to Build), and App Review
     Information. Then Add for Review → Submit to App Review. For every later
@@ -349,9 +359,10 @@ npx cap open ios
 Then set by hand, about ten minutes: the team (step 7); General → Supported
 Destinations: remove iPad; Minimum Deployments: iOS 16.0; Device Orientation:
 Portrait only; Info → + → "App Uses Non-Exempt Encryption" = NO; the icon:
-drag `marketing/app-icon-1024.png` onto App → Assets → AppIcon; and File →
-New → File from Template → App Privacy, then add "File Timestamp" with the
-reason C617.1. If Info lists "Required device capabilities" as `armv7`,
+drag `marketing/app-icon-1024.png` onto App → Assets → AppIcon; and the
+privacy manifest: in Terminal, `git checkout -- ios/App/App/PrivacyInfo.xcprivacy`
+brings back the committed one, then in Xcode File → Add Files to "App"…,
+choose `App/PrivacyInfo.xcprivacy`, and tick the App target. If Info lists "Required device capabilities" as `armv7`,
 change it to `arm64`. Then, back in Terminal, run `npx cap sync ios` once
 more: it reads the new minimum from the project and writes it into the
 package list (`ios/App/CapApp-SPM/Package.swift`). The launch screen keeps
@@ -515,7 +526,7 @@ membership's price.
 > 4. Offline: in Airplane Mode the Deck, Cart, Compare and Track still work, on the data built into the app.
 > 5. Links to the method, terms, privacy policy and SEC filings open in an in-app Safari view.
 >
-> External services: SEC EDGAR and Finnhub (data), Supabase (accounts), Resend (email). Available in the United States only. Tested on [iPhone model], iOS [version].
+> External services: SEC EDGAR, Finnhub, Yahoo Finance and Stooq (data), Supabase (accounts), Resend (email). Available in the United States only. Tested on [iPhone model], iOS [version].
 
 **App Privacy** (then click **Publish**). Data collected, all for App
 Functionality, linked to the user, not used for tracking:
@@ -533,7 +544,7 @@ partners use data for tracking?": No. These must match the privacy page.
 **Age rating** (answers for each section):
 - In-App Controls: Parental Controls No; Age Assurance No.
 - Capabilities: Unrestricted Web Access No; User-Generated Content No;
-  Messaging and Chat No; Advertising No.
+  Messaging and Chat No; Social Media No; Advertising No.
 - Mature Themes, Medical or Wellness, Sexuality or Nudity, Violence: None
   throughout.
 - Chance-Based Activities: Gambling No; Simulated Gambling No; Contests No;

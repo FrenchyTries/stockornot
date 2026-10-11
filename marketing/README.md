@@ -54,9 +54,10 @@ Apple wants screenshots of the app being submitted, so these are taken from
 the app build itself, on the Mac, after the last change to any screen they
 show (docs/APP_STORE.md, Monday's step 12):
 
-1. `cd mobile && npm run ios`, then run it in Xcode's Simulator.
-2. On each screen to show, press ⌘S. The PNG lands on the Desktop at the
-   simulator's full size.
+1. `cd mobile && npm run ios`, then run it on a simulated iPhone from Xcode.
+2. On each screen to show, click the Screenshot button under the device in
+   Xcode 27's Device Hub (⌘S in the older Simulator app). The PNG lands on
+   the Desktop at the device's full size.
 3. Do it twice: on the **iPhone 17 Pro Max** simulator (1320 x 2868, the 6.9"
    size) and the **iPhone 17 Pro** (1206 x 2622, the 6.3" size).
 

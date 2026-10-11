@@ -2848,6 +2848,10 @@ function openDetail(s) {
           ? "Ahead of " + scoreRes.overall + "% of the S&P 500 on the " + (styled ? "" : "five ") + "factors below, weighted. "
           : "A weighted blend of the factors below. ") +
         "It describes what the last filing and the current price look like. It is not a forecast, and it knows nothing about the business beyond these numbers."));
+    /* this sheet covers the top bar and its line, so it carries its own */
+    var advice = el("p", "block-note score-advice");
+    advice.appendChild(el("b", "", "Not investment advice."));
+    blurb.appendChild(advice);
     blurb.appendChild(styleLine(st));
     scoreHead.appendChild(blurb);
     if (scoreRes.notes && scoreRes.notes.length) {

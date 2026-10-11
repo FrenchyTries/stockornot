@@ -757,6 +757,7 @@ body:not(.docpage) main { flex: 1; display: flex; }
 .style-line .link-btn { padding: 0; font-size: 12.5px; }
 #cmpStyle .style-line { margin: 12px 0 0; }
 .score-blurb .style-line { margin-top: 8px; }
+.score-blurb .score-advice { margin-top: 6px; font-size: 12.5px; }
 
 /* the style picker */
 .style-list { display: grid; gap: 8px; margin: 14px 0 16px; padding: 0; border: 0; }
