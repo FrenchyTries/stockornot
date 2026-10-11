@@ -1,0 +1,23 @@
+{
+  "name": "stockornot-ios",
+  "private": true,
+  "type": "module",
+  "description": "The StockOrNot iPhone app: a Capacitor shell around the site's own interface. See docs/APP_STORE.md.",
+  "scripts": {
+    "build": "node ../scripts/build-app.mjs",
+    "sync": "node ../scripts/build-app.mjs && cap sync ios",
+    "ios": "node ../scripts/build-app.mjs && cap sync ios && cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/browser": "8.0.4",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/filesystem": "8.1.3",
+    "@capacitor/haptics": "8.0.2",
+    "@capacitor/ios": "8.5.2",
+    "@capacitor/local-notifications": "8.3.1",
+    "@capacitor/share": "8.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2"
+  }
+}

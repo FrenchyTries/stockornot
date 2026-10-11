@@ -32,7 +32,14 @@
     },
     {
       "source": "/data/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=300, stale-while-revalidate=3600" }]
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=300, stale-while-revalidate=3600" },
+        { "key": "Access-Control-Allow-Origin", "value": "capacitor://localhost" }
+      ]
+    },
+    {
+      "source": "/api/news",
+      "headers": [{ "key": "Access-Control-Allow-Origin", "value": "capacitor://localhost" }]
     },
     {
       "source": "/stock/(.*)",

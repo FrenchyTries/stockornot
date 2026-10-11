@@ -14,6 +14,11 @@
    Action (see scripts/refresh.mjs). Beyond those static files the page calls
    /api/news for headlines and /api/broker for the brokerage (both functions on
    this site), and, for someone signed in, Supabase for the saved cart.
+
+   The iPhone app runs this same file from its own copy of the site, with
+   <html data-app>. What differs there (live data from stockornot.com, the
+   share sheet, haptics, reminders, no brokerage) goes through lib/native.mjs,
+   and on the website each of those calls does what the page did before.
    ========================================================================== */
 import {
   num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos, rangeSummary,
@@ -27,6 +32,7 @@ import * as broker from "./lib/broker.mjs";
 import * as earn from "./lib/earnings.mjs";
 import * as cartLib from "./lib/cart.mjs";
 import { CHECK_ICONS } from "./lib/icons.mjs";
+import * as native from "./lib/native.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
@@ -114,7 +120,7 @@ function relTime(iso) {
 /* ============================================================== DATA ===== */
 
 function loadSnapshot() {
-  return fetch("data/snapshot.json", { cache: "no-cache" })
+  return native.dataFetch("data/snapshot.json", { cache: "no-cache" })
     .then(function (r) {
       if (r.status === 404) throw new Error("missing");
       if (!r.ok) throw new Error("http " + r.status);
@@ -146,7 +152,7 @@ function filingMatches(s, j) {
 function loadDetail(ticker) {
   if (state.details[ticker] !== undefined) return Promise.resolve(state.details[ticker]);
   var safe = ticker.replace(/[^A-Z0-9.]/gi, "_");
-  return fetch("data/filings/" + encodeURIComponent(safe) + ".json", { cache: "no-cache" })
+  return native.dataFetch("data/filings/" + encodeURIComponent(safe) + ".json", { cache: "no-cache" })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (j) {
       var d = j && filingMatches(state.byTicker[ticker], j) ? j.detail || null : null;
@@ -792,7 +798,7 @@ function attachDrag(entry) {
     if (state.busy) return;
     if (ev.button !== undefined && ev.button !== 0) return;
     if (ev.target.closest("a, button")) return;      /* let links and buttons work */
-    drag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, dx: 0, axis: null, t0: Date.now() };
+    drag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, dx: 0, axis: null, t0: Date.now(), over: false };
   });
 
   card.addEventListener("pointermove", function (ev) {
@@ -807,6 +813,7 @@ function attachDrag(entry) {
         card.setPointerCapture(drag.id);
         card.classList.add("is-drag");
         scroller.style.overflowY = "hidden";
+        native.dragStart();
       } else {
         drag = null;                                  /* hand it back to the scroller */
         return;
@@ -814,6 +821,10 @@ function attachDrag(entry) {
     }
 
     drag.dx = dx;
+    /* in the app, a tick each time the card crosses the line where letting go
+       commits (the 110 in release), either way */
+    var over = Math.abs(dx) > 110;
+    if (over !== drag.over) { drag.over = over; native.tick(); }
     card.style.transform = "translate(" + dx + "px," + (dy * 0.18) + "px) rotate(" + clamp(dx / 22, -10, 10) + "deg)";
     var t = clamp(Math.abs(dx) / 120, 0, 1);
     stampAdd.style.opacity = dx > 0 ? t : 0;
@@ -828,6 +839,7 @@ function attachDrag(entry) {
     var speed = Math.abs(dx) / Math.max(1, held);
     var moved = Math.abs((ev.clientX || drag.x0) - drag.x0) + Math.abs((ev.clientY || drag.y0) - drag.y0);
     drag = null;
+    if (axis === "x") native.dragEnd();
     pull(0, 0);
     card.classList.remove("is-drag");
     scroller.style.overflowY = "";
@@ -865,6 +877,8 @@ function commit(action) {
   var entry = cards[0];
   if (!entry) return;
   state.busy = true;
+  /* swiped, or pressed Keep or Pass: a tap in the app, firmer for Keep */
+  native.tap(action === "add");
 
   var s = state.byTicker[entry.ticker];
   var added = action === "add" ? addToCart(s) : false;
@@ -1150,8 +1164,9 @@ function ensureCartOwner(user, fresh) {
   body.textContent = "";
   body.appendChild(document.createTextNode("You are signed in as "));
   body.appendChild(el("b", "", user.email || "an account with no email"));
-  body.appendChild(document.createTextNode(". This browser's cart has " + n + (n === 1 ? " company" : " companies") +
-    ", with any notes and amounts, that " + (n === 1 ? "is" : "are") + " not saved to that account."));
+  body.appendChild(document.createTextNode((native.inApp ? ". The cart on this iPhone has " : ". This browser's cart has ") +
+    n + (n === 1 ? " company" : " companies") + (native.inApp ? ", with any notes, that " : ", with any notes and amounts, that ") +
+    (n === 1 ? "is" : "are") + " not saved to that account."));
   var dlg = $("#dlgOwner");
   $("#ownerAdd").onclick = function () {
     closeDialog(dlg);
@@ -1454,15 +1469,16 @@ function exportCsv() {
     return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(",");
   }).join("\r\n");
 
-  /* the byte-order mark tells Excel the file is UTF-8 */
-  var url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
-  var a = document.createElement("a");
-  a.href = url;
-  a.download = "stockornot-cart-" + new Date().toISOString().slice(0, 10) + ".csv";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  /* the byte-order mark tells Excel the file is UTF-8. A download on the
+     website; in the app, the share sheet (Save to Files, Mail…). */
+  native.saveFile("stockornot-cart-" + new Date().toISOString().slice(0, 10) + ".csv",
+    "text/csv;charset=utf-8", "\ufeff" + csv).then(savedOrSay);
+}
+
+/* After saveFile: only a failure needs saying. Closing the share sheet is a
+   choice, not an error. */
+function savedOrSay(result) {
+  if (result === "failed") showToast("The file could not be saved. Try again.");
 }
 
 
@@ -1525,6 +1541,8 @@ function usd(v) {
 function renderBrokerPanel() {
   var box = $("#brokerPanel");
   if (!box) return;
+  /* the app has no brokerage at all (mobile/broker-stub.js) */
+  if (native.inApp) { box.hidden = true; return; }
   box.innerHTML = "";
   var b = state.broker;
   box.className = "broker-panel";
@@ -1566,6 +1584,7 @@ function plannedTotal() {
 function renderOrderBar() {
   var bar = $("#orderBar");
   if (!bar) return;
+  if (native.inApp) { bar.hidden = true; return; }
   bar.hidden = state.cart.length === 0;
   var total = plannedTotal();
   $("#obTotal").textContent = usd(total);
@@ -1605,6 +1624,7 @@ function brokerError(msg) {
 }
 
 function openBroker() {
+  if (native.inApp) return;
   brokerError("");
   renderAccount();
   openDialog($("#dlgBroker"));
@@ -1782,6 +1802,7 @@ function orderError(msg) {
 }
 
 function openReview() {
+  if (native.inApp) return;
   var b = state.broker;
   if (!b || !b.connected) { openBroker(); return; }
   /* a batch is still out: show it rather than start a second one */
@@ -1955,6 +1976,7 @@ function orderIdFor(item, plan) {
 }
 
 function placeOrders() {
+  if (native.inApp) return;
   var mine = review;
   if (!mine || mine.sending || mine.placed || !mine.env) return;
   if (mine.env === "live" && !$("#orderLiveCheck").checked) return;
@@ -2049,7 +2071,9 @@ function placeOrders() {
    A week's warning before anything in the cart reports, with what the street
    expects it to hit. Three ways to hear about it: this banner whenever the
    site is open, a calendar file whose reminders fire on any device, and an
-   email from the nightly job for anyone signed in who asks for one.
+   email from the nightly job for anyone signed in who asks for one. In the
+   iPhone app a notification scheduled on the phone takes the calendar file's
+   place.
    ======================================================================== */
 
 var NOTICE_KEY = "ts.earnNoticeHidden";
@@ -2064,6 +2088,8 @@ function fitDeck() {
 function renderEarnNotice() {
   var box = $("#earnNotice");
   if (!box || !state.all.length) return;
+  /* every change to the cart passes through here, so the reminders follow it */
+  scheduleReminders();
   var soon = earn.upcoming(state.cart, state.byTicker, { days: earn.ALERT_DAYS });
   var sig = soon.map(function (u) { return u.t + u.date; }).join(",");
   var hidden = false;
@@ -2077,6 +2103,69 @@ function renderEarnNotice() {
   box.hidden = false;
   box.dataset.sig = sig;
   fitDeck();
+}
+
+/* The app's reminders: one notification at 9 a.m. a week before each report
+   in the cart, scheduled on the phone (earn.reminders, native.reschedule).
+   The whole list is replaced each time, a second after the cart last
+   changed, so a burst of swipes schedules once. Nothing is scheduled before
+   the companies have loaded: an empty list would cancel every reminder. */
+var reminderTimer = null;
+var NOTIFY_ON = "On: a notification at 9 a.m. a week before each report.";
+var NOTIFY_DENIED = "Notifications are off for StockOrNot. Turn them on in Settings \u2192 Notifications.";
+
+function scheduleReminders() {
+  if (!native.canNotify() || !native.notifyWanted()) return;
+  clearTimeout(reminderTimer);
+  reminderTimer = setTimeout(function () {
+    /* turned off in the meantime: that already cleared the list */
+    if (!state.all.length || !native.notifyWanted()) return;
+    native.reschedule(earn.reminders(state.cart, state.byTicker));
+  }, 1000);
+}
+
+/* The "Notify me on this iPhone" switch in the Earnings sheet. It is on only
+   while both the person wants it and iOS allows it. */
+function renderLocalToggle() {
+  var row = $("#earnLocalRow");
+  var box = $("#earnLocal");
+  var note = $("#earnLocalNote");
+  /* the app build opened in a browser, or a build without the plugin */
+  row.hidden = note.hidden = !native.canNotify();
+  if (row.hidden) return;
+  box.disabled = true;
+  native.notifyPermission().then(function (perm) {
+    var wanted = native.notifyWanted();
+    box.disabled = false;
+    box.checked = wanted && perm === "granted";
+    note.textContent = box.checked ? NOTIFY_ON : wanted && perm === "denied" ? NOTIFY_DENIED : "";
+  });
+}
+
+function setLocalNotify(on) {
+  var box = $("#earnLocal");
+  var note = $("#earnLocalNote");
+  if (!on) {
+    clearTimeout(reminderTimer);
+    native.setNotifyWanted(false);
+    native.reschedule([]);
+    note.textContent = "Off.";
+    return;
+  }
+  /* iOS asks the first time; after that it answers from Settings */
+  box.disabled = true;
+  native.askNotify().then(function (perm) {
+    box.disabled = false;
+    if (perm !== "granted") {
+      box.checked = false;
+      note.textContent = NOTIFY_DENIED;
+      return;
+    }
+    native.setNotifyWanted(true);
+    box.checked = true;
+    note.textContent = NOTIFY_ON;
+    scheduleReminders();
+  });
 }
 
 function openEarnings() {
@@ -2139,6 +2228,7 @@ function openEarnings() {
   }
 
   renderEmailToggle();
+  renderLocalToggle();
   openDialog($("#dlgEarnings"));
 }
 
@@ -2184,15 +2274,9 @@ function renderEmailToggle() {
 
 function downloadIcs(rows, filename) {
   if (!rows.length) return;
-  var ics = earn.toIcs(rows, { site: location.origin });
-  var url = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
-  var a = document.createElement("a");
-  a.href = url;
-  a.download = filename || "stockornot-earnings.ics";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  /* the events link to the company pages on the website, wherever this runs */
+  var ics = earn.toIcs(rows, { site: native.SITE });
+  native.saveFile(filename || "stockornot-earnings.ics", "text/calendar", ics).then(savedOrSay);
 }
 
 function cartIcs() {
@@ -2215,7 +2299,7 @@ var deepCache = {};
 function loadDeep(ticker) {
   if (deepCache[ticker] !== undefined) return Promise.resolve(deepCache[ticker]);
   var safe = ticker.replace(/[^A-Z0-9.]/gi, "_");
-  return fetch("data/detail/" + encodeURIComponent(safe) + ".json", { cache: "no-cache" })
+  return native.dataFetch("data/detail/" + encodeURIComponent(safe) + ".json", { cache: "no-cache" })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (j) { deepCache[ticker] = j; return j; })
     .catch(function () { deepCache[ticker] = null; return null; });
@@ -2563,7 +2647,8 @@ function buildNextReport(s, deep) {
   var trackLine = earn.track(deep && deep.analyst);
   if (trackLine) box.appendChild(el("p", "block-note", trackLine));
 
-  var cal = el("button", "link-btn", "Add this date to my calendar, with a reminder a week before");
+  /* the app reminds with a notification instead (the Earnings sheet) */
+  var cal = el("button", "link-btn web-only", "Add this date to my calendar, with a reminder a week before");
   cal.type = "button";
   cal.addEventListener("click", function () {
     downloadIcs([{ t: s.t, n: s.n, date: e.date, hour: e.hour, epsEst: e.epsEst, revEst: e.revEst, q: e.q, fy: e.fy }],
@@ -2615,7 +2700,9 @@ var newsCache = {};
 
 function loadNews(ticker) {
   if (newsCache[ticker]) return newsCache[ticker];
-  newsCache[ticker] = fetch("/api/news?t=" + encodeURIComponent(ticker))
+  /* the app asks the website by its full address, which is canonical, so the
+     redirect in api/news.mjs never fires */
+  newsCache[ticker] = fetch(native.apiUrl("/api/news?t=") + encodeURIComponent(ticker))
     .then(function (r) {
       if (r.status === 404) return { unavailable: true };
       return r.json().then(function (j) { return r.ok ? j : { error: (j && j.error) || "No news right now." }; });
@@ -2630,7 +2717,8 @@ function loadNews(ticker) {
 
 function fillNews(box, res) {
   if (!res || res.unavailable) {
-    box.appendChild(el("p", "block-note first", "Headlines load on the live site; this copy has no server behind it."));
+    box.appendChild(el("p", "block-note first", native.inApp ? "Headlines need a connection."
+      : "Headlines load on the live site; this copy has no server behind it."));
     return;
   }
   if (res.error) { box.appendChild(el("p", "block-note first", res.error)); return; }
@@ -2655,6 +2743,32 @@ function fillNews(box, res) {
 
 var detailTicker = null;
 
+/* The company's page on the website, by the same rule as the address
+   scripts/build-pages.mjs gives it. */
+function stockUrl(t) {
+  return native.SITE + "/stock/" + t.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+/* The share sheet, with the company's page on the website. Where sharing
+   fails on the website the link is copied instead; closing the sheet is not
+   a failure. */
+function shareDetail() {
+  var s = state.byTicker[detailTicker];
+  if (!s) return;
+  var url = stockUrl(s.t);
+  native.share({
+    title: s.t + " on StockOrNot",
+    text: s.n + " (" + s.t + ") on StockOrNot. Not investment advice.",
+    url: url
+  }).then(function (result) {
+    if (result !== "failed") return;
+    if (native.inApp) { showToast("The share sheet did not open. Try again."); return; }
+    var copied = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(url) : Promise.reject();
+    copied.then(function () { showToast("Link copied"); },
+      function () { showToast("Share this link: " + url.replace(/^https:\/\//, "")); });
+  });
+}
+
 function section(title, node) {
   var s = el("section", "c-block");
   s.appendChild(el("h3", "block-h", title));
@@ -2665,6 +2779,7 @@ function section(title, node) {
 function openDetail(s) {
   if (!s) return;
   detailTicker = s.t;
+  $("#detailShare").hidden = !native.canShare;
 
   $("#detailTitle").textContent = s.t;
   $("#detailName").textContent = s.n + " · " + s.s;
@@ -3140,7 +3255,7 @@ var trackLoad = null;
 
 function showTrack() {
   if (trackLoad) return;
-  trackLoad = fetch("data/track.json", { cache: "no-cache" })
+  trackLoad = native.dataFetch("data/track.json", { cache: "no-cache" })
     .then(function (r) {
       if (r.status === 404) return null;            /* not started yet */
       if (!r.ok) throw new Error("http " + r.status);
@@ -3341,6 +3456,14 @@ function sessionWord() {
 }
 
 function setupScreen(reason) {
+  /* The app holds its own copy of the data, so getting here means neither
+     that nor the website answered. The setup steps below are for whoever
+     runs a copy of the site, never for someone with the app. */
+  if (native.inApp) {
+    showMessage("Couldn't load the companies", "Check the connection, then try again.",
+      [{ label: "Retry", onClick: function () { location.reload(); } }]);
+    return;
+  }
   var repo = repoUrl();
   showMessage(
     "No data yet",
@@ -3371,6 +3494,16 @@ function repoUrl() {
 function wire() {
 
   window.addEventListener("storage", onStorage);
+
+  /* the app: links open on the website, a tapped reminder opens the Earnings
+     sheet once the companies are there, and coming back to the foreground
+     brings the reminders up to date */
+  native.routeLinks();
+  native.onNotificationTap(function (extra) {
+    if (extra && extra.open && extra.open !== "earnings") return;
+    whenLoaded(openEarnings);
+  });
+  native.onResume(scheduleReminders);
 
   Array.prototype.forEach.call(document.querySelectorAll("#tabbar [data-view]"), function (a) {
     a.addEventListener("click", function (ev) {
@@ -3485,6 +3618,7 @@ function wire() {
   });
   window.addEventListener("resize", fitDeck);
   $("#btnIcs").addEventListener("click", cartIcs);
+  $("#earnLocal").addEventListener("change", function () { setLocalNotify($("#earnLocal").checked); });
   $("#earnEmail").addEventListener("change", function () {
     var box = $("#earnEmail");
     var want = box.checked;
@@ -3515,6 +3649,7 @@ function wire() {
     }
   }
   $("#detailAdd").addEventListener("click", function () { detailAct("add"); });
+  $("#detailShare").addEventListener("click", shareDetail);
   $("#btnKeep").addEventListener("click", function () { commit("add"); });
   $("#btnPass").addEventListener("click", function () { commit("pass"); });
   $("#btnUndo").addEventListener("click", undo);
@@ -3575,8 +3710,9 @@ function renderAccountTab() {
   $("#acctStyleNote").textContent = st.label + (st.after ? ", after " + st.after : ", the standard score");
   /* While everything is free there is nothing to join, and a row leading to a
      page that cannot take payment reads as unfinished (App Review sends those
-     back), so it stays out of sight until membership opens. */
-  $("#acctMember").hidden = tier.DEV_UNLIMITED;
+     back), so it stays out of sight until membership opens, and in the app
+     for good. */
+  $("#acctMember").hidden = tier.UNLIMITED;
   $("#acctPlan").textContent = tier.TIER_LABEL[state.tier] + (state.tier === "member" ? "" : " · see what membership adds");
   if (!on) return;
   $("#authTitle").textContent = state.user ? "Signed in" : "Keep your cart";
@@ -3635,6 +3771,10 @@ function wireAuth() {
   var fromLink = fresh;
   var linkError = auth.callbackError();
   var whoShown = false;
+  /* The app signs in with the emailed code: the link in the same email opens
+     the website in Safari (lib/auth.mjs), which cannot sign the app in. */
+  var sendLabel = native.inApp ? "Email me a code" : "Email me a sign-in link";
+  $("#authSend").textContent = sendLabel;
 
   /* A link signed this browser in, but nobody asked for one here: say whose
      account it is, so a link someone sent for their own account cannot
@@ -3669,7 +3809,7 @@ function wireAuth() {
     var btn = $("#authSend");
     btn.disabled = true; btn.textContent = "Sending…";
     auth.sendCode(email).then(function (r) {
-      btn.disabled = false; btn.textContent = "Email me a sign-in link";
+      btn.disabled = false; btn.textContent = sendLabel;
       if (!r.ok) return authError(r.error);
       pending = email;
       $("#authSentTo").textContent = email;
@@ -3681,7 +3821,11 @@ function wireAuth() {
   $("#authCodeStep").addEventListener("submit", function (e) {
     e.preventDefault();
     var code = $("#authCode").value.replace(/\D/g, "");
-    if (code.length !== 6) return authError("Paste the six-digit code, or just click the link in the email instead.");
+    /* six digits by default; Supabase can be set to send up to ten */
+    if (!/^\d{6,10}$/.test(code)) {
+      return authError(native.inApp ? "Type the code from the email."
+        : "Paste the code from the email, or just click the link in it instead.");
+    }
     var btn = $("#authVerify");
     btn.disabled = true; btn.textContent = "Signing in…";
     fresh = true;
@@ -3689,6 +3833,9 @@ function wireAuth() {
       btn.disabled = false; btn.textContent = "Sign in with the code";
       if (!r.ok) return authError(r.error);
       $("#authCode").value = "";
+      /* the record that a link was asked for has done its job, and
+         privacy.html promises it does not outlive the sign-in */
+      auth.forgetAsked();
     });
   });
 
@@ -3735,12 +3882,11 @@ function wireAuth() {
           compare: load(CMP_KEY, null)
         }
       };
-      var blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
-      var a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "stockornot-my-data-" + new Date().toISOString().slice(0, 10) + ".json";
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+      /* a download on the website, the share sheet in the app */
+      native.saveFile("stockornot-my-data-" + new Date().toISOString().slice(0, 10) + ".json",
+        "application/json", JSON.stringify(out, null, 2)).then(function (result) {
+        if (result === "failed") authError("The file could not be saved. Try again.");
+      });
     });
   });
 
@@ -3846,12 +3992,19 @@ function wireAuth() {
   }
 }
 
+/* Things that need the companies (a tapped reminder, before they have
+   loaded), run once they are there. */
+var loaded = false;
+var afterLoad = [];
+function whenLoaded(fn) { if (loaded) fn(); else afterLoad.push(fn); }
+
 function init() {
   state.viewed = tier.loadViewed();
   wire();
   /* Installable as an app, and able to open with no signal on the last data
-     it saw (sw.js, network first). Over https, and on localhost for development. */
-  if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+     it saw (sw.js, network first). Over https, and on localhost for development.
+     Not in the iPhone app, which carries its files and has no sw.js. */
+  if (!native.inApp && "serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
     navigator.serviceWorker.register("/sw.js").catch(function () {});
   }
   /* Decided synchronously, before any network call: either a session is already
@@ -3892,6 +4045,8 @@ function init() {
       if (view === "cart") renderCart();
       else if (view === "compare") renderCompare();
       brokerReturn();
+      loaded = true;
+      afterLoad.splice(0).forEach(function (fn) { fn(); });
 
       /* "Turn them off" in an alert email lands here: open the alert settings
          straight away (signing in first, if need be, is part of that dialog) */
@@ -3904,6 +4059,7 @@ function init() {
 
 /* The last leg of "Connect with Alpaca" lands here with ?broker=<outcome>. */
 function brokerReturn() {
+  if (native.inApp) return;
   var params = new URLSearchParams(location.search);
   var outcome = params.get("broker");
   if (!outcome) return;

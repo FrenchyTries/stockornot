@@ -1,0 +1,15 @@
+{
+  "appId": "com.stockornot.app",
+  "appName": "StockOrNot",
+  "webDir": "www",
+  "backgroundColor": "#0b0c0e",
+  "ios": {
+    "contentInset": "never",
+    "allowsLinkPreview": false,
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "plugins": {
+    "SystemBars": { "style": "DARK" },
+    "LocalNotifications": { "presentationOptions": ["banner", "list", "sound"] }
+  }
+}

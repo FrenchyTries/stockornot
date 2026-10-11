@@ -81,7 +81,6 @@ ${extra}
   <nav class="topnav" aria-label="Site">
     <a href="/stock" aria-current="page">Companies</a>
     <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
   </nav>
   <div class="topbar-actions">
     <a class="primary-btn" href="/">Open the deck</a>
@@ -95,9 +94,9 @@ const foot = (updated) => `</main>
   <nav class="foot-nav" aria-label="Footer">
     <a href="/stock">Companies</a>
     <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
     <a href="/privacy">Privacy</a>
     <a href="/terms">Terms</a>
+    <a href="/support">Support</a>
   </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
   <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
@@ -429,6 +428,7 @@ async function main() {
     { loc: `${SITE}/pricing`, pri: "0.6", freq: "monthly" },
     { loc: `${SITE}/privacy`, pri: "0.3", freq: "yearly" },
     { loc: `${SITE}/terms`, pri: "0.3", freq: "yearly" },
+    { loc: `${SITE}/support`, pri: "0.3", freq: "yearly" },
     ...snap.stocks.map((s) => ({ loc: `${SITE}/stock/${slug(s.t)}`, pri: "0.7", freq: "daily" }))
   ];
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
@@ -454,7 +454,7 @@ ${urls.map((u) => `  <url><loc>${u.loc}</loc><lastmod>${today}</lastmod><changef
    a file the site does not need cannot be published by accident. The
    functions under api/ are deployed from the repository as before. */
 const PUBLIC_FILES = [
-  "index.html", "404.html", "method.html", "pricing.html", "privacy.html", "terms.html", "track.html",
+  "index.html", "404.html", "method.html", "pricing.html", "privacy.html", "terms.html", "support.html", "track.html",
   "app.js", "pricing.js", "styles.css", "sw.js", "manifest.webmanifest",
   "favicon.svg", "apple-touch-icon.png", "og.png", "sitemap.xml", "robots.txt",
   "data/snapshot.json"

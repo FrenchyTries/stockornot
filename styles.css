@@ -58,6 +58,11 @@
   --topbar-h: 56px;
   --tabbar-h: 56px;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  /* The status bar and the Dynamic Island. The page asks for the whole screen
+     (viewport-fit=cover), so in the iPhone app the header has to step down
+     below them itself. 0 in a browser, whose own bar sits above the page. */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --topbar-full: calc(var(--topbar-h) + var(--safe-t));
 
   /* older names still used in a few places */
   --plane: var(--bg);
@@ -92,6 +97,20 @@ body {
 
 svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 [hidden] { display: none !important; }
+
+/* The iPhone app's copy of the page has <html data-app> (scripts/build-app.mjs).
+   Copy written for one of the two carries .app-only or .web-only, and the app
+   leaves out the brokerage, order amounts and membership, which it does not
+   have. */
+html:not([data-app]) .app-only { display: none !important; }
+html[data-app] .web-only, html[data-app] #acctBroker, html[data-app] #acctMember, html[data-app] #brokerPanel,
+html[data-app] #orderBar, html[data-app] .ci-amount, html[data-app] .ci-sent { display: none !important; }
+/* with no order bar between them, the last cart row's line is the divider */
+html[data-app] #cartFoot { border-top: 0; }
+/* an app does not bounce past its ends, and a long press on a card or a tab
+   is a drag, not a text selection or a link preview */
+html[data-app] { overscroll-behavior: none; }
+html[data-app] .card, html[data-app] .tabbar { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 a { color: var(--accent-ink); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
 b, strong { font-weight: 600; }
@@ -174,7 +193,8 @@ kbd { font: 500 11px var(--font); background: var(--surface-2); border: 1px soli
 
 .topbar {
   display: flex; align-items: center; gap: 16px;
-  height: var(--topbar-h); padding: 0 clamp(14px, 3vw, 28px);
+  height: var(--topbar-full); padding: 0 clamp(14px, 3vw, 28px);
+  padding-top: var(--safe-t);
   border-bottom: 1px solid var(--line);
   background: rgba(11, 12, 14, .88);
   backdrop-filter: saturate(140%) blur(10px);
@@ -341,7 +361,7 @@ body:not(.docpage) { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
 }
 /* the companies stay in view down a long table */
 .cmp-table thead th, .cmp-table thead td {
-  position: sticky; top: var(--topbar-h); z-index: 3;
+  position: sticky; top: var(--topbar-full); z-index: 3;
   padding: 10px 8px 10px 0; background: var(--bg); vertical-align: top;
   border-bottom: 0; box-shadow: inset 0 -1px 0 var(--line-strong);
 }
@@ -402,7 +422,7 @@ body:not(.docpage) main { flex: 1; display: flex; }
 
 .stage { flex: 1; display: grid; place-items: start center; padding: clamp(14px, 3vh, 28px) 16px 24px; }
 .deck-wrap { width: 100%; max-width: 440px; min-width: 0; }
-.deck { position: relative; height: min(690px, calc(100dvh - 262px - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px))); min-height: 420px; }
+.deck { position: relative; height: min(690px, calc(100dvh - 262px - var(--safe-t) - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px))); min-height: 420px; }
 
 /* Pass, Undo and Add under the deck. While a card is dragged, --pull (0–1)
    lights the button on that side; a choice made any way presses it. */
@@ -800,6 +820,11 @@ body:not(.docpage) main { flex: 1; display: flex; }
 }
 .sheet.wide .sheet-inner { width: min(94vw, 620px); }
 .sheet.full .sheet-inner { width: min(96vw, 860px); max-height: 94dvh; }
+/* The app runs under the status bar and over the home indicator, so a sheet
+   leaves room for both. Only there: a browser on the same phone keeps its
+   sheets as they were. */
+html[data-app] .sheet-inner { max-height: calc(88dvh - var(--safe-t) - var(--safe-b)); }
+html[data-app] .sheet.full .sheet-inner { max-height: calc(94dvh - var(--safe-t) - var(--safe-b)); }
 
 .sheet-head { display: flex; align-items: center; gap: 12px; padding: 16px 14px 14px 22px; border-bottom: 1px solid var(--line); }
 .sheet-head h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.015em; white-space: nowrap; }
@@ -1131,6 +1156,7 @@ input[type="search"]::placeholder { color: var(--ink-muted); }
 .earn-alerts .switch input { margin-top: 3px; flex: none; }
 .earn-alerts .block-note { margin-top: 2px; }
 .earn-alerts .block-note .link-btn { font-size: 12.5px; padding: 0; }
+.earn-alerts #earnLocalRow { margin-top: 16px; }
 .earn-cal { display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
 .earn-cal .block-note { margin: 0; flex: 1 1 200px; }
 
@@ -1303,7 +1329,7 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
   .topbar-actions { margin-left: auto; }
   .stage { padding-bottom: 12px; }
   /* a short phone keeps the buttons above the tab bar; the card scrolls inside */
-  .deck { height: calc(100dvh - 168px - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px)); min-height: 260px; }
+  .deck { height: calc(100dvh - 168px - var(--safe-t) - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px)); min-height: 260px; }
   .card-scroll { padding: 18px 18px 22px; }
   .c-price-v { font-size: 30px; }
   .topnav { display: none; }

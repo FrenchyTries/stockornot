@@ -65,8 +65,8 @@ month-by-month **insider sentiment**, and the last ten days of **headlines**.
 
 On a phone, *Add to Home Screen* installs it as an app with its own icon, and
 it opens with no signal on the last data it saw (`sw.js`, network first, so
-nobody online is ever shown a stale page). The App Store version is planned in
-[`docs/APP_STORE.md`](docs/APP_STORE.md).
+nobody online is ever shown a stale page). There is an iPhone app too; see
+[The iPhone app](#the-iphone-app) below.
 
 Scroll the card to read it all. Drag it sideways, press **Not for me** or
 **Add to cart** under the deck, or use <kbd>←</kbd> / <kbd>→</kbd>. The round
@@ -117,6 +117,21 @@ and everything attached to it through `delete_my_account()` in
 `supabase/schema.sql`. That function, and the policy that lets people read
 their own alert log, take effect once the schema file is run again in
 Supabase's SQL editor; until then the button says to write in instead.
+
+## The iPhone app
+
+`mobile/` is the iPhone app, a [Capacitor](https://capacitorjs.com) shell
+around this same interface. `node scripts/build-app.mjs` copies `index.html`,
+`app.js`, `styles.css`, `lib/` and a copy of the data into `mobile/www` (build
+output, never committed), and the app then reads fresh `data/*.json` and
+headlines from stockornot.com, falling back to its own copy offline
+(`lib/native.mjs`). In the app the brokerage, order amounts and membership are
+gone, sign-in asks for the emailed code, and the phone adds haptics, the share
+sheet and earnings reminders scheduled on the phone. It is built on a Mac with
+`cd mobile && npm ci && npm run ios`, which opens the Xcode project in
+`mobile/ios`. Because every installed copy reads tonight's data, the format of
+`data/*.json` may only gain fields. Everything else, from the Mac's setup to
+the store listing, is in [`docs/APP_STORE.md`](docs/APP_STORE.md).
 
 ## The cart
 
@@ -358,8 +373,8 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
 ## Design notes
 
 One system for every page, in `styles.css`: the deck, the dialogs, the company
-pages, and the method, pricing, privacy and not-found pages. Dark and quiet, set in
-[Inter](https://rsms.me/inter/) (served from `fonts/`, SIL Open Font License),
+pages, and the method, pricing, privacy, terms, support and not-found pages.
+Dark and quiet, set in [Inter](https://rsms.me/inter/) (served from `fonts/`, SIL Open Font License),
 with hairline rules instead of boxes inside boxes, one accent colour, and the
 five financial checks marked with small line icons (`lib/icons.mjs`). Up and down
 moves carry a ▲/▼ glyph and a signed number as well as colour, so nothing depends

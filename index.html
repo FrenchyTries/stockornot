@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="StockOrNot" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black" />
 <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
 
@@ -177,7 +177,7 @@
       <!-- signed out: step 1, ask for the email -->
       <form class="auth-step" id="authEmailStep">
         <p class="auth-blurb">
-          Your cart lives in this browser right now, so it disappears if you switch
+          Your cart lives on this device right now, so it disappears if you switch
           devices or clear your history. Sign in and it follows you.
         </p>
         <label class="auth-label" for="authEmail">Email address</label>
@@ -198,14 +198,17 @@
       <!-- signed out: step 2, the code -->
       <form class="auth-step" id="authCodeStep" hidden>
         <p class="auth-blurb">
-          Check <b id="authSentTo"></b>. Click the sign-in link in the email and you're
-          done. It expires in a few minutes.
+          Check <b id="authSentTo"></b>.
+          <span class="web-only">Click the sign-in link in the email and you're
+          done. It expires in a few minutes.</span>
+          <span class="app-only">Type the code from the email. Tapping the link signs in
+          Safari, not this app, and uses the code up.</span>
         </p>
-        <p class="auth-or"><span>or, if the email gave you a code</span></p>
-        <label class="auth-label" for="authCode">Six-digit code</label>
+        <p class="auth-or web-only"><span>or, if the email gave you a code</span></p>
+        <label class="auth-label" for="authCode">Code from the email</label>
         <input class="auth-input code" type="text" id="authCode" name="code"
                inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*"
-               maxlength="6" placeholder="000000">
+               maxlength="10" placeholder="000000">
         <button type="submit" class="primary-btn wide" id="authVerify">Sign in with the code</button>
         <button type="button" class="link-btn" id="authBack">Use a different address</button>
       </form>
@@ -229,7 +232,7 @@
         <p class="auth-blurb">
           Signed in as <b id="authWho"></b>. Your cart saves automatically and will be
           here on any device you sign in from. Signing out saves it one last time,
-          then clears it from this browser.
+          then clears it from this device.
         </p>
         <button type="button" class="ghost-btn wide" id="authSignOut">Sign out</button>
         <div class="acct-data">
@@ -240,8 +243,9 @@
         <div class="acct-confirm" id="acctDeleteConfirm" hidden>
           <p class="auth-blurb">
             This deletes your account for good: the email address, the saved cart with its notes and
-            amounts, and your alert settings. It cannot be undone. A brokerage account at Alpaca is
-            not touched; this browser just disconnects from it.
+            amounts, and your alert settings. It cannot be undone.
+            <span class="web-only">A brokerage account at Alpaca is not touched; this browser just
+            disconnects from it.</span>
           </p>
           <button type="button" class="danger-btn wide" id="acctDeleteGo">Delete everything</button>
           <button type="button" class="ghost-btn wide" id="acctDeleteKeep">Keep my account</button>
@@ -261,7 +265,7 @@
       </button>
       <button type="button" class="row-link" id="acctAlerts">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-        <span><b>Earnings alerts</b><small>An email a week before anything in your cart reports</small></span>
+        <span><b>Earnings alerts</b><small class="web-only">An email a week before anything in your cart reports</small><small class="app-only">A notification or an email a week before anything in your cart reports</small></span>
       </button>
       <button type="button" class="row-link" id="acctBroker">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16M6 10v8M10 10v8M14 10v8M18 10v8M3 20h18M12 3l9 5H3z"/></svg>
@@ -277,9 +281,10 @@
     <h2 class="block-h row-list-h">About</h2>
     <div class="row-list">
       <a class="row-link" href="/method"><span><b>How the score works</b></span></a>
-      <a class="row-link" href="/stock"><span><b>Every company</b></span></a>
+      <a class="row-link web-only" href="/stock"><span><b>Every company</b></span></a>
       <a class="row-link" href="/privacy"><span><b>Privacy</b></span></a>
       <a class="row-link" href="/terms"><span><b>Terms</b></span></a>
+      <a class="row-link" href="mailto:hello@stockornot.com"><span><b>Contact support</b></span></a>
     </div>
     <p class="block-note acct-fine">
       <b>Not investment advice.</b> Every figure here comes from
@@ -328,6 +333,10 @@
         <span id="detailPrice">—</span>
         <span id="detailChange"></span>
       </div>
+      <!-- shown where there is a share sheet (app.js, openDetail) -->
+      <button type="button" class="icon-btn" id="detailShare" hidden aria-label="Share">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M8 11H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-2"/></svg>
+      </button>
       <button type="button" class="icon-btn" data-close aria-label="Close detail">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -538,7 +547,13 @@
           <span id="earnEmailLabel">Email me when anything in my cart is a week from reporting, with what the street expects.</span>
         </label>
         <p class="block-note" id="earnEmailNote"></p>
-        <div class="earn-cal">
+        <!-- the app: a notification scheduled on the phone, in place of the calendar file -->
+        <label class="switch app-only" id="earnLocalRow">
+          <input type="checkbox" id="earnLocal">
+          <span>Notify me on this iPhone a week before anything in my cart reports.</span>
+        </label>
+        <p class="block-note app-only" id="earnLocalNote"></p>
+        <div class="earn-cal web-only">
           <button type="button" class="ghost-btn" id="btnIcs">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>
             <span>Add to my calendar</span>
@@ -557,6 +572,6 @@
   <button type="button" class="toast-btn" id="toastAction">Undo</button>
 </div>
 
-<script type="module" src="app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>
