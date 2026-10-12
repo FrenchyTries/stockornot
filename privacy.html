@@ -51,9 +51,9 @@
 
   <h2>Without an account</h2>
 
-  <p>Nothing about you leaves your device. The cart, with any notes and planned amounts, the
-  cards you have already swiped past, and which companies you have opened (for the free
-  allowance) are kept in your browser's own storage on this device, or in the iPhone app's own
+  <p>Nothing about you is kept anywhere but on your device, apart from the short request logs
+  described below. The cart, with any notes and planned amounts, and the cards you have already
+  swiped past are kept in your browser's own storage on this device, or in the iPhone app's own
   storage on the phone. Clearing this site's data in your browser, or deleting the app, removes all
   of it.</p>
 
@@ -110,7 +110,8 @@
   <p>If you connect an Alpaca account on the website, the keys or sign-in token are encrypted into a
   cookie in your browser that only this site's server can read. They are not stored in any database
   here. The cookie expires after 30 days, or at once when you disconnect. Orders you confirm
-  go straight to Alpaca, whose own privacy policy covers your account there.</p>
+  go to Alpaca through this site's server, which keeps no copy; Alpaca's own privacy policy covers
+  your account there.</p>
 
   <h2>Who else is involved</h2>
 
@@ -147,25 +148,32 @@
   <p>Cookies are set only for a brokerage connection on the website: the sealed connection described
   above, and, while you are signing in to Alpaca, a second one that lasts ten minutes and only checks
   that the sign-in came back to the browser that started it. Everything else stays in your browser's
-  own storage, or the app's, because StockOrNot cannot work without it: your cart, the cards you have
-  swiped, the companies you have opened, your scoring style, the two companies in Compare and, once
-  you sign in, your session. While a sign-in link is on its way, the address it was sent to is kept
-  too, so the site can tell you if a link signs you in to a different account. It goes once you are
-  signed in or when you sign out, and in any case the first time StockOrNot opens more than a day
-  later. There are no advertising, analytics or tracking cookies, and nothing optional, so there is
-  nothing to accept or refuse and no cookie banner.</p>
+  own storage, or the app's, and is written only when you use the part it belongs to: your cart, the
+  cards you have swiped, your scoring style, the two companies in Compare, that you hid the earnings
+  notice, and, once you sign in, your session (you stay signed in on that device until you sign out)
+  and which account the cart on the device belongs to. In the app, switching reminders on also keeps
+  that choice and the date of the data they were last set from. If you add the website to your home
+  screen and open it from there, it keeps a copy of the site's own pages, scripts, typeface and public
+  data so it can open without a signal; a visit in a browser tab keeps no such copy. While a sign-in
+  link is on its way, the address it was sent to is kept too, so the site can tell you if a link signs
+  you in to a different account. It goes once you are signed in or when you sign out, and in any case
+  the first time StockOrNot opens more than a day later. Nothing is stored before you use the part it
+  is for, and none of it is advertising, analytics or tracking, so there is nothing to accept or
+  refuse and no cookie banner.</p>
 
   <h2>Getting a copy, and deleting it</h2>
 
   <p>Signed in, the Account tab has <b>Download my data</b>, a file with your account, the saved cart
-  with its notes and amounts, the alert settings and the alerts sent, and what this browser or the app
-  holds; in the app it opens the share sheet. Supabase's sign-in records are kept by Supabase for
+  with its notes and amounts, the alert settings and the alerts sent, and every StockOrNot setting this
+  browser or the app holds (the sign-in session itself, a key to the account, is left out); in the app
+  it opens the share sheet. Supabase's sign-in records are kept by Supabase for
   security and are not in the file; write in for a copy. Without an account, Export CSV in the cart
   gives you the cart.</p>
 
   <p>The Account tab also has <b>Delete my account</b>. It asks once more, then deletes the account,
   the email address and everything attached to it at once, for good, and on the website disconnects
-  that browser from any brokerage account. You can also empty the cart and switch alerts off at any
+  that browser from any brokerage account. Supabase's own sign-in log and its routine backups keep
+  their copies only until those expire on their own schedule (the log within 7 days). You can also empty the cart and switch alerts off at any
   time, and signing out removes the session from that browser or phone. If anything here does not
   work, write to <a href="mailto:hello@stockornot.com">hello@stockornot.com</a> from the account's
   address: a copy or a deletion is done within 30 days, and you get a reply when it is. The

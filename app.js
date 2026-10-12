@@ -3916,7 +3916,10 @@ function wireAuth() {
           cart: cartRecords(),
           scoring_style: state.style,
           companies_swiped_past: state.seen.length,
-          compare: load(CMP_KEY, null)
+          compare: load(CMP_KEY, null),
+          /* every StockOrNot setting as stored. The sign-in session is left
+             out: it is a key to the account, not information about you. */
+          all_settings: storedSettings()
         }
       };
       /* a download on the website, the share sheet in the app */
@@ -3926,6 +3929,17 @@ function wireAuth() {
       });
     });
   });
+
+  function storedSettings() {
+    var out = {};
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf("ts.") === 0) out[k] = localStorage.getItem(k);
+      }
+    } catch (e) { /* storage off */ }
+    return out;
+  }
 
   $("#acctDelete").addEventListener("click", function () {
     authError("");
@@ -4038,11 +4052,25 @@ function whenLoaded(fn) { if (loaded) fn(); else afterLoad.push(fn); }
 function init() {
   state.viewed = tier.loadViewed();
   wire();
-  /* Installable as an app, and able to open with no signal on the last data
-     it saw (sw.js, network first). Over https, and on localhost for development.
-     Not in the iPhone app, which carries its files and has no sw.js. */
+  /* Opened from the home screen, the site can open with no signal on the last
+     data it saw (sw.js, network first). That copy is kept only for someone who
+     installed it: a visit in a browser tab stores nothing it did not ask for,
+     and a worker or copy left by an earlier visit is removed. Over https, and
+     on localhost for development. Not in the iPhone app, which carries its
+     files and has no sw.js. */
   if (!native.inApp && "serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
-    navigator.serviceWorker.register("/sw.js").catch(function () {});
+    var installed = navigator.standalone === true ||
+      Boolean(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    if (installed) navigator.serviceWorker.register("/sw.js").catch(function () {});
+    else {
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        regs.forEach(function (r) { r.unregister(); });
+      }).catch(function () {});
+      /* a worker keeps the page it already controls until that page closes, and
+         may refill its copy meanwhile, so the copy goes on the first load that
+         no worker controls */
+      if (!navigator.serviceWorker.controller && window.caches) caches.delete("stockornot-v1").catch(function () {});
+    }
   }
   /* Decided synchronously, before any network call: either a session is already
      in storage or this page load is the return leg of a sign-in link. Either
