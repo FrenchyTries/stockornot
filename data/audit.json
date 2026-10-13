@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-10-10T00:33:44.518Z",
-  "snapshotUpdated": "2026-10-10T00:33:44.343Z",
+  "ranAt": "2026-10-13T00:40:25.176Z",
+  "snapshotUpdated": "2026-10-13T00:40:24.965Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -141,12 +141,11 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "2 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "1 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
-        "MKC 2027-01-20",
         "PEP 2027-02-01"
       ],
-      "count": 2
+      "count": 1
     },
     {
       "level": "warn",
