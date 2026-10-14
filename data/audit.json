@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-10-13T00:40:25.176Z",
-  "snapshotUpdated": "2026-10-13T00:40:24.965Z",
+  "ranAt": "2026-10-14T00:50:30.544Z",
+  "snapshotUpdated": "2026-10-14T00:50:30.217Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -141,11 +141,15 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "1 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "5 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
-        "PEP 2027-02-01"
+        "DPZ 2027-02-22",
+        "GS 2027-04-12",
+        "JNJ 2027-01-26",
+        "PEP 2027-02-01",
+        "UNH 2027-01-25"
       ],
-      "count": 1
+      "count": 5
     },
     {
       "level": "warn",
