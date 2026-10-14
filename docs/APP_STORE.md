@@ -86,13 +86,27 @@ those pages as they are.
   or meaning. Anything that would break that moves to a new path (for example
   `data/v2/`), and the old files keep being written until old versions of the
   app are gone. The same goes for what `/api/news` returns.
+- **`data/etfs.json` and `data/etf-closes.json` follow the same rule** from
+  the first night they are written: a field can be added, never renamed,
+  removed, or changed in type or meaning (`docs/ETFS.md` has the format).
+  Funds stay out of `data/snapshot.json`, which every copy of the app reads as
+  companies, and a fund record never carries `cik`, `s` or `mc`, which the
+  app's code reads as a company's.
+- **A build shows funds only if it carries them.** The app asks
+  stockornot.com for `data/etfs.json` only when its own copy, built in, has
+  funds to show (`loadFundsFile` in `lib/funds.mjs`). So a build that went to
+  App Review without the ETF side never grows one when the website's data
+  gains funds, which Apple would count as a hidden feature (Guideline
+  2.3.1). Keep it that way: any new kind of screen that appears with the data
+  is gated on the build's own copy in the same way.
 - **The website and the app ship separately.** A change to `app.js` reaches
   the website on the next deploy, but the app only with a new version through
   App Review. Test both.
 - **`vercel.json` keeps `Access-Control-Allow-Origin: capacitor://localhost`**
   on `/data/(.*)` and `/api/news`, and never on `/api/broker*`. Without it the
   app quietly falls back to the data it was built with. `tests/app.test.mjs`
-  checks the file; the `curl` in Monday's step 5 checks the live site.
+  checks the file; the `curl` in "The day on the Mac", step 5, checks the live
+  site.
 - **Never change the app's id or its origin** (`capacitor://localhost`) after
   release: carts and sign-ins saved on phones belong to it and would be lost.
 - **Capacitor stays at the exact versions in `mobile/package.json`.** Upgrade
@@ -104,7 +118,7 @@ those pages as they are.
 Never paste a key, password or code into the chat; each goes straight into
 the service that needs it.
 
-Before Monday, no Mac needed (in this order):
+First, no Mac needed (in this order):
 
 - [ ] **Enrol in the Apple Developer Program** as an individual, $99 a year,
       with your Apple ID (two-factor on). Easiest from the Apple Developer app
@@ -112,8 +126,9 @@ Before Monday, no Mac needed (in this order):
       Usually approved within a couple of days. Then check it is active:
       developer.apple.com/account → Membership details, and note the **Team
       ID** (ten letters and digits; not a secret, and giving it to Claude lets
-      the Xcode project be preset). If it is still pending on Monday, the app
-      can run on your own iPhone but cannot go to TestFlight or Apple.
+      the Xcode project be preset). If it is still pending on the day on the
+      Mac, the app can run on your own iPhone but cannot go to TestFlight or
+      Apple.
 - [ ] **Register the App ID.** developer.apple.com/account → Certificates,
       Identifiers & Profiles → Identifiers → + → App IDs → App → Explicit
       Bundle ID `com.stockornot.app`, description StockOrNot. Tick no
@@ -127,8 +142,14 @@ Before Monday, no Mac needed (in this order):
       Availability, App Privacy (then **Publish**), and the version page's
       text.
 - [ ] **Check the data terms** before answering Content Rights: does the
-      Finnhub plan, and the use of Yahoo and Stooq prices, allow showing the
-      data in an app? Answer truthfully (Guideline 5.2.2).
+      Finnhub plan allow showing its data in an app, ETF prices included?
+      Answer truthfully (Guideline 5.2.2). Yahoo and Stooq are no longer
+      asked for anything: the nightly job stops calling them with pull
+      request #4, as neither ever answered it. The last of their data, a
+      weekly chart for one company (CRH), is dropped by the first nightly
+      run after the merge. A build made before that run's data commit still
+      carries it, so the build for Apple waits for that commit (step 10 of
+      "The day on the Mac").
 - [ ] **Run all of `supabase/schema.sql`** in Supabase's SQL editor, if not
       done since pull request #3. Until it runs, Delete my account tells
       people to email instead, and "email us to delete" is one of the most
@@ -175,12 +196,15 @@ Before Monday, no Mac needed (in this order):
         Pro), Supabase's sign-in log up to 7 days (after the step above),
         Resend's record of each email 30 days (from third-party summaries;
         check Resend's dashboard or pricing page).
-- [ ] **Merge the October 11 pull request** tonight, after reading it. The
-      app works from the branch too, but the site's pages lose their Pricing
-      link and the data files gain the header the app needs only once it is
-      merged. Then run the `curl` in Monday's step 5 from any computer.
-- [ ] **Have ready for Monday:** the iPhone on iOS 17 or later, its cable,
-      and the TestFlight app installed from the App Store.
+- [ ] **Merge pull request #4,** after reading it, ideally on a weekday
+      before the day on the Mac: the build for Apple waits for the data
+      commit of the nightly run after the merge (step 10 of "The day on the
+      Mac"). The app can be tried from the branch before that, but the
+      site's pages lose their Pricing link and the data files gain the
+      header the app needs only once it is merged. Then run the `curl` in
+      "The day on the Mac", step 5, from any computer.
+- [ ] **Have ready for the day on the Mac:** the iPhone on iOS 17 or later,
+      its cable, and the TestFlight app installed from the App Store.
 
 Later, before charging for membership in the app:
 
@@ -196,7 +220,7 @@ No longer needed (dropped on October 11): choosing a build service and
 approving its access to the repository, an App Store Connect API key, and an
 Apple push key.
 
-## Monday on the Mac
+## The day on the Mac
 
 About a day, most of it waiting for Xcode to download. Commands go in
 **Terminal** (Applications → Utilities → Terminal): paste one block, press
@@ -224,8 +248,8 @@ password, it is the Mac's own login password, and nothing shows as you type.
    The last line should print `v22` or `v24` something and a git version.
 4. **Sign Xcode in.** Open Xcode → Settings → Accounts → + → Apple Account,
    and sign in. Your team shows with "(Individual)" after it.
-5. **Check the website is ready for the app** (needs the October 11 pull
-   request merged):
+5. **Check the website is ready for the app** (needs pull request #4
+   merged):
    ```bash
    for u in /data/snapshot.json '/api/news?t=AAPL' '/api/broker?action=status'; do
      echo "== $u"; curl -sI -H 'Origin: capacitor://localhost' "https://stockornot.com$u" | grep -iE '^(HTTP|access-control)'; done
@@ -248,7 +272,8 @@ password, it is the Mac's own login password, and nothing shows as you type.
    npm run ios
    ```
    Use `git checkout claude/hopeful-ritchie-6yx5s1` instead of `main` if the
-   pull request is not merged yet. The tests should end with `fail 0`.
+   pull request is not merged yet: a build from the branch is for steps 7 to
+   9, and step 10 waits for the merge. The tests should end with `fail 0`.
    `npm run ios` builds the app's copy of the site, copies it into the Xcode
    project and opens Xcode.
 7. **Signing, in Xcode.** In the left column click the blue **App** icon at
@@ -278,6 +303,12 @@ password, it is the Mac's own login password, and nothing shows as you type.
    - In the Console, type `Object.keys(Capacitor.Plugins)` and press Return:
      the list includes Haptics, Share, LocalNotifications, Browser and
      Filesystem.
+   - **Stocks | ETFs:** the Deck shows this switch only when the build
+     carries `data/etfs.json`, which exists from the first nightly run
+     after the merge of pull request #4 that reads most funds' holdings
+     (`docs/ETFS.md`, "The first file"), and no earlier. Note whether it
+     shows: the listing must match ("ETFs in the listing", under "Store
+     listing").
    - If the Console shows something blocked by the Content Security Policy:
      in Terminal (still in the `mobile` folder) run `CSP=off npm run sync`,
      press ⌘R again, and tell Claude. A `CSP=off` build is only for finding
@@ -322,12 +353,23 @@ password, it is the Mac's own login password, and nothing shows as you type.
      Supabase, exactly as before.
    - The header and the close buttons of the sheets sit clear of the camera
      cut-out at the top.
-10. **Send it to Apple.** First, in Terminal in the `mobile` folder, run
-    `npm run sync` (exactly that, with no `CSP=off` in front), so the build
-    that goes to Apple is the current code with its security policy. Then at
-    the top of Xcode pick "Any iOS Device (arm64)", then Product → Archive.
-    When the Organizer window opens: Distribute App → App Store Connect →
-    Distribute. Xcode makes the certificates it needs.
+10. **Send it to Apple,** only once pull request #4 is merged and the
+    nightly run after the merge has made its data commit, which drops the
+    last of Yahoo's data ("Check the data terms" above). First, in Terminal
+    in the `mobile` folder, bring in the merge and that night's data,
+    whichever branch step 6 left you on, and check:
+    ```bash
+    git pull origin main
+    node -e 'console.log(require("../data/detail/CRH.json").chart ? "Wait: no nightly data commit since the merge yet" : "Ready")'
+    ```
+    Go on only when it prints `Ready`. Then run `npm run sync` (exactly that,
+    with no `CSP=off` in front), so the build that goes to Apple is the
+    current code with its security policy. (Once `data/etfs.json` exists but
+    the ETF build is not ready yet, use the line in "ETFs in the listing"
+    instead, which leaves the funds out.) Then at the top of Xcode pick "Any
+    iOS Device (arm64)", then Product → Archive. When the Organizer window
+    opens: Distribute App → App Store Connect → Distribute. Xcode makes the
+    certificates it needs.
 11. **TestFlight.** App Store Connect → Apps → StockOrNot → TestFlight. Wait
     for the build to finish processing (an email comes; minutes to half an
     hour). Internal Testing → + → a group with yourself in it, then install
@@ -389,14 +431,14 @@ Claude, so the next pull request carries the new project.
       build, and so is everything about membership; Pricing is out of the
       header and footer of every page on the site, because the app opens those
       pages as they are, and a page with a price and no way to pay reads as
-      unfinished. Sign-in in the app asks for the emailed code. Code in the
-      October 11 pull request; done once the first TestFlight build works.
+      unfinished. Sign-in in the app asks for the emailed code. Code in pull
+      request #4; done once the first TestFlight build works.
 - [ ] **4. Things only an app does.** A small vibration on each swipe, the
       phone's share sheet for a company, the CSV and Download my data, and a
       notification on the phone a week before anything in the cart reports,
       scheduled by the phone itself. Apple turns down a website in a wrapper
-      (Guideline 4.2), and these are the difference. Code in the October 11
-      pull request; done once each is tried on the iPhone.
+      (Guideline 4.2), and these are the difference. Code in pull request #4;
+      done once each is tried on the iPhone.
 - [x] **5. Delete your account in the app.** Apple requires it (Guideline
       5.1.1(v)). Account → Delete my account, through `delete_my_account()`
       in `supabase/schema.sql`, which the owner runs once in Supabase's SQL
@@ -404,9 +446,10 @@ Claude, so the next pull request carries the new project.
 - [ ] **6. First-run guide.** Three short screens: what the score is, how to
       swipe, what the cart does.
 - [ ] **7. The store listing.** The drafts are below. The screenshots have to
-      be taken again from the app in the Simulator (Monday's step 12): the
-      ones in `marketing/` date from September 23, before the tabs, and come
-      from the website, so none of them can be used as they are.
+      be taken again from the app in the Simulator ("The day on the Mac",
+      step 12): the ones in `marketing/` date from September 23, before the
+      tabs, and come from the website, so none of them can be used as they
+      are.
 - [ ] **8. Submit,** and answer the review.
 
 ## Before submitting, check
@@ -448,7 +491,17 @@ And for this app in particular:
 - Order placing is absent from the app build: no brokerage connection, no
   "Review orders", no Amount fields. It returns only once the membership is an
   organization.
-- The website serves the data the app needs: the `curl` in Monday's step 5.
+- The website serves the data the app needs: the `curl` in "The day on the
+  Mac", step 5.
+- The listing matches the build. With the Stocks | ETFs switch on the
+  Deck, the ETF description paragraph, keywords and review-notes paragraph
+  are all in; without it, nothing in the listing mentions ETFs ("ETFs in the
+  listing" below).
+- Until the ETF build, the App Review account's cart holds no ETF. A fund
+  put in that cart on the website shows in every copy of the app signed in
+  to it, marked ETF, even one built without funds, where it is a feature the
+  listing does not mention. When you sign in with it on the day you submit
+  (check 2), remove any row marked ETF from its cart.
 
 ## Store listing
 
@@ -495,6 +548,93 @@ name, subtitle and keywords (Guideline 2.3.7).
 **Keywords** (100, commas, no spaces):
 `stocks,investing,research,10-K,SEC,filings,earnings,fundamentals,valuation,watchlist,swipe` (90)
 
+**ETFs in the listing.** A build shows the ETF side (the Stocks | ETFs
+switch on the Deck and in Compare, the fund cards and their full record) only
+when it carries its own copy of `data/etfs.json` with at least two funds whose
+holdings have been read. A build without one (it carries an empty list in its
+place) never shows funds, even once the website has them: it does not ask
+stockornot.com for the file. A build with one reads the website's newer file
+when online, and its own copy offline.
+`scripts/build-app.mjs` copies the file in whenever it is in the `stockornot`
+folder, which it is from the data commit of the first nightly run after pull
+request #4 is merged that reads most funds' holdings (`docs/ETFS.md`, "The
+first file"; `git pull origin main` first).
+
+So the listing follows the build:
+
+- **No switch** (any build made before that first ETF night, or with the
+  funds left out as below): the text above as it is, and nothing about ETFs
+  in the description, keywords, screenshots or review notes. ETFs join the
+  listing with the next version.
+- **The switch shows:** the ETF description paragraph, keywords and
+  review-notes paragraph below are all required, in the same submission as
+  the build. An app with features its review was not told about is turned
+  down (Guideline 2.3.1).
+
+**When to make the ETF build.** Only once every fund card is complete, or the
+reviewer meets the empty states check 3 rules out. On the first ETF night
+each fund has one closing price, and its chart needs five, so until the data
+commit of the fifth trading day, counting the first, every fund's full record
+says "Not enough price history for a chart". The fees come in a few a
+night from the funds' shareholder reports, and SPY's and DIA's only by hand
+from their prospectus on sec.gov (`docs/ETFS.md`, "The quarterly half hour");
+until a fund has one, its card says "Not read". So about a week after the
+merge, ask Claude to add every fee still missing to `data/etf-list.json` in
+that day's pull request, each copied from its filing on sec.gov with that
+filing's address; the data commit of the night after it is merged carries
+them. Then `git pull origin main` in the `stockornot` folder and run this
+there:
+```bash
+node -e '
+const f = require("./data/etfs.json").etfs.filter((e) => e.nport && (e.hold || []).length);
+const c = require("./data/etf-closes.json").closes;
+const miss = (bad) => f.filter(bad).map((e) => e.t).join(" ") || "none";
+console.log(f.length + " funds with holdings");
+console.log("no fee: " + miss((e) => typeof e.er !== "number"));
+console.log("fewer than five closes: " + miss((e) => (c[e.t] || []).length < 5));
+console.log("out of date: " + miss((e) => Date.now() - Date.parse(e.nport.period) > 200 * 864e5));'
+```
+Make the ETF build only when its last three lines all say `none`. If some
+funds still have fewer than five closes a week on, Finnhub is probably not
+quoting them, and a fund "out of date" has missed its quarterly filings:
+either way, tell Claude instead of building. Then check in the Simulator
+that the switch shows, with Wi-Fi on and again in Airplane Mode, and go
+through the fund cards and a few full records against "Before submitting",
+check 3 in particular. A fund that cannot be read in full says "Partly read",
+"Holdings only" or "Out of date" where the number would be, with the figure
+behind it (how much was matched, how much is cash, or how old its holdings
+are): that is what it is, not something still loading, and the review notes
+say so.
+
+Until then, a build for App Review (a fix after a rejection, say) leaves the
+funds out. In Terminal in the `mobile` folder, in place of step 10's
+`npm run sync`:
+```bash
+mv ../data/etfs.json ../etfs-aside.json; npm run sync; mv ../etfs-aside.json ../data/etfs.json
+```
+Then press ⌘R and check the Deck shows no Stocks | ETFs switch before
+archiving, and submit the listing without ETFs, with no ETF in the App Review
+account's cart ("Before submitting").
+
+When the build shows ETFs, all of these:
+
+- **Description:** add this paragraph after the list that ends "…with links
+  to the filing." (the description is then about 2,770 characters of the
+  4,000), and in the paragraph on where the figures come from, read
+  "companies' and funds' SEC filings" for "companies' SEC filings":
+
+  > A Stocks | ETFs switch opens about fifty US stock ETFs, the funds that hold those same companies. Each fund's card shows its largest holdings, its sectors, its fee in dollars where its SEC filings give it, and the filing its holdings come from. A fund read in full gets a fund reading out of 100 from what it owns, read through the company scores, what it costs and how spread out it is; a fund that cannot be read in full says so instead, with the figure behind it. Funds go in the same cart, and Compare sets two funds side by side, with how much they hold in common.
+
+  "About fifty" is the number of funds on the list; if the check above
+  counts far fewer funds with holdings, say "dozens of" instead.
+- **Keywords:**
+  `stocks,ETF,funds,investing,research,10-K,SEC,filings,earnings,fundamentals,valuation,watchlist,swipe`
+  (100, Apple's limit exactly; drop `,swipe` if App Store Connect refuses it).
+  No fund names or tickers, for the same reason as company names.
+- **Review notes:** the ETF first line and paragraph below.
+- **Screenshots** (optional): one of the ETF deck or a fund's full record can
+  take the place of one of the suggestions below.
+
 **Support URL:** https://stockornot.com/support
 **Marketing URL** (optional): https://stockornot.com
 **Privacy Policy URL:** https://stockornot.com/privacy
@@ -528,7 +668,13 @@ membership's price.
 > 4. Offline: in Airplane Mode the Deck, Cart, Compare and Track still work, on the data built into the app.
 > 5. Links to the method, terms, privacy policy and SEC filings open in an in-app Safari view.
 >
-> External services: SEC EDGAR, Finnhub, Yahoo Finance and Stooq (data), Supabase (accounts), Resend (email). Available in the United States only. Tested on [iPhone model], iOS [version].
+> External services: SEC EDGAR and Finnhub (data), Supabase (accounts), Resend (email). Available in the United States only. Tested on [iPhone model], iOS [version].
+
+When the build shows ETFs (and only then), start the notes "StockOrNot is a
+free research app for large US companies and the stock ETFs that hold
+them.", and add this paragraph before the last one:
+
+> ETFs: the Stocks | ETFs switch at the top of the Deck opens about fifty US stock funds; tap one for its full record. Compare has the same switch, to set two funds side by side. A fund's reading is built from its holdings and its fee as filed with the SEC, is never a place among the companies, and like the company score is not advice. A fund whose holdings cannot be read in full shows "Partly read", "Holdings only" or "Out of date", with the figure behind it, where the number would be: that is deliberate, not a screen still loading.
 
 **App Privacy** (then click **Publish**). Data collected, all for App
 Functionality, linked to the user, not used for tracking:
@@ -568,10 +714,13 @@ is NO), so App Store Connect does not ask on each upload.
 
 ## How long
 
-If nothing goes wrong: the October 11 pull request merged that night, a
-TestFlight build on the iPhone on Monday evening (the Xcode download is the
-slow part), submitted Monday night or Tuesday. Apple reviews half of all apps
-within a day and nine in ten within two, so the app could be live around
-Wednesday, October 14. A rejection costs two to four days a round; for a
-"minimum functionality" (4.2) rejection, reply in App Store Connect naming
-each native feature, and ask for an App Review appointment if it persists.
+If nothing goes wrong: pull request #4 merged on a weekday, and the nightly
+run's data commit that evening, which the build for Apple waits for (step 10
+of "The day on the Mac"); steps 1 to 9 can come before it. Then a TestFlight
+build on the iPhone by the evening of the day on the Mac (the Xcode download
+is the slow part), and the app submitted that night or the next day. Apple
+reviews half of all apps within a day and nine in ten within two, so the app
+could be live two or three days after the day on the Mac. A rejection costs
+two to four days a round; for a "minimum functionality" (4.2) rejection, reply
+in App Store Connect naming each native feature, and ask for an App Review
+appointment if it persists.

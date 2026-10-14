@@ -52,7 +52,7 @@ reusing old ones.
 
 Apple wants screenshots of the app being submitted, so these are taken from
 the app build itself, on the Mac, after the last change to any screen they
-show (docs/APP_STORE.md, Monday's step 12):
+show (docs/APP_STORE.md, "The day on the Mac", step 12):
 
 1. `cd mobile && npm run ios`, then run it on a simulated iPhone from Xcode.
 2. On each screen to show, click the Screenshot button under the device in

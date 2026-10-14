@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xbrl
+  xmlns="http://www.xbrl.org/2003/instance"
+  xmlns:ap="http://www.alger.com/20260213"
+  xmlns:dei="http://xbrl.sec.gov/dei/2025"
+  xmlns:iso4217="http://www.xbrl.org/2003/iso4217"
+  xmlns:link="http://www.xbrl.org/2003/linkbase"
+  xmlns:oef="http://xbrl.sec.gov/oef/2025"
+  xmlns:srt="http://fasb.org/srt/2025"
+  xmlns:us-gaap="http://fasb.org/us-gaap/2025"
+  xmlns:xbrldi="http://xbrl.org/2006/xbrldi"
+  xmlns:xhtml="http://www.w3.org/1999/xhtml"
+  xmlns:xlink="http://www.w3.org/1999/xlink"
+  xmlns:xs="http://www.w3.org/2001/XMLSchema-instance">
+<!-- Trimmed from a real XBRL instance the SEC extracted from an N-CSR (ALGER PORTFOLIOS, CIK 832566, accession 0001133228-26-002293), as recorded in the edgartools test cassette tests/cassettes/test_ncsr_annual.yaml. Kept: the contexts of three share classes, the document facts and each class expense ratio. -->
+    <link:schemaRef xlink:href="cik0000832566-20260213.xsd" xlink:type="simple"/>
+    <context id="DefaultContext">
+        <entity>
+            <identifier scheme="http://www.sec.gov/CIK">0000832566</identifier>
+        </entity>
+        <period>
+            <startDate>2025-01-01</startDate>
+            <endDate>2025-12-31</endDate>
+        </period>
+    </context>
+    <context id="FY2025_C000025034Member">
+        <entity>
+            <identifier scheme="http://www.sec.gov/CIK">0000832566</identifier>
+            <segment>
+                <xbrldi:explicitMember dimension="oef:ClassAxis">ap:C000025034Member</xbrldi:explicitMember>
+            </segment>
+        </entity>
+        <period>
+            <startDate>2025-01-01</startDate>
+            <endDate>2025-12-31</endDate>
+        </period>
+    </context>
+    <context id="FY2025_C000025033Member">
+        <entity>
+            <identifier scheme="http://www.sec.gov/CIK">0000832566</identifier>
+            <segment>
+                <xbrldi:explicitMember dimension="oef:ClassAxis">ap:C000025033Member</xbrldi:explicitMember>
+            </segment>
+        </entity>
+        <period>
+            <startDate>2025-01-01</startDate>
+            <endDate>2025-12-31</endDate>
+        </period>
+    </context>
+    <context id="FY2025_C000025024Member">
+        <entity>
+            <identifier scheme="http://www.sec.gov/CIK">0000832566</identifier>
+            <segment>
+                <xbrldi:explicitMember dimension="oef:ClassAxis">ap:C000025024Member</xbrldi:explicitMember>
+            </segment>
+        </entity>
+        <period>
+            <startDate>2025-01-01</startDate>
+            <endDate>2025-12-31</endDate>
+        </period>
+    </context>
+    <unit id="pure">
+        <measure>pure</measure>
+    </unit>
+    <unit id="USD">
+        <measure>iso4217:USD</measure>
+    </unit>
+    <dei:EntityCentralIndexKey
+      contextRef="DefaultContext"
+      id="h1_c8e853df_f5c6_4543_9c0e_d3bc7a1db35e">0000832566</dei:EntityCentralIndexKey>
+    <dei:EntityRegistrantName
+      contextRef="DefaultContext"
+      id="t_2_452ac909_e684_ba86_0f7a_101cce87f2ac"
+      xs:nil="false">ALGER PORTFOLIOS</dei:EntityRegistrantName>
+    <dei:DocumentType
+      contextRef="DefaultContext"
+      id="t_1_11d7eb94_e39e_4ca6_c8d0_ad16a3e71b7b">N-CSR</dei:DocumentType>
+    <dei:DocumentPeriodEndDate
+      contextRef="DefaultContext"
+      id="t_2_d7383fd9_0402_5e70_9744_a84adca39e3d">2025-12-31</dei:DocumentPeriodEndDate>
+    <oef:FundName
+      contextRef="FY2025_C000025034Member"
+      id="t_6_a3a791c3_3cad_032f_a7d6_caef5157ed70">Alger Capital Appreciation Portfolio</oef:FundName>
+    <oef:ClassName
+      contextRef="FY2025_C000025034Member"
+      id="t_7_5e73d65d_2a00_0698_6020_ad73d4776a39">Class I-2</oef:ClassName>
+    <dei:TradingSymbol
+      contextRef="FY2025_C000025034Member"
+      id="t_8_a93d7acf_53b6_cb40_9285_ff9d135e3c36">ALVOX</dei:TradingSymbol>
+    <oef:ExpensesPaidAmt
+      contextRef="FY2025_C000025034Member"
+      decimals="INF"
+      id="h_1_caa03993_40ae_4a81_bc63_0866397a2ca4"
+      unitRef="USD">109</oef:ExpensesPaidAmt>
+    <oef:ExpenseRatioPct
+      contextRef="FY2025_C000025034Member"
+      decimals="4"
+      id="h_2_38c022db_76e9_49e8_b4d3_bff50d85a079"
+      unitRef="pure">0.0094</oef:ExpenseRatioPct>
+    <oef:ExpensesPaidAmt
+      contextRef="FY2025_C000025033Member"
+      decimals="INF"
+      id="h_27_fd02aac2_9e21_4a8d_a142_59bf098f2be8"
+      unitRef="USD">138</oef:ExpensesPaidAmt>
+    <oef:ExpenseRatioPct
+      contextRef="FY2025_C000025033Member"
+      decimals="4"
+      id="h_28_7c3743e8_cecc_4a40_bf52_1a3733f5ecef"
+      unitRef="pure">0.0119</oef:ExpenseRatioPct>
+    <oef:ExpensesPaidAmt
+      contextRef="FY2025_C000025024Member"
+      decimals="INF"
+      id="h_53_e674433e_6248_4ff5_9454_80c607241a8d"
+      unitRef="USD">93</oef:ExpensesPaidAmt>
+    <oef:ExpenseRatioPct
+      contextRef="FY2025_C000025024Member"
+      decimals="4"
+      id="h_54_d0b8a80f_6606_484c_a175_0f1e1174d866"
+      unitRef="pure">0.0081</oef:ExpenseRatioPct>
+</xbrl>

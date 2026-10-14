@@ -84,6 +84,12 @@ if (!TOKEN) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* A warning that quotes a reply stays one line, as in etfs.mjs. An error
+   from a reply that was not JSON quotes it, line breaks and all, and the
+   Actions runner takes a line that starts with "::", or "##[" anywhere in
+   one, as a workflow command. */
+const oneLine = (s) => String(s).replace(/[^\S ]|[\x00-\x1f\x7f-\x9f]/g, " ").replace(/##\[/g, "# #[");
+
 /** Simple fixed-rate gate: at most `perSec` starts each second. */
 function limiter(perSec) {
   const gap = 1000 / perSec;
@@ -98,9 +104,6 @@ function limiter(perSec) {
 
 const finnhubGate = limiter(50 / 60);  /* free tier allows 60/min; stay under */
 const secGate     = limiter(8);        /* SEC asks for <= 10 requests/second  */
-
-const chartGate   = limiter(5);        /* charts are optional, so pace them and
-                                          never let retries stall the run */
 
 /* Every request has a deadline: one host that accepts a connection and never
    answers must not hold the whole run past its three-hour limit. */
@@ -118,7 +121,7 @@ async function getJSON(url, { headers = {}, gate, tries = 3, label = "" } = {}) 
       return await res.json();
     } catch (err) {
       if (attempt === tries) {
-        console.warn(`  ! ${label || url}: ${err.message}`);
+        console.warn(`  ! ${label || url}: ${oneLine(err.message)}`);
         return null;
       }
       await sleep(700 * attempt);
@@ -137,7 +140,7 @@ async function getText(url, { headers = {}, gate, label = "" } = {}) {
     if (text.length > MAX_TEXT) throw new Error("too large, skipped");
     return text;
   } catch (err) {
-    console.warn(`  ! ${label || url}: ${err.message}`);
+    console.warn(`  ! ${label || url}: ${oneLine(err.message)}`);
     return null;
   }
 }
@@ -251,61 +254,10 @@ async function fundamentalsFor(c, tenK, safeName) {
   return null;
 }
 
-/* --------------------------------------------------- price history (Stooq)
-   Finnhub paywalls its candle endpoint. Stooq serves free daily OHLC as CSV and
-   has no CORS headers — which does not matter here, because this runs on a
-   server rather than in the browser. Weekly closes keep the file small enough
-   to ship one per company. */
-
-const BROWSER_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
-
-/* Yahoo's chart endpoint gives weekly closes in one request and needs no key.
-   Stooq is the backstop; between them almost every ticker resolves. */
-async function fromYahoo(ticker) {
-  const sym = ticker.replace(/\./g, '-');
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=5y&interval=1wk`;
-  const json = await getJSON(url, { headers: { 'User-Agent': BROWSER_UA }, gate: chartGate, tries: 1, label: `yahoo ${ticker}` });
-  const res = json?.chart?.result?.[0];
-  const stamps = res?.timestamp;
-  const closes = res?.indicators?.quote?.[0]?.close;
-  if (!Array.isArray(stamps) || !Array.isArray(closes)) return null;
-
-  const points = [];
-  for (let i = 0; i < stamps.length; i++) {
-    const c = closes[i];
-    if (typeof c !== 'number' || !isFinite(c) || c <= 0) continue;
-    points.push([new Date(stamps[i] * 1000).toISOString().slice(0, 10), +c.toFixed(2)]);
-  }
-  return points.length > 20 ? points : null;
-}
-
-async function fromStooq(ticker) {
-  const sym = ticker.toLowerCase().replace(/\./g, '-') + '.us';
-  const csv = await getText(`https://stooq.com/q/d/l/?s=${sym}&i=w`, {
-    headers: { 'User-Agent': BROWSER_UA }, gate: chartGate, label: `stooq ${ticker}`
-  });
-  if (!csv || csv.length < 200 || /No data|Exceeded/i.test(csv.slice(0, 120))) return null;
-
-  const lines = csv.trim().split(/\r?\n/);
-  const head = lines[0].toLowerCase().split(',');
-  const iDate = head.indexOf('date'), iClose = head.indexOf('close');
-  if (iDate === -1 || iClose === -1) return null;
-
-  const cutoff = new Date(Date.now() - 5.2 * 365 * 864e5).toISOString().slice(0, 10);
-  const points = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(',');
-    const date = cols[iDate], close = Number(cols[iClose]);
-    if (!date || date < cutoff || !isFinite(close) || close <= 0) continue;
-    points.push([date, +close.toFixed(2)]);
-  }
-  return points.length > 20 ? points : null;
-}
-
-async function priceHistory(ticker) {
-  return (await fromYahoo(ticker)) || (await fromStooq(ticker));
-}
+/* There used to be a weekly chart fetched here from Yahoo, with Stooq behind
+   it. Neither ever answered the Action's runners: every company logged
+   "stooq <T>: fetch failed", and the snapshot counted one chart in 501.
+   It is gone. The chart is drawn from our own nightly closes below. */
 
 /* ----------------------------------------------------- what the street thinks */
 
@@ -468,7 +420,7 @@ async function main() {
 
   await fs.mkdir(FILING_DIR, { recursive: true });
   await fs.mkdir(DETAIL_DIR, { recursive: true });
-  let analystSpent = 0, chartsOk = 0, analystOk = 0, analystEmpty = 0;
+  let analystSpent = 0, analystOk = 0, analystEmpty = 0;
 
   const stocks = [];
   const skipped = [];
@@ -606,12 +558,14 @@ async function main() {
       let priorDetail = null;
       try { priorDetail = JSON.parse(await fs.readFile(detailPath, "utf8")); } catch { /* first run */ }
 
-      const chart = (await priceHistory(c.t)) || priorDetail?.chart || null;
-      if (chart) chartsOk++;
+      /* No weekly chart is kept either. CRH's detail file held one ending
+         2026-10-08; carried forward, it would outrank the nightly closes
+         (lib/insight.mjs priceSeries) and hold its chart, trend and drawdown
+         at that date for good. */
+      const chart = null;
 
-      /* Our own record of the close, one point per session. The external chart
-         sources have never worked from the Action's runners, so this is what
-         the price chart is actually drawn from; it grows by a point a night. */
+      /* Our own record of the close, one point per session. This is what the
+         price chart is drawn from; it grows by a point a night. */
       const session = quote.t ? sessionDate(new Date(quote.t * 1000)) : runSession;
       const closes = (priorDetail?.closes || []).filter((p) => p[0] !== session);
       if (session && numOrNull(quote.c)) closes.push([session, +quote.c.toFixed(4)]);
@@ -728,11 +682,13 @@ async function main() {
         },
 
         /* deep data lives in data/detail/<TICKER>.json, opened on tap */
-        deep: { chart: !!chart, analyst: !!analyst, years: Object.keys(history.revenue || {}).length }
+        /* chart: price history to draw, counted as priceSeries and
+           audit.mjs count it (five closes at least) */
+        deep: { chart: closes.length >= 5, analyst: !!analyst, years: Object.keys(history.revenue || {}).length }
       });
 
     } catch (err) {
-      console.warn(`${tag}  skipped (${err.message})`);
+      console.warn(`${tag}  skipped (${oneLine(err.message)})`);
       skipped.push(c.t);
       continue;
     }

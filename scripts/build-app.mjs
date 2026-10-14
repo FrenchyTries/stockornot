@@ -48,8 +48,9 @@ const FILES = [
   "fonts/inter-var.woff2", "fonts/Inter-LICENSE.txt",
   "data/snapshot.json"
 ];
-/* copied when they exist: the track record starts on the first nightly run */
-const FILES_IF_ANY = ["data/track.json"];
+/* copied when they exist: the track record starts on the first nightly run,
+   and the funds (scripts/etfs.mjs) on the first night after they were added */
+const FILES_IF_ANY = ["data/track.json", "data/etfs.json", "data/etf-closes.json"];
 /* What the card and the detail sheet read. Not data/fundamentals: only the
    nightly job reads that. With these the app opens offline, on the data of
    the day it was built. */
@@ -219,6 +220,13 @@ async function main() {
     try { await fs.copyFile(path.join(ROOT, f), path.join(OUT, f)); }
     catch (err) { if (err.code !== "ENOENT") throw err; }
   }
+  /* Until the nightly job has written the funds, an empty list stands in for
+     them, as on the website (build-pages.mjs). The app reads its own copy
+     before anything else (lib/funds.mjs loadFundsFile), and a missing file
+     would be a red 404 in Safari's console on every launch. An empty list is
+     no funds: no switch, and the website is never asked for its file. */
+  const fundsFile = path.join(OUT, "data", "etfs.json");
+  if (!(await fs.stat(fundsFile).catch(() => null))) await fs.writeFile(fundsFile, JSON.stringify({ v: 1, etfs: [] }));
   for (const d of DIRS) await fs.cp(path.join(ROOT, d), path.join(OUT, d), { recursive: true });
 
   for (const d of MODULE_DIRS) {

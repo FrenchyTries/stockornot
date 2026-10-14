@@ -4,7 +4,9 @@ Every company in the S&P 500, one card at a time. Each card puts the whole
 picture in front of you — price, valuation, growth, margins, the balance sheet
 as filed, the next earnings date, and what the company's own 10-K says about its
 business and its risks — with the arguments for and against it laid out. Then you
-decide: swipe right and it goes in your cart, left and it's gone.
+decide: swipe right and it goes in your cart, left and it's gone. About fifty of
+the ETFs that hold those companies have a deck of their own, each read through
+the companies it owns.
 
 **→ [Open it](https://stockornot.com)**
 
@@ -82,10 +84,10 @@ on a wide screen, with the deck in the middle:
 | Tab | What it holds |
 |---|---|
 | **Track** | The track record: each week's top and bottom fifth by score, followed forward against the whole index (`data/track.json`, the same table as `/track`) |
-| **Compare** | Two companies head to head: the score and its factors, then the figures behind the five checks (growth, margins, cash and debt, valuation, price), with the stronger figure on each row marked. It opens on the two largest companies; tap either to swap it for any other, from the cart, the largest, or by ticker or name |
+| **Compare** | Two companies head to head: the score and its factors, then the figures behind the five checks (growth, margins, cash and debt, valuation, price), with the stronger figure on each row marked. It opens on the two largest companies; tap either to swap it for any other, from the cart, the largest, or by ticker or name. Its own Stocks \| ETFs switch sets fund against fund instead: the fund reading and its parts, the fee, and how much the two hold in common. A fund is never set against a company |
 | **Deck** | The cards |
 | **Cart** | The cart, below |
-| **Account** | Signing in, earnings alerts, the brokerage, membership and the site's pages |
+| **Account** | Signing in, the scoring style, earnings alerts, the brokerage (website only), the site's pages and Contact support |
 
 Each tab has its own address (`/#cart`, `/#compare`…), so the Back button steps
 between them and a link opens the same one. The arrow keys swipe only while the
@@ -105,6 +107,33 @@ still a place among the 500, ranked under that style (`STYLES` in
 two in step). The choice is kept in the browser. The track record and the
 company pages use Balanced. None of these investors is affiliated with
 StockOrNot.
+
+## ETFs
+
+A **Stocks | ETFs** switch at the top of the deck opens about fifty US stock
+ETFs that mostly own S&P 500 companies: the index trackers and funds built
+from its companies, the eleven sector funds, and broader large-company funds
+(`data/etf-list.json`, kept by hand). A fund never gets a company's score. It
+gets a **fund reading** out of 100 on fixed scales (`lib/funds.mjs`): what it
+owns (0.40), the holdings-weighted average of our company scores in the chosen
+style, with the part we cannot score counted as 50; what it costs (0.35), the
+expense ratio; and how spread out it is (0.25), from the effective number of
+holdings and the weight of the largest ten. Only a fund read in full, with at
+least 80% of its stock holdings in companies we score and at most 10% in cash,
+futures and the like, gets a number, and it is never a place among companies.
+Where the number would be, any other fund says what it is instead, **Partly
+read** or **Holdings only** with the figure behind it (how much of it we
+matched, or how much is cash), and one whose newest holdings are more than
+200 days old says **Out of date**. Holdings come from each fund's quarterly
+SEC filing (Form N-PORT), so they are two to five months old, and the card
+dates them. The fund deck is not shuffled: the funds read in full come first,
+then the rest, each largest first by net assets. Funds go in the same cart,
+marked ETF and left out of the earnings dates, and Compare has its own switch
+for fund against fund. A fund has no card until some of its holdings have been
+read and matched, and the switches stay hidden until `data/etfs.json` has at
+least two such funds. [How a fund is read](https://stockornot.com/method#funds)
+has the curves and what a fund reading cannot know; [`docs/ETFS.md`](docs/ETFS.md)
+has the data.
 
 ## Your data
 
@@ -130,8 +159,11 @@ gone, sign-in asks for the emailed code, and the phone adds haptics, the share
 sheet and earnings reminders scheduled on the phone. It is built on a Mac with
 `cd mobile && npm ci && npm run ios`, which opens the Xcode project in
 `mobile/ios`. Because every installed copy reads tonight's data, the format of
-`data/*.json` may only gain fields. Everything else, from the Mac's setup to
-the store listing, is in [`docs/APP_STORE.md`](docs/APP_STORE.md).
+`data/*.json` may only gain fields. A build shows funds only when it carries
+its own copy of `data/etfs.json` with funds in it (`loadFundsFile` in
+`lib/funds.mjs`), so a copy that went to App Review without the ETF side never
+grows one when the website's data gains funds. Everything else, from the Mac's
+setup to the store listing, is in [`docs/APP_STORE.md`](docs/APP_STORE.md).
 
 ## The cart
 
@@ -232,7 +264,7 @@ So the work happens in a **GitHub Action** that runs every weekday evening,
 after the close (22:20 UTC):
 
 ```
-.github/workflows/refresh.yml  →  scripts/refresh.mjs  →  scripts/audit.mjs  →  scripts/build-pages.mjs
+.github/workflows/refresh.yml  →  scripts/refresh.mjs  →  scripts/audit.mjs  →  scripts/etfs.mjs  →  scripts/build-pages.mjs
 ```
 
 Which does:
@@ -260,12 +292,25 @@ Which does:
    `data/detail/<TICKER>.json`, which is what the price chart draws.
    `scripts/backfill-closes.mjs` rebuilt the earlier sessions from this
    repository's own history.
+6. **ETFs** — after the audit, `scripts/etfs.mjs` reads each fund in
+   `data/etf-list.json`: its holdings from its latest SEC N-PORT filing
+   (`scripts/nport.mjs`, which matches them to our companies by LEI, ticker or
+   name, and never reads a CUSIP or ISIN), its expense ratio from its
+   shareholder report, and its price from Finnhub. It does nothing when the
+   job is already running late, and a failure never holds back the company
+   data. [`docs/ETFS.md`](docs/ETFS.md) has the details.
 
 Output lands in `data/snapshot.json` (market data, ~0.6MB), `data/detail/*.json`
 (history, daily closes, analysts), `data/filings/*.json` (10-K prose, lazy-loaded
-per card) and `data/fundamentals/` (the cached XBRL figures). `scripts/audit.mjs`
-checks the result before anything is committed, and refuses to publish a
-snapshot that is worse than yesterday's. Only data is committed.
+per card) and `data/fundamentals/` (the cached XBRL figures). The ETF step adds
+three files: `data/etfs.json` (one record per fund), `data/etf-closes.json`
+(every fund's nightly closes, in one file so the nightly commit grows by three
+files rather than fifty) and `data/lei.json` (which holding is which of our
+companies, learned from the S&P 500 trackers' own filings). Funds never go into
+the snapshot, which installed copies of the app read as companies.
+`scripts/audit.mjs` checks the result before anything is committed, and
+refuses to publish a snapshot that is worse than yesterday's. Only data is
+committed.
 
 The site itself is served by Vercel, which also runs the functions under `api/`.
 **Vercel builds the 500 company pages, the sitemap and robots.txt on every
@@ -365,8 +410,14 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
   left out of the score for every company in the Financials sector, because for
   banks, insurers and brokers borrowing is the business. That also covers
   payment networks and exchanges, which the sector label cannot tell apart.
-- **No screens or search yet.** The deck is every company in random order;
-  swiped ones stay hidden until you ask for them back.
+- **ETF holdings are months old, and only stock funds are read.** A fund is
+  read from its last public N-PORT filing, two to five months back, and only
+  US stock funds that mostly own S&P 500 companies are covered: no bond,
+  international, small-company, commodity, crypto, leveraged or inverse funds.
+  Tracking difference, taxes, trading costs and securities lending are not read.
+- **No screens or search yet.** The deck is every company in random order (the
+  funds in the order above); swiped ones stay hidden until you ask for them
+  back.
 
 ---
 

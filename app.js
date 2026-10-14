@@ -15,6 +15,11 @@
    /api/news for headlines and /api/broker for the brokerage (both functions on
    this site), and, for someone signed in, Supabase for the saved cart.
 
+   Beside the companies sit the exchange-traded funds of data/etfs.json, in
+   a deck of their own behind a Stocks | ETFs switch. A fund is read by
+   lib/funds.mjs on its own fixed scale, never placed among the companies,
+   and the switch stays hidden until the nightly job has written the file.
+
    The iPhone app runs this same file from its own copy of the site, with
    <html data-app>. What differs there (live data from stockornot.com, the
    share sheet, haptics, reminders, no brokerage) goes through lib/native.mjs,
@@ -33,10 +38,12 @@ import * as earn from "./lib/earnings.mjs";
 import * as cartLib from "./lib/cart.mjs";
 import { CHECK_ICONS } from "./lib/icons.mjs";
 import * as native from "./lib/native.mjs";
+import * as funds from "./lib/funds.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
-var LS = { cart: "ts.cart", seen: "ts.seen", owner: "ts.cartOwner", style: "ts.style" };
+var LS = { cart: "ts.cart", seen: "ts.seen", owner: "ts.cartOwner", style: "ts.style",
+           kind: "ts.deckKind", cmpKind: "ts.compareKind" };
 
 function load(k, fb) {
   try { var raw = localStorage.getItem(k); return raw === null ? fb : JSON.parse(raw); }
@@ -50,6 +57,10 @@ var storedCart = cartLib.split(load(LS.cart, []));
 
 var state = {
   all:     [],            /* every company from the snapshot          */
+  funds:   [],            /* every fund from data/etfs.json, when there is one */
+  fundsUpdated: null,     /* when the nightly job wrote that file */
+  fundsSession: null,     /* the trading day its prices are from */
+  kind:    load(LS.kind, "stocks") === "etfs" ? "etfs" : "stocks",   /* the deck: companies or funds */
   deck:    [],            /* tickers queued for swiping               */
   cursor:  0,
   cart:    storedCart.live,   /* what the cart shows                   */
@@ -178,6 +189,93 @@ function loadDetail(ticker) {
     .catch(function () { state.details[ticker] = null; return null; });
 }
 
+/* The funds, from data/etfs.json, which scripts/etfs.mjs writes each night.
+   A file of its own beside the snapshot, so a build of the app from before
+   funds never asks for it. Missing or unreadable, there are simply no funds:
+   the Stocks | ETFs switch stays hidden and every screen is what it was
+   without them. Always resolves, to the file or null.
+   The app asks the website for it only when its own copy has funds to show
+   (lib/funds.mjs loadFundsFile): a build that went to App Review without
+   funds never shows them. */
+function fetchFunds() {
+  return funds.loadFundsFile({
+    inApp: native.inApp,
+    live: function () { return native.dataFetch("data/etfs.json", { cache: "no-cache" }); },
+    bundled: function () { return fetch("/data/etfs.json"); }
+  });
+}
+
+/* The deck waits for the funds, since a link to a fund opens on it and the
+   switch may have been left on ETFs, but not for long. On the website, a
+   file still out when the snapshot is in has until `by`, three seconds after
+   it was asked for: slower than that, or never answering, and this visit
+   goes on without funds rather than sit on "Loading". The app's own
+   fetch has a deadline already (lib/native.mjs dataFetch), with the copy
+   built into it to fall back on. Resolves to the file or null. */
+var FUNDS_WAIT_MS = 3000;
+
+function fundsInTime(file, by) {
+  if (native.inApp) return file;
+  return Promise.race([file, new Promise(function (done) { setTimeout(done, Math.max(0, by - Date.now()), null); })]);
+}
+
+/* Added after the companies, so a fund can never take a company's ticker
+   (lib/funds.mjs mergeFunds), and only the funds whose holdings have been
+   read, two at least (fundsToShow). */
+function useFunds(file) {
+  state.funds = file ? funds.mergeFunds(state.byTicker, funds.fundsToShow(file.etfs, state.byTicker)) : [];
+  state.fundsUpdated = file && file.updated || null;
+  state.fundsSession = file && typeof file.session === "string" ? file.session : null;
+  renderKinds();
+}
+
+/* The trading day a fund's price and move are from: its own, when tonight's
+   quote failed and yesterday's was kept, else the fund file's. */
+function fundDay(f) {
+  return (typeof f.stale === "string" && f.stale) || state.fundsSession || snapshotDay();
+}
+/* " on Oct 7" when that is older than the companies' prices, else "" */
+function fundDayNote(f) {
+  var day = fundDay(f), snap = snapshotDay();
+  return day && snap && day < snap ? " " + sessionWord(day) : "";
+}
+
+/* Every fund's closing prices, one file for all of them, fetched the first
+   time a fund's chart is wanted. */
+var fundCloses = null;
+
+function loadFundCloses() {
+  if (fundCloses) return fundCloses;
+  fundCloses = native.dataFetch("data/etf-closes.json", { cache: "no-cache" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { return j && j.closes && typeof j.closes === "object" ? j.closes : {}; })
+    .catch(function () { fundCloses = null; return {}; });    /* asked again next time */
+  return fundCloses;
+}
+
+/* The reading of a fund under the style chosen, kept per style until the
+   companies change (lib/funds.mjs readFunds). */
+function fundReading(f) {
+  return funds.readFunds(state.funds, state.scoreCtx, state.style, state.all).get(f.t) ||
+    funds.readFund(f, state.scoreCtx, state.style, { companies: state.all, funds: state.funds });
+}
+
+/* A cart row is a fund's when it was added as one, or when its ticker is a
+   fund's now. */
+function isFundItem(i) {
+  return i.kind === "etf" || funds.isFund(state.byTicker[i.t]);
+}
+
+/* "3 companies and 2 ETFs", or with a separator, "3 companies · 2 ETFs".
+   With only companies in it, the words are the ones used before funds. */
+function cartWords(items, sep) {
+  var nf = items.filter(isFundItem).length, nc = items.length - nf;
+  var parts = [];
+  if (nc || !nf) parts.push(nc + (nc === 1 ? " company" : " companies"));
+  if (nf) parts.push(nf + (nf === 1 ? " ETF" : " ETFs"));
+  return parts.join(sep || " and ");
+}
+
 /* ============================================================== DECK ===== */
 
 var deckEl   = $("#deckEl");
@@ -190,15 +288,86 @@ var counted  = null;        /* the last company whose score counted up */
 var calm     = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
 function stillMotion() { return Boolean(calm && calm.matches); }
 
+/* Stocks or ETFs. Always the companies while there are no funds, whatever
+   was chosen before. */
+function deckKind() { return state.funds.length && state.kind === "etfs" ? "etfs" : "stocks"; }
+function deckPool() { return deckKind() === "etfs" ? state.funds : state.all; }
+
 function buildDeck() {
   /* The only rule left: a company you have already swiped does not come back
-     until you ask for it. Everything else is in the deck, in random order. */
-  var pool = state.all.filter(function (s) {
+     until you ask for it. Everything else is in the deck, in random order.
+     The funds come in order instead: those read in full first, then the
+     rest, each largest first (lib/funds.mjs deckOrder). */
+  var pool = deckPool().filter(function (s) {
     return state.showSeen || !seenSet.has(s.t);
   });
-  state.deck = shuffle(pool.map(function (s) { return s.t; }));
+  state.deck = deckKind() === "etfs"
+    ? funds.deckOrder(pool, funds.readFunds(state.funds, state.scoreCtx, state.style, state.all)).map(function (s) { return s.t; })
+    : shuffle(pool.map(function (s) { return s.t; }));
   state.cursor = 0;
   state.history = [];
+}
+
+/* Starting a deck again forgets only that deck's swipes: going back through
+   the funds does not bring back every company passed on. Without funds,
+   everything, as before. */
+function forgetSeen(pool) {
+  var drop = new Set(pool.map(function (s) { return s.t; }));
+  state.seen = state.funds.length ? state.seen.filter(function (t) { return !drop.has(t); }) : [];
+  seenSet = new Set(state.seen);
+  save(LS.seen, state.seen);
+}
+
+/* The Stocks | ETFs switches, on the deck and in Compare: shown only when
+   there are funds, each on its own setting. Two toggle buttons, not a radio
+   group: the arrow keys stay the deck's Pass and Add, and nothing on the
+   switch promises otherwise. */
+function setKindChips(box, kind) {
+  Array.prototype.forEach.call(box.querySelectorAll("[data-kind]"), function (c) {
+    var on = c.getAttribute("data-kind") === kind;
+    c.classList.toggle("is-on", on);
+    c.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function renderKinds() {
+  var any = state.funds.length > 0;
+  $("#kindSwitch").hidden = !any;
+  $(".deck-wrap").classList.toggle("has-kinds", any);
+  setKindChips($("#kindSwitch"), deckKind());
+  $("#deck").setAttribute("aria-label", deckKind() === "etfs" ? "ETF deck" : "Company deck");
+  $("#cmpKind").hidden = state.funds.length < 2;
+  setKindChips($("#cmpKind"), compareKind());
+}
+
+/* Each deck as it was left, by kind, so going to the funds and back finds
+   the companies where they were, in the same order and with Undo still able
+   to take back their last swipes. A deck is built only the first time it is
+   shown. */
+var leftDecks = {};
+
+function chooseKind(kind) {
+  kind = kind === "etfs" ? "etfs" : "stocks";
+  if (kind === deckKind() || state.busy) return;
+  leftDecks[deckKind()] = { deck: state.deck, cursor: state.cursor, history: state.history, showSeen: state.showSeen };
+  state.kind = kind;
+  save(LS.kind, kind);
+  var back = leftDecks[kind];
+  if (back) {
+    /* one passed on or added meanwhile from a record (a fund's holding, say)
+       is taken out of the rest, as it is from the deck showing */
+    state.deck = back.deck.slice(0, back.cursor).concat(back.deck.slice(back.cursor).filter(function (t) {
+      return back.showSeen || !seenSet.has(t);
+    }));
+    state.cursor = back.cursor;
+    state.history = back.history;
+    state.showSeen = back.showSeen;
+  } else {
+    state.showSeen = false;
+    buildDeck();
+  }
+  renderKinds();
+  renderDeck();
 }
 
 function showMessage(title, body, actions) {
@@ -222,13 +391,14 @@ function renderDeck() {
   var remaining = state.deck.length - state.cursor;
 
   if (remaining === 0) {
+    var etf = deckKind() === "etfs";
     showMessage(
-      "That is all " + state.all.length + " of them",
-      "You have been through the whole index. Your cart is still there.",
+      etf ? "That is all " + state.funds.length + " funds" : "That is all " + state.all.length + " of them",
+      etf ? "You have been through every fund we cover. Your cart is still there."
+        : "You have been through the whole index. Your cart is still there.",
       [
         { label: "Go through them again", onClick: function () {
-            state.seen = []; seenSet = new Set();
-            save(LS.seen, state.seen);
+            forgetSeen(deckPool());
             state.showSeen = false;
             buildDeck(); renderDeck();
         } },
@@ -321,9 +491,10 @@ function showWall() {
   cards = [];
 
   var seen = state.viewed.size;
+  var total = state.all.length + state.funds.length;   /* a fund counts as a company does */
   if (state.tier === "anon") {
     showMessage(
-      "You have seen " + seen + " of " + state.all.length,
+      "You have seen " + seen + " of " + total,
       "Create a free account and the next <b>" + (tier.LIMITS.free - tier.LIMITS.anon) +
       "</b> are yours. No card, just an email address.",
       [
@@ -334,8 +505,8 @@ function showWall() {
     );
   } else {
     showMessage(
-      "You have seen " + seen + " of " + state.all.length,
-      "Membership opens the remaining <b>" + (state.all.length - seen) +
+      "You have seen " + seen + " of " + total,
+      "Membership opens the remaining <b>" + Math.max(0, total - seen) +
       "</b>, plus an unlimited cart and an email a week before anything in it reports.",
       [
         { label: "See what membership includes", onClick: function () { location.href = "/pricing"; } },
@@ -559,7 +730,7 @@ function fillStreet(box, deep) {
   return true;
 }
 
-function pcColumn(kind, title, items, glyph, max) {
+function pcColumn(kind, title, items, glyph, max, none) {
   var col = el("section", "pc-col " + kind);
   var shown = max ? items.slice(0, max) : items;
 
@@ -570,9 +741,9 @@ function pcColumn(kind, title, items, glyph, max) {
   col.appendChild(h);
 
   if (!items.length) {
-    col.appendChild(el("p", "pc-none", kind === "pro"
+    col.appendChild(el("p", "pc-none", none || (kind === "pro"
       ? "Nothing in the numbers stands out as a strength."
-      : "Nothing in these numbers stands out as a concern. That is not the same as no risk: read the risk factors from the 10-K below."));
+      : "Nothing in these numbers stands out as a concern. That is not the same as no risk: read the risk factors from the 10-K below.")));
   } else {
     var ul = el("ul", "");
     shown.forEach(function (t) { ul.appendChild(el("li", "", t)); });
@@ -596,7 +767,9 @@ function prosConsBlock(s, max) {
 
 var CAL_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
 
-function makeCard(s, depth) {
+/* The card itself, the same for a company and a fund: the two stamps and
+   the scrolling body. */
+function cardShell(depth) {
   var card = el("article", "card");
   card.style.transform = stackTransform(depth);
   card.style.zIndex = String(50 - depth);
@@ -607,6 +780,71 @@ function makeCard(s, depth) {
     '<div class="stamp add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>In cart</div>' +
     '<div class="stamp pass"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>Pass</div>' +
     '<div class="card-scroll"></div>';
+  return card;
+}
+
+/* The price, its move and a line under them (market cap, or a fund's net
+   assets). `day`: the trading day they are from, when it is not the
+   snapshot's (a fund's price kept from an earlier night). */
+function priceBlock(s, under, day) {
+  var pr = el("div", "c-price");
+  pr.appendChild(el("div", "c-price-v", price(s.price)));
+  var dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
+  var delta = el("div", "delta " + dir);
+  delta.appendChild(el("span", "arrow", dir === "up" ? "▲" : dir === "down" ? "▼" : "–"));
+  var older = day && snapshotDay() && day < snapshotDay();
+  delta.appendChild(el("span", "", num(s.change) ? pct(s.change, 2) + " " + sessionWord(day)
+    : older && num(s.price) ? "price " + sessionWord(day) : "no change data"));
+  pr.appendChild(delta);
+  pr.appendChild(el("span", "c-cap", under));
+  return pr;
+}
+
+/* The 52-week range, said the way people say it: how far off the high, how
+   far above the low. null when there is no range to show. */
+function rangeBlock(s) {
+  var range = rangeSummary(s);
+  if (!range) return null;
+  var pos = range.pos;
+  var rw = el("div", "c-range");
+  var head = el("div", "c-range-head");
+  head.appendChild(el("span", "", "52-week range"));
+  head.appendChild(el("span", "c-range-zone", range.zone));
+  rw.appendChild(head);
+  var bar = el("div", "rangebar");
+  bar.innerHTML = '<div class="rangebar-track"></div><div class="rangebar-fill"></div>' +
+                  '<div class="rangebar-marker"><span class="rangebar-dot"></span></div>';
+  $(".rangebar-fill", bar).style.width = (pos * 100) + "%";
+  $(".rangebar-marker", bar).style.left = (pos * 100) + "%";
+  rw.appendChild(bar);
+  var ends = el("div", "c-range-ends");
+  ends.appendChild(el("span", "", "Low " + price(s.lo)));
+  ends.appendChild(el("span", "", "High " + price(s.hi)));
+  rw.appendChild(ends);
+  rw.appendChild(el("p", "c-range-text", range.text));
+  return rw;
+}
+
+/* The foot of a card: "Open the full record", and the fade that says there
+   is more to scroll. */
+function cardFoot(card, body, open) {
+  var more = el("button", "more-btn");
+  more.type = "button";
+  more.innerHTML = '<span>Open the full record</span>' +
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  more.addEventListener("click", function (ev) { ev.stopPropagation(); open(); });
+  body.appendChild(more);
+
+  var fade = el("div", "card-fade");
+  card.appendChild(fade);
+  body.addEventListener("scroll", function () {
+    fade.style.opacity = body.scrollTop + body.clientHeight >= body.scrollHeight - 24 ? "0" : "1";
+  }, { passive: true });
+}
+
+function makeCard(s, depth) {
+  if (funds.isFund(s)) return makeFundCard(s, depth);
+  var card = cardShell(depth);
 
   var body = $(".card-scroll", card);
   if (!s) { body.appendChild(el("p", "", "Missing data.")); return card; }
@@ -623,40 +861,11 @@ function makeCard(s, depth) {
   body.appendChild(top);
 
   /* ---------- price ---------- */
-  var pr = el("div", "c-price");
-  pr.appendChild(el("div", "c-price-v", price(s.price)));
-  var dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
-  var delta = el("div", "delta " + dir);
-  delta.appendChild(el("span", "arrow", dir === "up" ? "▲" : dir === "down" ? "▼" : "–"));
-  delta.appendChild(el("span", "", num(s.change) ? pct(s.change, 2) + " " + sessionWord() : "no change data"));
-  pr.appendChild(delta);
-  var mcTag = el("span", "c-cap", cap(s.mc) + " market cap");
-  pr.appendChild(mcTag);
-  body.appendChild(pr);
+  body.appendChild(priceBlock(s, cap(s.mc) + " market cap"));
 
-  /* ---------- 52-week range ----------
-     Said the way people say it: how far off the high, how far above the low. */
-  var range = rangeSummary(s);
-  if (range) {
-    var pos = range.pos;
-    var rw = el("div", "c-range");
-    var head = el("div", "c-range-head");
-    head.appendChild(el("span", "", "52-week range"));
-    head.appendChild(el("span", "c-range-zone", range.zone));
-    rw.appendChild(head);
-    var bar = el("div", "rangebar");
-    bar.innerHTML = '<div class="rangebar-track"></div><div class="rangebar-fill"></div>' +
-                    '<div class="rangebar-marker"><span class="rangebar-dot"></span></div>';
-    $(".rangebar-fill", bar).style.width = (pos * 100) + "%";
-    $(".rangebar-marker", bar).style.left = (pos * 100) + "%";
-    rw.appendChild(bar);
-    var ends = el("div", "c-range-ends");
-    ends.appendChild(el("span", "", "Low " + price(s.lo)));
-    ends.appendChild(el("span", "", "High " + price(s.hi)));
-    rw.appendChild(ends);
-    rw.appendChild(el("p", "c-range-text", range.text));
-    body.appendChild(rw);
-  }
+  /* ---------- 52-week range ---------- */
+  var rw = rangeBlock(s);
+  if (rw) body.appendChild(rw);
 
   /* ---------- next earnings ---------- */
   var e = s.earnings;
@@ -777,25 +986,241 @@ function makeCard(s, depth) {
     slot.innerHTML = "";
     slot.appendChild(el("p", "block-note",
       s.sec && s.sec.tenK
-        ? "This 10-K has not been read yet. The original is linked below."
+        ? "The text of this 10-K is not in our record. The original is linked below."
         : "No annual report on file for this company."));
   }
 
-  /* ---------- into the full record ---------- */
-  var more = el("button", "more-btn");
-  more.type = "button";
-  more.innerHTML = '<span>Open the full record</span>' +
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
-  more.addEventListener("click", function (ev) { ev.stopPropagation(); openDetail(s); });
-  body.appendChild(more);
+  /* ---------- into the full record, and the scroll affordance ---------- */
+  cardFoot(card, body, function () { openDetail(s); });
 
-  /* ---------- scroll affordance ---------- */
-  var fade = el("div", "card-fade");
-  card.appendChild(fade);
-  body.addEventListener("scroll", function () {
-    fade.style.opacity = body.scrollTop + body.clientHeight >= body.scrollHeight - 24 ? "0" : "1";
-  }, { passive: true });
+  return card;
+}
 
+/* ------------------------------------------------------------- fund cards
+
+   A fund's card has the company card's shell, price and range and its two
+   columns for and against. Where a company shows its score, a fund shows
+   its reading (lib/funds.mjs): a number on its own fixed scale, labelled as
+   a fund reading wherever it appears, and only for a fund read in full. */
+
+var DOC_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>';
+
+/* "$1.41T in the fund, all share classes": a fund total can cover several
+   share classes of one fund, and says so. */
+function assetsLine(f) {
+  var n = f.nport;
+  if (!n || !num(n.assets)) return "Net assets not read";
+  return money(n.assets) + " in the fund" + (n.assetsScope === "series" ? ", all share classes" : "");
+}
+
+/* "what it owns (40%), what it costs (35%) and how spread out it is (25%)" */
+function weightsWords(read) {
+  var parts = read.factors.filter(function (f) { return f.weight > 0; }).map(function (f) {
+    return (f.id === "spread" ? "how spread out it is" : f.label.toLowerCase()) + " (" + Math.round(f.weight * 100) + "%)";
+  });
+  return parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
+}
+
+/* The reading as a number out of 100, a thin meter and its word, in the
+   score's own markup so it counts up the same way, and captioned "Fund
+   reading" so it is never taken for a company's place. A rank among the
+   funds read in full with their fee is a caption only. A fund not read in
+   full has no number, so no "—/100" and no empty meter, which would look
+   like a number still on its way: it says what it is, "Partly read" and
+   the figure behind it (lib/funds.mjs inBrief). */
+function fundRing(read, big) {
+  var v = read.overall;
+  var st = styleById(read.style);
+  if (!num(v)) {
+    var brief = read.brief || { word: "Not read in full", detail: "" };
+    var nb = el("div", "score-box fund-ring fund-brief" + (big ? " is-big" : "") + " tone-none");
+    nb.appendChild(el("b", "fb-word", brief.word));
+    if (brief.detail) nb.appendChild(el("span", "sr-label", brief.detail));
+    nb.appendChild(el("span", "sr-rank", "No overall reading"));
+    if (st.id !== DEFAULT_STYLE && read.hold) nb.appendChild(el("span", "sr-style", st.short));
+    nb.title = read.notes[0] || "Not read in full";
+    return nb;
+  }
+  var lab = scoreLabel(v);
+  var box = el("div", "score-box fund-ring" + (big ? " is-big" : "") + " tone-" + lab.tone);
+  var n = el("div", "score-num");
+  n.appendChild(el("b", "", String(v)));
+  n.appendChild(el("span", "", "/100"));
+  box.appendChild(n);
+  var meter = el("div", "score-meter");
+  var fill = el("i", "");
+  fill.style.width = clamp(v, 0, 100) + "%";
+  meter.appendChild(fill);
+  box.appendChild(meter);
+  box.appendChild(el("span", "sr-label", lab.word));
+  box.appendChild(el("span", "sr-rank", "Fund reading"));
+  /* ranked only among the funds read in full whose fee has been read, which
+     can be fewer than all those read in full: the caption counts those */
+  if (read.place) {
+    box.appendChild(el("span", "sr-rank", "#" + read.place.rank + " of " + read.place.of + (big ? " funds read in full, fee included" : " funds ranked")));
+  }
+  /* the style changes what it owns, so a style other than Balanced is named */
+  if (st.id !== DEFAULT_STYLE && read.hold) box.appendChild(el("span", "sr-style", st.short));
+  box.title = "Fund reading " + v + " out of 100: " + weightsWords(read) + ", each on a fixed scale. Not a place among companies." +
+    (read.place ? " #" + read.place.rank + " of the " + read.place.of + " funds read in full with their fee read."
+      : funds.costRead(read) ? "" : " Not ranked against other funds until its fee has been read.");
+  return box;
+}
+
+/* The reading's three parts, each with its weight, a meter, and the figure
+   behind it on a line of its own (it says "cost not read" when it is). */
+function fundBars(read) {
+  var box = el("div", "factor-list fund-factors");
+  read.factors.forEach(function (f) {
+    var val = f.score;
+    var row = el("div", "factor-row" + (num(val) ? "" : " is-na"));
+    var lab = el("div", "factor-label");
+    var name = el("span", "fl-name", f.label);
+    if (f.weight > 0) name.appendChild(el("span", "fl-weight", Math.round(f.weight * 100) + "%"));
+    lab.appendChild(name);
+    row.appendChild(lab);
+    var meter = el("div", "factor-meter");
+    var fill = el("div", "factor-fill");
+    if (num(val)) fill.style.width = clamp(val, 0, 100) + "%";
+    meter.appendChild(fill);
+    row.appendChild(meter);
+    row.appendChild(el("span", "factor-val", num(val) ? String(Math.round(val)) : "n/a"));
+    row.appendChild(el("p", "factor-why", f.why));
+    box.appendChild(row);
+  });
+  return box;
+}
+
+/* Cost in plain money, and the size and shape of the fund. */
+function fundFacts(f, read) {
+  var grid = el("dl", "c-stats");
+  grid.appendChild(statRow("Expense ratio", num(f.er) ? funds.fmtEr(f.er) + " · " + funds.dollars(funds.perTenK(f.er)) + " a year on $10,000" : "Not read",
+    "What the fund takes each year, as a share of what you hold in it."));
+  if (f.nport && num(f.nport.count)) grid.appendChild(statRow("Holdings", f.nport.count.toLocaleString("en-US")));
+  if (read.spread && num(read.spread.top10)) grid.appendChild(statRow("Largest ten", pctPlain(read.spread.top10, 0) + " of it",
+    "The weight of its ten largest holdings, as a share of its stock holdings."));
+  if (num(f.cover)) grid.appendChild(statRow("Matched to S&P 500 companies", pctPlain(f.cover, 0),
+    "The share of its stock holdings we could match to a company we score."));
+  return grid;
+}
+
+/* The largest holdings, each opening that company's own card, with its
+   weight in the fund and its score in the style chosen. */
+function holdList(f, n) {
+  var scores = funds.companyScores(state.scoreCtx, state.style, state.all);
+  var list = el("ol", "hold-list");
+  f.hold.slice(0, n).forEach(function (h) {
+    var co = state.byTicker[h[0]];
+    if (funds.isFund(co)) co = null;
+    var v = scores.get(h[0]) ? scores.get(h[0]).score : null;
+    var li = el("li", "hold-row");
+    var b = el("button", "link-btn hold-t", h[0]);
+    b.type = "button";
+    b.disabled = !co;
+    if (co) b.title = "Open " + co.n;
+    b.addEventListener("click", function (ev) { ev.stopPropagation(); if (co) openDetail(co); });
+    li.appendChild(b);
+    /* the company, not one share class: a weight covers all its classes */
+    var name = el("span", "hold-n", co ? funds.companyName(co.n) : "");
+    if (co && co.cik && state.all.some(function (o) { return o !== co && o.cik === co.cik; })) {
+      name.title = funds.companyName(co.n) + ", all its share classes together";
+    }
+    li.appendChild(name);
+    li.appendChild(el("span", "hold-w", pctPlain(h[1], 1)));
+    var lab = scoreLabel(v);
+    var chip = el("span", "hold-score tone-" + lab.tone, num(v) ? String(v) : "—");
+    chip.title = num(v) ? "Its score: " + v + ", " + lab.word.toLowerCase() : "No score";
+    li.appendChild(chip);
+    list.appendChild(li);
+  });
+  return list;
+}
+
+/* How the holdings split across the five score words. One hue, stronger
+   darker, never red and green: it describes, it does not signal. The same
+   split is said in words beside it. */
+function bandBar(bands) {
+  var wrap = el("div", "band-wrap");
+  var bar = el("div", "band-bar");
+  bar.setAttribute("aria-hidden", "true");
+  funds.BANDS.forEach(function (b) {
+    var v = bands[b[0]];
+    if (!(v >= 0.5)) return;
+    var seg = el("span", "band-seg band-" + b[0]);
+    seg.style.width = v + "%";
+    seg.title = Math.round(v) + "% " + b[1];
+    bar.appendChild(seg);
+  });
+  wrap.appendChild(bar);
+  wrap.appendChild(el("p", "band-text", "How its holdings screen: " + funds.bandsText(bands)));
+  return wrap;
+}
+
+function fundProsCons(read, max) {
+  var wrap = el("div", "c-pc");
+  wrap.appendChild(pcColumn("pro", "In its favour", read.pros, "+", max));
+  wrap.appendChild(pcColumn("con", "Against it", read.cons, "−", max,
+    "Nothing in these numbers stands out as a concern. That is not the same as no risk: the full record says what a fund reading cannot know."));
+  return wrap;
+}
+
+function makeFundCard(f, depth) {
+  var card = cardShell(depth);
+  card.classList.add("is-fund");
+  var body = $(".card-scroll", card);
+  var read = fundReading(f);
+
+  /* ---------- identity ---------- */
+  var top = el("header", "c-top");
+  var idb = el("div", "c-id");
+  idb.appendChild(el("h2", "c-ticker", f.t));
+  idb.appendChild(el("p", "c-name", f.n));
+  var kind = el("span", "c-sector");
+  kind.appendChild(el("span", "fund-chip", "ETF"));
+  if (f.issuer) kind.appendChild(document.createTextNode(" " + f.issuer));
+  idb.appendChild(kind);
+  top.appendChild(idb);
+  top.appendChild(fundRing(read, false));
+  body.appendChild(top);
+
+  /* ---------- price, and the fund's size where a company's market cap goes ---------- */
+  body.appendChild(priceBlock(f, assetsLine(f), fundDay(f)));
+
+  /* ---------- how old its holdings are, where a company's next report goes ---------- */
+  var asOf = el("div", "c-earnings" + (f.nport && f.nport.period ? "" : " is-muted"));
+  asOf.innerHTML = DOC_ICON;
+  var line = el("span", "");
+  if (f.nport && f.nport.period) {
+    line.appendChild(el("b", "", "Holdings as of " + dateShort(f.nport.period)));
+    line.appendChild(document.createTextNode(", from its N-PORT filing" + (f.nport.filed ? " of " + dateShort(f.nport.filed) : "") + "."));
+  } else line.textContent = "No holdings filing has been read for it.";
+  asOf.appendChild(line);
+  body.appendChild(asOf);
+  if (!num(read.overall)) body.appendChild(el("p", "fund-why", "Not read in full. " + funds.whyNotRead(f)));
+
+  /* ---------- the reading, part by part ---------- */
+  var parts = el("section", "c-block");
+  parts.appendChild(el("h3", "block-h", "The fund reading"));
+  parts.appendChild(fundBars(read));
+  parts.appendChild(fundFacts(f, read));
+  body.appendChild(parts);
+
+  /* ---------- for and against, three of each ---------- */
+  body.appendChild(fundProsCons(read, 3));
+
+  /* ---------- what it owns ---------- */
+  if (f.hold.length) {
+    var owns = el("section", "c-block");
+    owns.appendChild(el("h3", "block-h", "What it owns"));
+    owns.appendChild(holdList(f, 5));
+    if (read.hold) owns.appendChild(bandBar(read.hold.bands));
+    body.appendChild(owns);
+  }
+
+  var rw = rangeBlock(f);
+  if (rw) body.appendChild(rw);
+
+  cardFoot(card, body, function () { openDetail(f); });
   return card;
 }
 
@@ -1149,8 +1574,8 @@ function setSyncNote(status) {
   var owned = state.user && state.cartOwner === state.user.id;
   n.hidden = !state.user;
   n.textContent = !owned
-    ? "Not linked to your account yet"
-    : status === "offline" ? "Not saved to your account yet, retrying"
+    ? "Not linked to your account"
+    : status === "offline" ? "Not saved to your account, retrying"
     : status === "saving" ? "Saving…" : "Saved to your account";
   n.classList.toggle("is-warn", !owned || status === "offline");
 }
@@ -1181,7 +1606,7 @@ function ensureCartOwner(user, fresh) {
   body.appendChild(document.createTextNode("You are signed in as "));
   body.appendChild(el("b", "", user.email || "an account with no email"));
   body.appendChild(document.createTextNode((native.inApp ? ". The cart on this iPhone has " : ". This browser's cart has ") +
-    n + (n === 1 ? " company" : " companies") + (native.inApp ? ", with any notes, that " : ", with any notes and amounts, that ") +
+    cartWords(state.cart) + (native.inApp ? ", with any notes, that " : ", with any notes and amounts, that ") +
     (n === 1 ? "is" : "are") + " not saved to that account."));
   var dlg = $("#dlgOwner");
   $("#ownerAdd").onclick = function () {
@@ -1213,7 +1638,7 @@ function signOutAndForget() {
   var owned = !!(user && state.cartOwner === user.id);
   var flush = owned ? syncCart() : Promise.resolve(true);
   return flush.then(function (ok) {
-    if (!ok && !window.confirm("Your latest cart changes have not reached your account yet (the connection failed). Sign out anyway and lose them?")) {
+    if (!ok && !window.confirm("Your latest cart changes did not reach your account (the connection failed). Sign out anyway and lose them?")) {
       return Promise.reject("kept");
     }
     return auth.signOut();
@@ -1261,13 +1686,18 @@ function addToCart(s) {
   }
   var now = new Date().toISOString();
   state.cartGone = state.cartGone.filter(function (g) { return g.t !== s.t; });
-  state.cart.unshift({
+  var item = {
     t: s.t, n: s.n, sector: s.s,
     addedAt: now,
     updatedAt: now,
     priceAtAdd: num(s.price) ? s.price : null,
     note: ""
-  });
+  };
+  /* A fund says so in the record itself, so every copy of the cart (another
+     device, the account, the CSV, an app from before funds) knows it is not
+     a company, whether or not that copy has the funds loaded. */
+  if (funds.isFund(s)) { item.sector = "ETF"; item.kind = "etf"; }
+  state.cart.unshift(item);
   persistCart();
   renderCartCount();
   renderEarnNotice();
@@ -1287,7 +1717,7 @@ function renderCartCount() {
   var badge = $("#cartCount");
   badge.textContent = n > 99 ? "99+" : String(n);
   badge.hidden = n === 0;
-  $("#tabCart").setAttribute("aria-label", n ? "Cart, " + n + (n === 1 ? " company" : " companies") : "Cart");
+  $("#tabCart").setAttribute("aria-label", n ? "Cart, " + cartWords(state.cart) : "Cart");
 }
 
 var NOTE_MAX = 600;
@@ -1321,7 +1751,9 @@ function renderCart() {
 
     var head = el("div", "ci-head");
     var idb = el("div", "ci-id");
-    idb.appendChild(el("span", "ci-ticker", item.t));
+    var tk = el("span", "ci-ticker", item.t);
+    if (isFundItem(item)) tk.appendChild(el("span", "fund-chip", "ETF"));
+    idb.appendChild(tk);
     idb.appendChild(el("span", "ci-name", item.n));
     head.appendChild(idb);
 
@@ -1440,7 +1872,7 @@ function renderCart() {
 
   var summary = "";
   if (state.cart.length) {
-    summary = state.cart.length + (state.cart.length === 1 ? " company" : " companies");
+    summary = cartWords(state.cart, " · ");
     if (moves.length) {
       var avg = moves.reduce(function (a, b) { return a + b; }, 0) / moves.length;
       summary += " · " + pct(avg) + " average move since added";
@@ -2136,7 +2568,10 @@ var NOTIFY_DENIED = "Notifications are off for StockOrNot. Turn them on in Setti
    from it would move reminders to the wrong day or cancel them. So the list
    is never replaced from older data than built it, and the copy in the app
    replaces it only when that copy is known to be newer (a new version of the
-   app opened before it could reach the site). */
+   app opened before it could reach the site). With no stamp there is no
+   list to spoil (reminders just turned on, or never scheduled), and the
+   copy in the app builds one: the next launch that reaches the site
+   replaces it with newer data. */
 var NOTIFY_DATA = "ts.notifyData";
 
 function scheduleReminders() {
@@ -2149,7 +2584,7 @@ function scheduleReminders() {
     try { built = localStorage.getItem(NOTIFY_DATA); } catch (e) { /* private mode */ }
     var now = String(state.updated || "");
     if (built && now < built) return;
-    if (state.snapshotFromApp && !(built && now > built)) return;
+    if (state.snapshotFromApp && built && !(now > built)) return;
     native.reschedule(earn.reminders(state.cart, state.byTicker)).then(function (ok) {
       if (ok && now) try { localStorage.setItem(NOTIFY_DATA, now); } catch (e) { /* private mode */ }
     });
@@ -2208,17 +2643,21 @@ function openEarnings() {
   var list = $("#earnList");
   list.innerHTML = "";
   var month = earn.upcoming(state.cart, state.byTicker, { days: 45 });
-  var undated = state.cart.filter(function (i) {
+  /* funds do not report earnings: they are left out of every count here */
+  var companies = state.cart.filter(function (i) { return !isFundItem(i); });
+  var undated = companies.filter(function (i) {
     var s = state.byTicker[i.t];
     return !(s && s.earnings && s.earnings.date && earn.daysUntil(s.earnings.date) >= 0);
   });
 
-  $("#earnNote").textContent = state.cart.length
-    ? month.length + " of " + state.cart.length + " in your cart report in the next 45 days"
+  $("#earnNote").textContent = companies.length
+    ? month.length + " of " + companies.length + " in your cart report in the next 45 days"
     : "";
 
-  if (!state.cart.length) {
-    list.appendChild(el("p", "empty-note", "Add companies to your cart and their report dates show up here."));
+  if (!companies.length) {
+    list.appendChild(el("p", "empty-note", state.cart.length
+      ? "Funds do not report earnings. Add companies to your cart and their report dates show up here."
+      : "Add companies to your cart and their report dates show up here."));
   } else if (!month.length) {
     list.appendChild(el("p", "empty-note", "Nothing in your cart reports in the next 45 days."));
   }
@@ -2357,7 +2796,7 @@ function niceTicks(lo, hi, count) {
 function buildChart(points, months) {
   var wrap = el("div", "chart-wrap");
   if (!points || points.length < 5) {
-    wrap.appendChild(el("p", "block-note", "No price history for this company yet."));
+    wrap.appendChild(el("p", "block-note", "No price history recorded for this company."));
     return wrap;
   }
 
@@ -2788,7 +3227,8 @@ function stockUrl(t) {
 function shareDetail() {
   var s = state.byTicker[detailTicker];
   if (!s) return;
-  var url = stockUrl(s.t);
+  /* a fund has no page of its own: its link opens the deck on it */
+  var url = funds.isFund(s) ? native.SITE + "/?t=" + encodeURIComponent(s.t) : stockUrl(s.t);
   native.share({
     title: s.t + " on StockOrNot",
     text: s.n + " (" + s.t + ") on StockOrNot. Not investment advice.",
@@ -2809,20 +3249,74 @@ function section(title, node) {
   return s;
 }
 
-function openDetail(s) {
-  if (!s) return;
+/* The sheet's header: who it is, the price and the day's move. `when`,
+   " on Oct 7", dates a fund's price kept from an earlier night. */
+function detailHead(s, name, when) {
   detailTicker = s.t;
   $("#detailShare").hidden = !native.canShare;
-
   $("#detailTitle").textContent = s.t;
-  $("#detailName").textContent = s.n + " · " + s.s;
+  $("#detailName").textContent = name;
   $("#detailPrice").textContent = price(s.price);
   var dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
   var ch = $("#detailChange");
   ch.className = "delta small " + dir;
   ch.innerHTML = "";
   ch.appendChild(el("span", "arrow", dir === "up" ? "▲" : dir === "down" ? "▼" : "–"));
-  ch.appendChild(el("span", "", num(s.change) ? pct(s.change, 2) : "—"));
+  ch.appendChild(el("span", "", num(s.change) ? pct(s.change, 2) + (when || "") : when && num(s.price) ? "price" + when : "—"));
+}
+
+/* A price chart with a range toggle and the trend figures under it, or a
+   line saying there is none yet. `recorded`: the series is our own nightly
+   closes, which says since when. */
+function fillChart(chartBox, points, recorded, none) {
+  if (!points) {
+    chartBox.appendChild(el("p", "block-note first", none));
+    return;
+  }
+  var ranges = el("div", "range-toggle");
+  var chartSlot = el("div", "");
+  var spanDays = (new Date(points[points.length - 1][0]) - new Date(points[0][0])) / 864e5;
+  /* Only offer windows the data actually covers, then "All". */
+  var windows = [{ label: "1M", months: 1 }, { label: "3M", months: 3 }, { label: "1Y", months: 12 }]
+    .filter(function (r) { return spanDays > r.months * 30.5 * 1.15; })
+    .concat([{ label: "All", months: 0 }]);
+  var draw = function (months) {
+    chartSlot.innerHTML = "";
+    chartSlot.appendChild(buildChart(points, months));
+    var shown = months ? points.filter(function (p) { return p[0] >= new Date(Date.now() - months * 30.5 * 864e5).toISOString().slice(0, 10); }) : points;
+    var cs = insight.chartStats(shown);
+    if (cs) {
+      var csGrid = el("dl", "c-stats");
+      if (num(cs.vsMa)) csGrid.appendChild(statRow("vs " + cs.maLabel + " avg", pct(cs.vsMa, 1), "Last close against the average of the last " + cs.maLabel + ". Above zero means the trend is up."));
+      csGrid.appendChild(statRow("Worst fall", pct(cs.maxDrawdown, 0), "The biggest drop from a high to a later low in this window" + (cs.maxDrawdownAt ? ", bottoming " + dateShort(cs.maxDrawdownAt) : "") + "."));
+      if (num(cs.volatility)) csGrid.appendChild(statRow("Volatility", pctPlain(cs.volatility, 0) + "/yr", "How widely daily returns swing, scaled to a year. The S&P 500 usually runs 15–20%."));
+      chartSlot.appendChild(csGrid);
+    }
+  };
+  if (windows.length > 1) {
+    windows.forEach(function (r, i) {
+      var b = el("button", "chip" + (i === windows.length - 1 ? " is-on" : ""), r.label);
+      b.type = "button";
+      b.addEventListener("click", function () {
+        Array.prototype.forEach.call(ranges.children, function (x) { x.classList.remove("is-on"); });
+        b.classList.add("is-on");
+        draw(r.months);
+      });
+      ranges.appendChild(b);
+    });
+    chartBox.appendChild(ranges);
+  }
+  chartBox.appendChild(chartSlot);
+  draw(0);
+  if (recorded) {
+    chartBox.appendChild(el("p", "block-note", "Closing prices recorded here each trading day since " + dateShort(points[0][0]) + "."));
+  }
+}
+
+function openDetail(s) {
+  if (!s) return;
+  if (funds.isFund(s)) { openFundDetail(s); return; }
+  detailHead(s, s.n + " · " + s.s);
 
   var body = $("#detailBody");
   body.innerHTML = "";
@@ -2868,50 +3362,9 @@ function openDetail(s) {
     if (nextBox) body.appendChild(section("Next report", nextBox));
 
     /* --- price chart with a range toggle --- */
-    var points = insight.priceSeries(deep);
     var chartBox = el("div", "");
-    if (!points) {
-      chartBox.appendChild(el("p", "block-note first", "No price history recorded for this company yet."));
-    } else {
-      var ranges = el("div", "range-toggle");
-      var chartSlot = el("div", "");
-      var spanDays = (new Date(points[points.length - 1][0]) - new Date(points[0][0])) / 864e5;
-      /* Only offer windows the data actually covers, then "All". */
-      var windows = [{ label: "1M", months: 1 }, { label: "3M", months: 3 }, { label: "1Y", months: 12 }]
-        .filter(function (r) { return spanDays > r.months * 30.5 * 1.15; })
-        .concat([{ label: "All", months: 0 }]);
-      var draw = function (months) {
-        chartSlot.innerHTML = "";
-        chartSlot.appendChild(buildChart(points, months));
-        var shown = months ? points.filter(function (p) { return p[0] >= new Date(Date.now() - months * 30.5 * 864e5).toISOString().slice(0, 10); }) : points;
-        var cs = insight.chartStats(shown);
-        if (cs) {
-          var csGrid = el("dl", "c-stats");
-          if (num(cs.vsMa)) csGrid.appendChild(statRow("vs " + cs.maLabel + " avg", pct(cs.vsMa, 1), "Last close against the average of the last " + cs.maLabel + ". Above zero means the trend is up."));
-          csGrid.appendChild(statRow("Worst fall", pct(cs.maxDrawdown, 0), "The biggest drop from a high to a later low in this window" + (cs.maxDrawdownAt ? ", bottoming " + dateShort(cs.maxDrawdownAt) : "") + "."));
-          if (num(cs.volatility)) csGrid.appendChild(statRow("Volatility", pctPlain(cs.volatility, 0) + "/yr", "How widely daily returns swing, scaled to a year. The S&P 500 usually runs 15–20%."));
-          chartSlot.appendChild(csGrid);
-        }
-      };
-      if (windows.length > 1) {
-        windows.forEach(function (r, i) {
-          var b = el("button", "chip" + (i === windows.length - 1 ? " is-on" : ""), r.label);
-          b.type = "button";
-          b.addEventListener("click", function () {
-            Array.prototype.forEach.call(ranges.children, function (x) { x.classList.remove("is-on"); });
-            b.classList.add("is-on");
-            draw(r.months);
-          });
-          ranges.appendChild(b);
-        });
-        chartBox.appendChild(ranges);
-      }
-      chartBox.appendChild(chartSlot);
-      draw(0);
-      if (!(deep && deep.chart && deep.chart.length >= 20)) {
-        chartBox.appendChild(el("p", "block-note", "Closing prices recorded here each trading day since " + dateShort(points[0][0]) + "."));
-      }
-    }
+    fillChart(chartBox, insight.priceSeries(deep), !(deep && deep.chart && deep.chart.length >= 20),
+      "No price history recorded for this company yet.");
     body.appendChild(section("Price", chartBox));
 
     body.appendChild(section("The financials, five years deep", buildHistory(deep)));
@@ -2977,17 +3430,266 @@ function openDetail(s) {
   });
 }
 
+/* ------------------------------------------------------ a fund's full record
+
+   The reading and what drove it, the case both ways, what it owns and how
+   that splits by sector, its companies taken together, what it costs, its
+   price, the fund's own facts and filings, and what a reading like this
+   cannot know. Everything comes from data/etfs.json and the company cards;
+   only the chart needs a second file. */
+
+/* Links into the record come from our own data file; only the SEC's own
+   addresses are ever made into links. */
+function secLink(href, text) {
+  if (typeof href !== "string" || !/^https:\/\/www\.sec\.gov\//.test(href)) return null;
+  var a = el("a", "filing-link", text);
+  a.href = href; a.target = "_blank"; a.rel = "noopener";
+  return a;
+}
+
+/* The fund's sectors against the S&P 500's own, by market value. "Outside
+   the S&P 500" is what it holds that we do not cover. */
+function mixBlock(f) {
+  var mix = f.mix || {};
+  var keys = Object.keys(mix).filter(function (k) { return num(mix[k]) && mix[k] >= 0.05; });
+  if (!keys.length) return null;
+  var idx = funds.indexProfile(state.all) || { mix: {} };
+  keys.sort(function (a, b) { return (a === funds.OUTSIDE) - (b === funds.OUTSIDE) || mix[b] - mix[a]; });
+  var box = el("div", "");
+  box.appendChild(el("p", "block-note first", "Each sector's share of its stock holdings, with the S&P 500's own share by market value beside it."));
+  var list = el("div", "mix-list");
+  keys.forEach(function (k) {
+    var row = el("div", "mix-row");
+    var ix = k === funds.OUTSIDE ? null : idx.mix[k];
+    row.title = k + ": " + pctPlain(mix[k], 1) + " of the fund" + (num(ix) ? ", " + pctPlain(ix, 1) + " of the S&P 500" : "");
+    row.appendChild(el("span", "mix-name", k));
+    var meter = el("div", "mix-meter");
+    meter.setAttribute("aria-hidden", "true");
+    var fill = el("i", "");
+    fill.style.width = clamp(mix[k], 0, 100) + "%";
+    meter.appendChild(fill);
+    if (num(ix)) {
+      var tick = el("b", "");
+      tick.style.left = clamp(ix, 0, 100) + "%";
+      meter.appendChild(tick);
+    }
+    row.appendChild(meter);
+    var vals = el("span", "mix-val");
+    vals.appendChild(el("b", "", pctPlain(mix[k], 1)));
+    vals.appendChild(el("span", "", num(ix) ? "S&P 500 " + pctPlain(ix, 1) : ""));
+    row.appendChild(vals);
+    list.appendChild(row);
+  });
+  box.appendChild(list);
+  return box;
+}
+
+/* Its companies taken together: shown, not scored. */
+function lookBlock(read, f) {
+  var look = read.look;
+  var idx = (funds.indexProfile(state.all) || {}).look || {};
+  var box = el("div", "");
+  var grid = el("dl", "c-stats");
+  grid.appendChild(statRow("P/E, together", num(look.pe) ? x(look.pe, 1) + (num(idx.pe) ? " · S&P 500 " + x(idx.pe, 1) : "") : "n/a",
+    "A harmonic mean weighted as the fund holds them, so one company at 400 times earnings cannot drag it; a loss counts as no earnings."));
+  grid.appendChild(statRow("Dividend yield, together", num(look.dy) ? pctPlain(look.dy, 2) + (num(f.er) ? " · " + pctPlain(look.dy - f.er, 2) + " after the fee" : "") : "n/a",
+    "Each company's yield weighted as the fund holds it. A yield the provider's own figures dispute counts as unseen. Not the fund's own distribution."));
+  grid.appendChild(statRow("In companies losing money", num(look.losing) ? pctPlain(look.losing, 1) : "n/a"));
+  box.appendChild(grid);
+  box.appendChild(el("p", "block-note", "Over the " + pctPlain(look.base, 0) + " of its stock holdings we can match, weighted as the fund holds them. Shown, not part of the reading."));
+  return box;
+}
+
+/* The fee in money, over a year and over ten, with where it was read. */
+function costBlock(f) {
+  var box = el("div", "");
+  if (!num(f.er)) {
+    box.appendChild(el("p", "block-note first", "Not read. The expense ratio is read from the fund's own SEC filings; until it is, the reading leaves cost out and says so."));
+    return box;
+  }
+  var grid = el("dl", "c-stats");
+  grid.appendChild(statRow("Expense ratio", funds.fmtEr(f.er), "Taken from the fund every year, whatever it does."));
+  grid.appendChild(statRow("A year on $10,000", funds.dollars(funds.perTenK(f.er))));
+  grid.appendChild(statRow("Ten years on $10,000", funds.dollars(funds.tenYearCost(f.er)),
+    "What the fee takes from $10,000 growing 7% a year before it, against the same with no fee."));
+  box.appendChild(grid);
+  var src = secLink(f.erUrl, "The filing it was read from" + (f.erAsOf ? " (" + dateShort(f.erAsOf) + ")" : ""));
+  if (src) {
+    var links = el("div", "filing-links");
+    links.appendChild(src);
+    box.appendChild(links);
+  }
+  return box;
+}
+
+/* The fund's own facts and filings. */
+function fundAbout(f, read) {
+  var box = el("div", "");
+  var grid = el("dl", "c-stats");
+  var n = f.nport || {};
+  if (f.issuer) grid.appendChild(statRow("Issuer", f.issuer));
+  if (num(f.since)) grid.appendChild(statRow("Launched", String(f.since)));
+  grid.appendChild(statRow("Net assets", num(n.assets) ? money(n.assets) + (n.assetsScope === "series" ? ", all share classes" : "") : "—",
+    "From its last N-PORT filing. For a fund with several share classes, the fund's total across all of them."));
+  if (num(n.count)) grid.appendChild(statRow("Holdings", n.count.toLocaleString("en-US")));
+  var sp = read.spread;
+  if (sp && num(sp.effN)) grid.appendChild(statRow("Behaves like", "about " + Math.round(sp.effN) + " equal holdings",
+    "One over the sum of the squared weights: the number of equal holdings that would be as concentrated."));
+  if (sp && num(sp.big1)) grid.appendChild(statRow("Largest holding", (sp.big1T || "") + " " + pctPlain(sp.big1, 1)));
+  if (num(f.other)) grid.appendChild(statRow("Cash and other", pctPlain(f.other, 1),
+    "Cash, money-market funds, futures and anything else that is not a company's shares."));
+  if (Array.isArray(n.rtn) && n.rtn.some(num)) {
+    grid.appendChild(statRow("Monthly returns filed", n.rtn.map(function (v) { return pct(v, 1); }).join(", "),
+      "The fund's own return in each month of its last N-PORT filing, as it reports them. Shown, not part of the reading."));
+  }
+  [["r13", "13 weeks"], ["r52", "Past year"], ["ytd", "This year"], ["beta", "Beta"]].forEach(function (p) {
+    if (num(f[p[0]])) grid.appendChild(statRow(p[1], p[0] === "beta" ? f.beta.toFixed(2) : pct(f[p[0]], 1)));
+  });
+  box.appendChild(grid);
+
+  var links = el("div", "filing-links");
+  [
+    secLink(n.url, "Its holdings filing (N-PORT" + (n.period ? ", " + dateShort(n.period) : "") + ")"),
+    (f.series || f.trust) && secLink("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=" +
+      encodeURIComponent(f.series || f.trust) + "&type=NPORT-P&dateb=&owner=include&count=40", "All its filings on EDGAR")
+  ].filter(Boolean).forEach(function (a) { links.appendChild(a); });
+  if (links.children.length) box.appendChild(links);
+  return box;
+}
+
+/* What a fund reading cannot know, said beside every one. */
+function cannotKnow() {
+  var box = el("div", "");
+  var ul = el("ul", "risk-list");
+  [
+    "Its holdings are months old. Funds make their holdings public once a quarter, up to 60 days after it ends. An index fund changes slowly; an actively managed one may have changed completely.",
+    "We only judge S&P 500 companies. Anything else a fund owns counts as average, neither good nor bad, and the record says how much that is.",
+    "What it owns is our company score counted again. A fund full of the companies our screen likes this year reads well for that reason alone. It is not a second opinion.",
+    "A fund is less risky than the average of its parts. Owning 500 companies moves less than the typical one of them, and how spread out it is captures that only roughly.",
+    "What it costs you to trade is not read: the gap between the buying and selling price, a market price above or below the fund's value, taxes and capital-gain payouts, securities lending, and how the index is rebuilt.",
+    "Past returns are not part of the reading, and nothing here has been backtested."
+  ].forEach(function (t) { ul.appendChild(el("li", "", t)); });
+  box.appendChild(ul);
+  var more = el("a", "filing-link", "How a fund is read");
+  more.href = "/method#funds";
+  var links = el("div", "filing-links");
+  links.appendChild(more);
+  box.appendChild(links);
+  return box;
+}
+
+function openFundDetail(f) {
+  detailHead(f, f.n + " · ETF" + (f.issuer ? " · " + f.issuer : ""), fundDayNote(f));
+  var body = $("#detailBody");
+  body.innerHTML = "";
+  var read = fundReading(f);
+  var st = styleById(read.style);
+
+  /* --- the reading, and what drove it --- */
+  var scoreBox = el("div", "score-detail");
+  var head = el("div", "score-head");
+  head.appendChild(fundRing(read, true));
+  var blurb = el("div", "score-blurb");
+  blurb.appendChild(el("p", "", num(read.overall)
+    ? "A blend of " + weightsWords(read) + ", each on a fixed scale, so it does not move when other funds come and go. It is not a place among companies, and not a forecast."
+    : "Not read in full, so there is no overall reading. " + funds.whyNotRead(f) + " What can be read is below."));
+  var advice = el("p", "block-note score-advice");
+  advice.appendChild(el("b", "", "Not investment advice."));
+  blurb.appendChild(advice);
+  if (read.hold) blurb.appendChild(styleLine(st));
+  var notes = read.notes.slice(num(read.overall) ? 0 : 1);
+  if (notes.length) {
+    var ul = el("ul", "score-notes");
+    notes.forEach(function (n) { ul.appendChild(el("li", "", n)); });
+    blurb.appendChild(ul);
+  }
+  head.appendChild(blurb);
+  scoreBox.appendChild(head);
+  scoreBox.appendChild(fundBars(read));
+  body.appendChild(section("Fund reading", scoreBox));
+  body.appendChild(section("For and against", fundProsCons(read)));
+
+  /* --- what it owns --- */
+  var owns = el("div", "");
+  if (f.hold.length) {
+    owns.appendChild(holdList(f, 10));
+    var total = f.nport && num(f.nport.count) ? f.nport.count : f.hold.length;
+    var rest = total - Math.min(10, f.hold.length);
+    if (rest > 0) owns.appendChild(el("p", "block-note", "and " + rest.toLocaleString("en-US") + " more"));
+    if (read.hold) owns.appendChild(bandBar(read.hold.bands));
+    if (f.out.length) {
+      owns.appendChild(el("h4", "sub-h", "Not matched to a company we score"));
+      owns.appendChild(el("p", "block-note first", f.out.slice(0, 8).map(function (o) {
+        return String(o[1] || "Unnamed") + " " + pctPlain(o[2], 1);
+      }).join(" · ") + (f.out.length > 8 ? " and " + (f.out.length - 8) + " more" : "") + "."));
+    }
+  } else {
+    owns.appendChild(el("p", "block-note first", "No holdings have been read for this fund."));
+  }
+  if (f.nport && f.nport.period) {
+    owns.appendChild(el("p", "block-note", "Holdings as of " + dateShort(f.nport.period) + ", from its N-PORT filing; prices have moved since. " +
+      "Each weight is a share of its stock holdings, and each score is the one on that company's card."));
+  }
+  body.appendChild(section("What it owns", owns));
+
+  var mix = mixBlock(f);
+  if (mix) body.appendChild(section("By sector", mix));
+  if (read.look && read.look.base > 0) body.appendChild(section("Its companies together", lookBlock(read, f)));
+  body.appendChild(section("What it costs", costBlock(f)));
+
+  /* --- the price, from the closes recorded each night --- */
+  var chartBox = el("div", "");
+  chartBox.appendChild(el("p", "block-note first", "Loading prices…"));
+  body.appendChild(section("Price", chartBox));
+  loadFundCloses().then(function (closes) {
+    if (detailTicker !== f.t) return;
+    var pts = closes && Array.isArray(closes[f.t]) ? closes[f.t].filter(function (p) {
+      return Array.isArray(p) && typeof p[0] === "string" && num(p[1]);
+    }) : [];
+    chartBox.innerHTML = "";
+    fillChart(chartBox, pts.length >= 5 ? pts : null, true,
+      "Not enough price history for a chart. Its closing price is recorded each trading day, and the chart starts at five.");
+    var rw = rangeBlock(f);
+    if (rw) chartBox.appendChild(rw);
+  });
+
+  body.appendChild(section("The fund", fundAbout(f, read)));
+  body.appendChild(section("What a fund reading cannot know", cannotKnow()));
+  if (state.fundsUpdated) body.appendChild(el("p", "block-note", "Fund data refreshed " + relTime(state.fundsUpdated) + "."));
+
+  openDialog($("#dlgDetail"));
+  body.scrollTop = 0;
+}
+
 /* ============================================================ COMPARE ===
    Two companies head to head: the score and its factors under the chosen
    style, then the figures behind the five checks as numbers, with the
    stronger of the two marked on each row. It opens on the two largest
    companies in the index; tapping either one swaps it. The pair is kept in
-   this browser. */
+   this browser.
+
+   With funds, a Stocks | ETFs switch: fund against fund, never a fund
+   against a company, whose numbers are on different scales. That pair opens
+   on the two largest funds by net assets and is kept apart. */
 
 var CMP_KEY = "ts.compare";
+var CMP_FUND_KEY = "ts.compareFunds";
 var SWAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9l4-4 4 4M8 15l4 4 4-4"/></svg>';
-var cmpPair = null;      /* [left, right] tickers */
+var cmpPairs = { stocks: null, etfs: null };     /* [left, right] tickers, per kind */
 var pickSide = 0;        /* the side the picker is choosing for */
+var cmpKind = load(LS.cmpKind, "stocks") === "etfs" ? "etfs" : "stocks";
+
+/* Companies, or funds once there are two to set side by side. */
+function compareKind() { return state.funds.length >= 2 && cmpKind === "etfs" ? "etfs" : "stocks"; }
+
+function chooseCompareKind(kind) {
+  kind = kind === "etfs" ? "etfs" : "stocks";
+  if (kind === compareKind()) return;
+  cmpKind = kind;
+  save(LS.cmpKind, kind);
+  renderKinds();
+  renderCompare();
+}
 
 var idOf = function (s) { return s.cik || s.t; };
 
@@ -3005,13 +3707,17 @@ function largest(n, skip) {
 }
 
 function comparePair() {
-  if (cmpPair && cmpPair.length === 2 && cmpPair.every(function (t) { return state.byTicker[t]; })) return cmpPair;
-  var saved = load(CMP_KEY, null);
+  var etf = compareKind() === "etfs";
+  /* a ticker belongs on this side only if it is of this kind */
+  var fits = function (t) { var s = state.byTicker[t]; return Boolean(s) && funds.isFund(s) === etf; };
+  var cmpPair = cmpPairs[compareKind()];
+  if (cmpPair && cmpPair.length === 2 && cmpPair.every(fits)) return cmpPair;
+  var saved = load(etf ? CMP_FUND_KEY : CMP_KEY, null);
   var pair = Array.isArray(saved)
-    ? saved.filter(function (t) { return typeof t === "string" && state.byTicker[t]; }).slice(0, 2) : [];
+    ? saved.filter(function (t) { return typeof t === "string" && fits(t); }).slice(0, 2) : [];
   /* a first visit, or a company that has left the index: the largest fill in */
-  largest(2, pair).forEach(function (s) { if (pair.length < 2) pair.push(s.t); });
-  cmpPair = pair;
+  (etf ? funds.largestFunds(state.funds, 2, pair) : largest(2, pair)).forEach(function (s) { if (pair.length < 2) pair.push(s.t); });
+  cmpPairs[compareKind()] = pair;
   return pair;
 }
 
@@ -3029,8 +3735,8 @@ function setSide(side, t) {
     /* choosing the company on the other side swaps the two */
     if (pair[1 - side] === t) pair[1 - side] = pair[side];
     pair[side] = t;
-    cmpPair = pair;
-    save(CMP_KEY, pair);
+    cmpPairs[compareKind()] = pair;
+    save(compareKind() === "etfs" ? CMP_FUND_KEY : CMP_KEY, pair);
   }
   closeDialog($("#dlgPick"));
   renderCompare();
@@ -3041,7 +3747,7 @@ function findCompanies(q) {
   q = q.trim().toUpperCase();
   if (!q) return [];
   var starts = [], within = [];
-  state.all.forEach(function (s) {
+  (compareKind() === "etfs" ? state.funds : state.all).forEach(function (s) {
     if (s.t.indexOf(q) === 0) starts.push(s);
     else if (q.length >= 2 && String(s.n || "").toUpperCase().indexOf(q) >= 0) within.push(s);
   });
@@ -3052,6 +3758,7 @@ function findCompanies(q) {
 function openPicker(side) {
   pickSide = side;
   $("#pickTitle").textContent = "Swap " + comparePair()[side];
+  $("label[for=pickInput]").textContent = compareKind() === "etfs" ? "Find a fund by ticker or name" : "Find a company by ticker or name";
   $("#pickInput").value = "";
   $("#pickMsg").textContent = "";
   renderPickList();
@@ -3079,11 +3786,15 @@ function renderPickList() {
   if (q.trim()) {
     var hits = findCompanies(q);
     if (hits.length) group("", hits);
-    else box.appendChild(el("p", "block-note", "Nothing in the S&P 500 matches that."));
+    else box.appendChild(el("p", "block-note", compareKind() === "etfs" ? "No fund we cover matches that." : "Nothing in the S&P 500 matches that."));
     return;
   }
-  group("In your cart", state.cart.map(function (i) { return state.byTicker[i.t]; }).filter(Boolean).slice(0, 12));
-  group("Largest companies", largest(10));
+  var etf = compareKind() === "etfs";
+  group("In your cart", state.cart.map(function (i) { return state.byTicker[i.t]; })
+    .filter(function (s) { return s && funds.isFund(s) === etf; }).slice(0, 12));
+  /* some totals take in a fund's other share classes (its card says so) */
+  if (etf) group("Largest by net assets", funds.largestFunds(state.funds, 10));
+  else group("Largest companies", largest(10));
 }
 
 /* The figures behind the five checks, as numbers, worked out the way the
@@ -3159,7 +3870,96 @@ var CMP_ROWS = [
   ["next", "Next earnings", 0]
 ];
 
+/* The table both kinds of Compare share: a head with the two picks, each a
+   button to swap it, a row of section headings, and rows whose cells can be
+   marked as the stronger. */
+function cmpTable(picks, word) {
+  var table = el("table", "cmp-table");
+  table.appendChild(el("caption", "sr-only", picks[0].t + " and " + picks[1].t + " side by side"));
+  var head = el("thead");
+  var hr = el("tr");
+  hr.appendChild(el("td", "cmp-corner"));
+  picks.forEach(function (p, side) {
+    var th = el("th");
+    th.scope = "col";
+    var b = el("button", "cmp-co");
+    b.type = "button";
+    b.setAttribute("aria-label", p.t + ", " + p.n + ": swap for another " + word);
+    var top = el("span", "cmp-co-t");
+    top.appendChild(el("b", "", p.t));
+    top.insertAdjacentHTML("beforeend", SWAP_ICON);      /* a constant */
+    b.appendChild(top);
+    b.appendChild(el("span", "cmp-name", p.n));
+    b.addEventListener("click", function () { openPicker(side); });
+    th.appendChild(b);
+    hr.appendChild(th);
+  });
+  head.appendChild(hr);
+  table.appendChild(head);
+
+  var tbody = el("tbody");
+  table.appendChild(tbody);
+  function section(title) {
+    var tr = el("tr", "cmp-sec");
+    var th = el("th", "", title);
+    th.scope = "colgroup";
+    th.colSpan = picks.length + 1;
+    tr.appendChild(th);
+    tbody.appendChild(tr);
+  }
+  /* cells: one per pick, each a string or a node; best: the cells to mark */
+  function row(label, cells, best, hint) {
+    var tr = el("tr");
+    var th = el("th", "", label);
+    th.scope = "row";
+    if (hint) th.title = hint;
+    tr.appendChild(th);
+    cells.forEach(function (c, i) {
+      var td = el("td", best && best[i] ? "is-top" : "");
+      if (c && c.nodeType) td.appendChild(c); else td.textContent = c;
+      /* not by colour alone: bold on screen, and said to a screen reader */
+      if (best && best[i]) td.appendChild(el("span", "sr-only", " (stronger)"));
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+    return tr;
+  }
+  return { table: table, tbody: tbody, section: section, row: row };
+}
+
+/* the stronger of the two, when both have the figure and they differ */
+function stronger(vals, way) {
+  if (!way || !num(vals[0]) || !num(vals[1]) || vals[0] === vals[1]) return null;
+  var left = way > 0 ? vals[0] > vals[1] : vals[0] < vals[1];
+  return [left, !left];
+}
+
+function cmpMeter(v) {
+  var wrap = el("span");
+  wrap.appendChild(el("span", "", num(v) ? String(Math.round(v)) : "n/a"));
+  var m = el("span", "cmp-meter");
+  var fill = el("i");
+  fill.style.width = num(v) ? clamp(v, 0, 100) + "%" : "0";
+  m.appendChild(fill);
+  wrap.appendChild(m);
+  return wrap;
+}
+
+/* The words around the table, for companies or for funds. The company ones
+   are exactly those in index.html. */
+var CMP_WORDS = {
+  stocks: ["Two companies, head to head", "Tap either company to swap it. On each row the stronger figure is in blue.",
+    "Not investment advice. The score describes the latest filings; it does not predict the price."],
+  etfs: ["Two funds, head to head", "Tap either fund to swap it. On each row the stronger figure is in blue; funds are only ever set against funds.",
+    "Not investment advice. A fund reading describes its last holdings filing and its fee; it does not predict the price."]
+};
+
 function renderCompare() {
+  var words = CMP_WORDS[compareKind()];
+  $("#cmpHeadNote").textContent = words[0];
+  $("#cmpHelp").textContent = words[1];
+  $("#cmpFoot").textContent = words[2];
+  if (compareKind() === "etfs") { renderFundCompare(); return; }
   var body = $("#cmpBody");
   body.innerHTML = "";
   var note = $("#cmpStyle");
@@ -3175,70 +3975,8 @@ function renderCompare() {
     return { s: s, res: scoreStock(s, state.scoreCtx, state.style), fig: cmpFigures(s) };
   });
 
-  var table = el("table", "cmp-table");
-  table.appendChild(el("caption", "sr-only", cols[0].s.t + " and " + cols[1].s.t + " side by side"));
-  var head = el("thead");
-  var hr = el("tr");
-  hr.appendChild(el("td", "cmp-corner"));
-  cols.forEach(function (c, side) {
-    var th = el("th");
-    th.scope = "col";
-    var b = el("button", "cmp-co");
-    b.type = "button";
-    b.setAttribute("aria-label", c.s.t + ", " + c.s.n + ": swap for another company");
-    var top = el("span", "cmp-co-t");
-    top.appendChild(el("b", "", c.s.t));
-    top.insertAdjacentHTML("beforeend", SWAP_ICON);      /* a constant */
-    b.appendChild(top);
-    b.appendChild(el("span", "cmp-name", c.s.n));
-    b.addEventListener("click", function () { openPicker(side); });
-    th.appendChild(b);
-    hr.appendChild(th);
-  });
-  head.appendChild(hr);
-  table.appendChild(head);
-
-  var tbody = el("tbody");
-  function section(title) {
-    var tr = el("tr", "cmp-sec");
-    var th = el("th", "", title);
-    th.scope = "colgroup";
-    th.colSpan = cols.length + 1;
-    tr.appendChild(th);
-    tbody.appendChild(tr);
-  }
-  /* cells: one per company, each a string or a node; best: the cells to mark */
-  function row(label, cells, best, hint) {
-    var tr = el("tr");
-    var th = el("th", "", label);
-    th.scope = "row";
-    if (hint) th.title = hint;
-    tr.appendChild(th);
-    cells.forEach(function (c, i) {
-      var td = el("td", best && best[i] ? "is-top" : "");
-      if (c && c.nodeType) td.appendChild(c); else td.textContent = c;
-      /* not by colour alone: bold on screen, and said to a screen reader */
-      if (best && best[i]) td.appendChild(el("span", "sr-only", " (stronger)"));
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  }
-  /* the stronger of the two, when both have the figure and they differ */
-  function stronger(vals, way) {
-    if (!way || !num(vals[0]) || !num(vals[1]) || vals[0] === vals[1]) return null;
-    var left = way > 0 ? vals[0] > vals[1] : vals[0] < vals[1];
-    return [left, !left];
-  }
-  function meter(v) {
-    var wrap = el("span");
-    wrap.appendChild(el("span", "", num(v) ? String(Math.round(v)) : "n/a"));
-    var m = el("span", "cmp-meter");
-    var fill = el("i");
-    fill.style.width = num(v) ? clamp(v, 0, 100) + "%" : "0";
-    m.appendChild(fill);
-    wrap.appendChild(m);
-    return wrap;
-  }
+  var t = cmpTable(cols.map(function (c) { return c.s; }), "company");
+  var table = t.table, tbody = t.tbody, section = t.section, row = t.row, meter = cmpMeter;
 
   section("Score");
   row("Score", cols.map(function (c) {
@@ -3279,8 +4017,115 @@ function renderCompare() {
     return b;
   }));
 
-  table.appendChild(tbody);
   body.appendChild(table);
+}
+
+/* Fund against fund: the reading and its three parts, what each costs, what
+   each owns and how much of it the two hold in common, the funds' own facts
+   and their prices. The stronger mark only ever compares two funds. */
+function renderFundCompare() {
+  var body = $("#cmpBody");
+  body.innerHTML = "";
+  var note = $("#cmpStyle");
+  note.innerHTML = "";
+  note.appendChild(styleLine(styleById(state.style)));
+
+  var cols = comparePair().map(function (t) {
+    var f = state.byTicker[t];
+    return { f: f, r: fundReading(f) };
+  });
+  var t = cmpTable(cols.map(function (c) { return c.f; }), "fund");
+  var section = t.section, row = t.row;
+  var vals = function (get) { return cols.map(function (c) { var v = get(c); return num(v) ? v : null; }); };
+  var shown = function (get, fmt) { return cols.map(function (c) { var v = get(c); return num(v) ? fmt(v) : "n/a"; }); };
+
+  section("Fund reading");
+  /* a reading without its fee is a different blend (60/40), so two readings
+     are marked against each other only when both fees have been read */
+  var alike = cols.every(function (c) { return funds.costRead(c.r); });
+  row("Fund reading", cols.map(function (c) {
+    var box = el("span");
+    if (num(c.r.overall)) {
+      box.appendChild(el("b", "cmp-big", String(c.r.overall)));
+      box.appendChild(el("span", "cmp-sub", scoreLabel(c.r.overall).word));
+    } else {
+      /* no number, so no "—": what it is instead, as on its card */
+      var brief = c.r.brief || { word: "Not read in full", detail: "" };
+      box.appendChild(el("b", "cmp-brief", brief.word));
+      box.appendChild(el("span", "cmp-sub", brief.detail || "No overall reading"));
+    }
+    return box;
+  }), alike ? stronger(vals(function (c) { return c.r.overall; }), 1) : null,
+    "What it owns, what it costs and how spread out it is, each on a fixed scale. Only for a fund read in full; never a place among companies." +
+    (alike ? "" : " Not marked: a fee has not been read, so the two are not weighed alike."));
+  [0, 1, 2].forEach(function (i) {
+    var f0 = cols[0].r.factors[i];
+    var v = vals(function (c) { return c.r.factors[i].score; });
+    row(f0.label, v.map(cmpMeter), stronger(v.map(function (x) { return num(x) ? Math.round(x) : null; }), 1),
+      f0.id === "hold" ? "Its holdings, read through our company scores in the style chosen; the part we cannot score counts as 50."
+        : f0.id === "cost" ? "The expense ratio on a fixed curve: 0.03% reads 94, 0.35% reads 50."
+        : "The effective number of holdings and the weight of the largest ten.");
+  });
+
+  section("What it costs");
+  row("Expense ratio", cols.map(function (c) { return num(c.f.er) ? funds.fmtEr(c.f.er) : "Not read"; }),
+    stronger(vals(function (c) { return c.f.er; }), -1), "Taken from the fund every year, whatever it does.");
+  row("A year on $10,000", shown(function (c) { return funds.perTenK(c.f.er); }, funds.dollars),
+    stronger(vals(function (c) { return funds.perTenK(c.f.er); }), -1));
+  row("Ten years on $10,000", shown(function (c) { return funds.tenYearCost(c.f.er); }, funds.dollars),
+    stronger(vals(function (c) { return funds.tenYearCost(c.f.er); }), -1),
+    "What the fee takes from $10,000 growing 7% a year before it.");
+
+  section("What it owns");
+  /* one figure for the pair, across both columns */
+  var o = funds.overlap(cols[0].f, cols[1].f);
+  var otr = row("Overlap", [num(o) ? Math.round(o) + "% of their holdings in common" : "n/a"], null,
+    "The sum, over the companies both hold, of the smaller of the two weights: 100% would be the same companies at the same weights. Over what each filing let us match.");
+  otr.lastChild.colSpan = 2;
+  otr.lastChild.className = "cmp-span";
+  row("Holdings", shown(function (c) { return c.f.nport && c.f.nport.count; }, function (v) { return v.toLocaleString("en-US"); }));
+  row("Behaves like", shown(function (c) { return c.r.spread && c.r.spread.effN; }, function (v) { return "about " + Math.round(v); }),
+    stronger(vals(function (c) { return c.r.spread && Math.round(c.r.spread.effN); }), 1),
+    "The number of equal holdings that would be as concentrated: one over the sum of the squared weights.");
+  row("Largest ten", shown(function (c) { return c.r.spread && c.r.spread.top10; }, function (v) { return pctPlain(v, 0); }),
+    stronger(vals(function (c) { return c.r.spread && Math.round(c.r.spread.top10); }), -1));
+  row("Largest holding", cols.map(function (c) {
+    var sp = c.r.spread;
+    return sp && num(sp.big1) ? (sp.big1T ? sp.big1T + " " : "") + pctPlain(sp.big1, 1) : "n/a";
+  }), stronger(vals(function (c) { return c.r.spread && Math.round(c.r.spread.big1 * 10); }), -1));
+  row("Matched to S&P 500 companies", shown(function (c) { return c.f.cover; }, function (v) { return pctPlain(v, 0); }), null,
+    "The share of its stock holdings we could match to a company we score. Under 80% and there is no overall reading.");
+  row("P/E, its companies together", shown(function (c) { return c.r.look && c.r.look.pe; }, function (v) { return x(v, 1); }), null,
+    "A harmonic mean weighted as the fund holds them. Shown, not part of the reading.");
+  row("Dividend yield, together", shown(function (c) { return c.r.look && c.r.look.dy; }, function (v) { return pctPlain(v, 2); }), null,
+    "Its companies' yields weighted as the fund holds them; not the fund's own distribution. Shown, not part of the reading.");
+  row("Holdings as of", cols.map(function (c) { return c.f.nport && c.f.nport.period ? dateShort(c.f.nport.period) : "—"; }));
+
+  section("The fund");
+  /* a total across share classes says so, as on the card */
+  row("Net assets", shown(function (c) { return c.f.nport && c.f.nport.assets; }, money).map(function (t, i) {
+    var n = cols[i].f.nport;
+    return n && num(n.assets) && n.assetsScope === "series" ? t + ", all share classes" : t;
+  }), null, "From its last N-PORT filing. For a fund with several share classes, the fund's total across all of them.");
+  row("Issuer", cols.map(function (c) { return c.f.issuer || "—"; }));
+  row("Launched", cols.map(function (c) { return num(c.f.since) ? String(c.f.since) : "—"; }));
+
+  section("Price");
+  row("Price", cols.map(function (c) { return price(c.f.price) + (num(c.f.price) ? fundDayNote(c.f) : ""); }));
+  row("Day's move", cols.map(function (c) {
+    var dir = !num(c.f.change) ? "flat" : c.f.change > 0.005 ? "up" : c.f.change < -0.005 ? "down" : "flat";
+    return el("span", "delta small " + dir, num(c.f.change) ? pct(c.f.change, 2) + fundDayNote(c.f) : "—");
+  }));
+  row("Past year", cols.map(function (c) { return pct(c.f.r52, 0); }), null, "The fund's price over the last 52 weeks, without its distributions.");
+
+  row("Full record", cols.map(function (c) {
+    var b = el("button", "link-btn", "Open " + c.f.t);
+    b.type = "button";
+    b.addEventListener("click", function () { openDetail(c.f); });
+    return b;
+  }));
+
+  body.appendChild(t.table);
 }
 
 /* ======================================================= TRACK RECORD ===
@@ -3485,9 +4330,10 @@ function renderDataAge() {
   box.title = state.updated ? "Not updated since " + new Date(state.updated).toLocaleString() : "";
 }
 
-/* "today" while the snapshot is today's close, "on Oct 6" after that */
-function sessionWord() {
-  var day = snapshotDay();
+/* "today" while the snapshot is today's close, "on Oct 6" after that; for
+   `day`, if given, in place of the snapshot's */
+function sessionWord(day) {
+  day = day || snapshotDay();
   var today = new Date().toLocaleDateString("en-CA");      /* YYYY-MM-DD, local */
   return !day || day === today ? "today" : "on " + dateShort(day).replace(/, \d{4}$/, "");
 }
@@ -3566,6 +4412,15 @@ function wire() {
   window.addEventListener("hashchange", followUrl);
   $("#acctAlerts").addEventListener("click", openEarnings);
   $("#acctStyle").addEventListener("click", openStyles);
+  /* Stocks | ETFs, on the deck and in Compare (shown only once there are funds) */
+  $("#kindSwitch").addEventListener("click", function (ev) {
+    var chip = ev.target.closest("[data-kind]");
+    if (chip) chooseKind(chip.getAttribute("data-kind"));
+  });
+  $("#cmpKind").addEventListener("click", function (ev) {
+    var chip = ev.target.closest("[data-kind]");
+    if (chip) chooseCompareKind(chip.getAttribute("data-kind"));
+  });
   $("#pickInput").addEventListener("input", renderPickList);
   $("#pickInput").addEventListener("keydown", function (ev) {
     if (ev.key !== "Enter") return;
@@ -3892,6 +4747,10 @@ function wireAuth() {
       btn.disabled = false; btn.textContent = "Sign in";
       $("#authPass").value = "";
       if (!r.ok) return authError(r.error);
+      /* a link asked for earlier, for another address before "Use a
+         different address", is forgotten here too: privacy.html promises
+         the record does not outlive the sign-in */
+      auth.forgetAsked();
     });
   });
 
@@ -4082,6 +4941,9 @@ function init() {
   showView(viewInUrl());
   showMessage("Loading the S&P 500…", "Pulling the latest snapshot.", []);
 
+  /* the funds load beside the snapshot and join it once it is in, or once
+     their time is up (fundsInTime) */
+  var fundsFile = fetchFunds(), fundsBy = Date.now() + FUNDS_WAIT_MS;
   loadSnapshot()
     .catch(function (err) {
       /* only data problems land on the setup screen — a render bug should throw */
@@ -4091,15 +4953,25 @@ function init() {
       return null;
     })
     .then(function (snap) {
+      return snap && fundsInTime(fundsFile, fundsBy).then(function (file) { useFunds(file); return snap; });
+    })
+    .then(function (snap) {
       if (!snap) return;
       renderDataAge();
       setInterval(renderDataAge, 60000);
-      buildDeck();
 
-      /* a company page links in with ?t=TICKER — start the deck on that one */
+      /* a company page links in with ?t=TICKER — start the deck on that one.
+         A fund's link opens the funds' deck, a company's the companies',
+         for this visit, without changing the switch's saved setting. */
       var want = new URLSearchParams(location.search).get("t");
-      if (want && state.byTicker[want.toUpperCase()]) {
-        var wt = want.toUpperCase();
+      var wt = want ? want.toUpperCase() : null;
+      var hit = wt && state.byTicker[wt];
+      if (hit) {
+        var kind = funds.isFund(hit) ? "etfs" : "stocks";
+        if (kind !== deckKind()) { state.kind = kind; renderKinds(); }
+      }
+      buildDeck();
+      if (hit) {
         state.deck = [wt].concat(state.deck.filter(function (t) { return t !== wt; }));
         state.cursor = 0;
       }

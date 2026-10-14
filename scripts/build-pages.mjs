@@ -460,8 +460,9 @@ const PUBLIC_FILES = [
   "data/snapshot.json"
 ];
 const PUBLIC_DIRS = ["stock", "lib", "fonts", "icons", "data/detail", "data/filings"];
-/* copied when they exist: the track record starts on the first nightly run */
-const PUBLIC_IF_ANY = ["data/track.json"];
+/* copied when they exist: the track record starts on the first nightly run,
+   and the funds (scripts/etfs.mjs) on the first night after they were added */
+const PUBLIC_IF_ANY = ["data/track.json", "data/etfs.json", "data/etf-closes.json"];
 
 async function assemblePublic() {
   const out = path.join(ROOT, "public");
@@ -475,6 +476,11 @@ async function assemblePublic() {
     try { await fs.copyFile(path.join(ROOT, f), path.join(out, f)); }
     catch (err) { if (err.code !== "ENOENT") throw err; }
   }
+  /* Until the nightly job has written the funds, an empty list stands in for
+     them, so a visit does not log a 404 for a file that does not exist.
+     app.js reads it as no funds: the Stocks | ETFs switch stays hidden. */
+  const fundsFile = path.join(out, "data", "etfs.json");
+  if (!(await fs.stat(fundsFile).catch(() => null))) await fs.writeFile(fundsFile, JSON.stringify({ v: 1, etfs: [] }));
   let n = 0;
   const count = async (dir) => {
     for (const e of await fs.readdir(dir, { withFileTypes: true })) {

@@ -60,6 +60,13 @@
   <section class="stage view" id="deck" aria-label="Company deck">
     <div class="deck-wrap">
 
+      <!-- companies or funds; shown by app.js only once there are funds. Toggle
+           buttons, not radios: the arrow keys stay the deck's Pass and Add -->
+      <div class="range-toggle kind-switch" id="kindSwitch" role="group" aria-label="What to swipe through" hidden>
+        <button type="button" class="chip is-on" data-kind="stocks" aria-pressed="true">Stocks</button>
+        <button type="button" class="chip" data-kind="etfs" aria-pressed="false">ETFs</button>
+      </div>
+
       <div class="deck" id="deckEl">
         <div class="deck-msg" id="deckMsg" hidden>
           <h2 id="msgTitle">Loading</h2>
@@ -92,14 +99,20 @@
   <section class="view page" id="viewCompare" aria-labelledby="compareTitle" hidden>
     <header class="page-head">
       <h1 id="compareTitle" tabindex="-1">Compare</h1>
-      <span class="head-note">Two companies, head to head</span>
+      <span class="head-note" id="cmpHeadNote">Two companies, head to head</span>
     </header>
 
-    <p class="block-note first">Tap either company to swap it. On each row the stronger figure is in blue.</p>
+    <!-- company against company, or fund against fund; shown once there are two funds -->
+    <div class="range-toggle kind-switch" id="cmpKind" role="group" aria-label="What to compare" hidden>
+      <button type="button" class="chip is-on" data-kind="stocks" aria-pressed="true">Stocks</button>
+      <button type="button" class="chip" data-kind="etfs" aria-pressed="false">ETFs</button>
+    </div>
+
+    <p class="block-note first" id="cmpHelp">Tap either company to swap it. On each row the stronger figure is in blue.</p>
     <div id="cmpStyle"></div>
 
     <div class="cmp-body" id="cmpBody"></div>
-    <p class="block-note">Not investment advice. The score describes the latest filings; it does not predict the price.</p>
+    <p class="block-note" id="cmpFoot">Not investment advice. The score describes the latest filings; it does not predict the price.</p>
   </section>
 
   <!-- ============================ CART ============================ -->
@@ -207,9 +220,12 @@
         </p>
         <p class="auth-or web-only"><span>or, if the email gave you a code</span></p>
         <label class="auth-label" for="authCode">Code from the email</label>
+        <!-- no pattern: a code pasted with spaces or dashes in it must reach
+             app.js, which keeps only the digits; inputmode alone brings up
+             the number pad, and maxlength leaves room for the separators -->
         <input class="auth-input code" type="text" id="authCode" name="code"
-               inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*"
-               maxlength="10" placeholder="000000">
+               inputmode="numeric" autocomplete="one-time-code"
+               maxlength="20" placeholder="000000">
         <button type="submit" class="primary-btn wide" id="authVerify">Sign in with the code</button>
         <button type="button" class="link-btn" id="authBack">Use a different address</button>
       </form>

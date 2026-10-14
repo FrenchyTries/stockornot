@@ -422,7 +422,11 @@ body:not(.docpage) main { flex: 1; display: flex; }
 
 .stage { flex: 1; display: grid; place-items: start center; padding: clamp(14px, 3vh, 28px) 16px 24px; }
 .deck-wrap { width: 100%; max-width: 440px; min-width: 0; }
-.deck { position: relative; height: min(690px, calc(100dvh - 262px - var(--safe-t) - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px))); min-height: 420px; }
+/* The Stocks | ETFs switch above the deck, once there are funds: the deck
+   gives up its height, as it does for the earnings notice (here and in the
+   phone rule below). 0 without the switch. */
+.deck-wrap.has-kinds { --kinds-h: 46px; }
+.deck { position: relative; height: min(690px, calc(100dvh - 262px - var(--safe-t) - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px) - var(--kinds-h, 0px))); min-height: 420px; }
 
 /* Pass, Undo and Add under the deck. While a card is dragged, --pull (0–1)
    lights the button on that side; a choice made any way presses it. */
@@ -1330,10 +1334,18 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
   .topbar-actions { margin-left: auto; }
   .stage { padding-bottom: 12px; }
   /* a short phone keeps the buttons above the tab bar; the card scrolls inside */
-  .deck { height: calc(100dvh - 168px - var(--safe-t) - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px)); min-height: 260px; }
+  .deck { height: calc(100dvh - 168px - var(--safe-t) - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px) - var(--kinds-h, 0px)); min-height: 260px; }
   .card-scroll { padding: 18px 18px 22px; }
   .c-price-v { font-size: 30px; }
   .topnav { display: none; }
+}
+
+/* Upright, the card's floor gives up the notice's and the switch's height as
+   the deck does, so a 320 x 568 screen showing both still has the buttons
+   clear of the tab bar; 180px at the least. On its side a phone has no room
+   for them above the tab bar anyway, and keeps the 260px card. */
+@media (max-width: 700px) and (orientation: portrait) {
+  .deck { min-height: max(180px, calc(260px - var(--notice-h, 0px) - var(--kinds-h, 0px))); }
 }
 
 @media (max-width: 460px) {
@@ -1395,6 +1407,115 @@ dialog .toast { bottom: calc(20px + var(--safe-b)); }
   .rangebar-fill, .rangebar-dot, .score-meter i, .factor-fill, .check-a::before { forced-color-adjust: none; }
   .primary-btn, .ghost-btn, .more-btn, .swipe-btn, .deck-btn, .toast { border: 1px solid ButtonText; }
   .tab[aria-current="page"] .tab-icon, .tab[aria-current="page"] { outline: 1px solid Highlight; }
+  /* the chosen chip of a toggle (Stocks | ETFs, chart range, order type):
+     its background and inset line are gone in forced colours */
+  .chip.is-on, .chip[aria-checked="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  /* ...and a keyboard's focus on it still shows: the ring goes back outside */
+  .chip.is-on:focus-visible, .chip[aria-checked="true"]:focus-visible { outline-offset: 2px; }
   .cmp-table td.is-top, .cmp-table td.is-top .cmp-big { color: Highlight; }
   .cmp-table tbody td.is-top { border-left: 2px solid Highlight; }
+}
+
+/* ============================== funds ==============================
+   Exchange-traded funds (lib/funds.mjs). Everything here is shown only when
+   data/etfs.json exists; without it none of these classes is on the page. */
+
+/* Stocks | ETFs, on the deck and in Compare: the segmented toggle */
+.kind-switch { display: flex; width: max-content; max-width: 100%; }
+.kind-switch .chip { min-width: 76px; }
+.deck-wrap .kind-switch { margin: 0 auto 12px; }
+#cmpKind { margin: 0 0 14px; }
+
+/* "ETF" beside a fund's issuer, and beside its ticker in the cart */
+.fund-chip {
+  display: inline-block; margin-right: 5px; padding: 1px 6px; border-radius: 4px; vertical-align: 1px;
+  font-size: 10.5px; font-weight: 650; letter-spacing: .04em; line-height: 1.5;
+  color: var(--accent-ink); background: var(--accent-soft);
+}
+.ci-ticker .fund-chip { margin: 0 0 0 7px; }
+
+/* A fund not read in full: in the number's place, what it is ("Partly
+   read") and the figure behind it, with no meter, so nothing looks as if it
+   were still loading. Plain words, no outline or fill, so it reads as a
+   label and never as a button to press. */
+.fund-brief { gap: 5px; }
+.fund-brief .fb-word {
+  white-space: nowrap; font-size: 18px; font-weight: 700; line-height: 1.15;
+  letter-spacing: -0.01em; color: var(--ink);
+}
+.fund-brief .sr-label { max-width: 150px; white-space: normal; text-align: right; line-height: 1.35; }
+.fund-brief.is-big .fb-word { font-size: 26px; letter-spacing: -0.02em; }
+.fund-brief.is-big .sr-label { text-align: left; max-width: none; }
+.cmp-brief { display: block; font-size: 15px; font-weight: 650; line-height: 1.25; color: var(--ink); }
+
+/* why a fund has no number */
+.fund-why {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12.5px; line-height: 1.5; color: var(--ink-2);
+}
+
+/* the reading's three parts: the figure behind each on its own line, so it
+   still shows on a phone, where a company's factor blurbs are hidden */
+.fund-factors .factor-row { grid-template-columns: 140px minmax(0, 1fr) 32px; row-gap: 4px; }
+.fund-factors .fl-name { white-space: nowrap; }
+.factor-why { grid-column: 1 / -1; margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-muted); }
+.fund-factors + .c-stats { margin-top: 10px; }
+
+/* the largest holdings, each with its weight and its score */
+.hold-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.hold-row {
+  display: grid; grid-template-columns: 60px minmax(0, 1fr) auto 36px; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.hold-t { padding: 0; font-weight: 650; font-size: 13.5px; }
+.hold-t:disabled { color: var(--ink); cursor: default; text-decoration: none; }
+.hold-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--ink-2); }
+.hold-w { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.hold-score {
+  justify-self: end; min-width: 30px; padding: 2px 6px; border-radius: 999px; text-align: center;
+  font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums; cursor: help;
+  color: var(--accent-ink); background: var(--accent-soft);
+}
+/* one hue, as for the score itself: stronger is darker, never red or green */
+.hold-score.tone-high { color: #fff; background: rgba(76, 141, 255, .55); }
+.hold-score.tone-good { color: #fff; background: rgba(76, 141, 255, .32); }
+.hold-score.tone-low, .hold-score.tone-bad { color: var(--ink-2); background: var(--surface-3); }
+.hold-score.tone-none { color: var(--ink-muted); background: none; }
+
+/* how the holdings split across the score words */
+.band-wrap { margin-top: 14px; }
+.band-bar { display: flex; gap: 1px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--surface-3); }
+.band-seg { display: block; min-width: 2px; }
+.band-high { background: var(--accent); }
+.band-good { background: rgba(76, 141, 255, .68); }
+.band-mid  { background: rgba(76, 141, 255, .42); }
+.band-low  { background: rgba(76, 141, 255, .24); }
+.band-bad  { background: rgba(76, 141, 255, .12); }
+.band-none { background: repeating-linear-gradient(135deg, var(--surface-3) 0 3px, var(--surface-2) 3px 6px); }
+.band-text { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+
+/* sectors, against the S&P 500's own (the tick) */
+.mix-list { display: grid; }
+.mix-row {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(70px, 1fr) 92px; align-items: center; gap: 4px 12px;
+  padding: 8px 0; border-bottom: 1px solid var(--line);
+}
+.mix-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink); }
+.mix-meter { position: relative; height: 6px; border-radius: 3px; background: var(--surface-3); }
+.mix-meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.mix-meter b { position: absolute; top: -3px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--ink-2); }
+.mix-val { display: flex; flex-direction: column; text-align: right; font-variant-numeric: tabular-nums; }
+.mix-val b { font-size: 13px; font-weight: 600; }
+.mix-val span { font-size: 11.5px; color: var(--ink-muted); white-space: nowrap; }
+@media (max-width: 460px) {
+  .mix-row { grid-template-columns: minmax(0, 1fr) 92px; }
+  .mix-meter { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* Compare, fund against fund: the overlap is one figure for the pair */
+.cmp-table td.cmp-span { font-weight: 550; }
+
+@media (forced-colors: active) {
+  .band-seg, .mix-meter i, .mix-meter b { forced-color-adjust: none; }
 }
