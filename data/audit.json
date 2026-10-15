@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-10-15T00:51:24.374Z",
-  "snapshotUpdated": "2026-10-15T00:51:24.024Z",
+  "ranAt": "2026-10-15T23:23:05.161Z",
+  "snapshotUpdated": "2026-10-15T23:23:04.940Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -141,15 +141,16 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "5 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "6 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
         "DPZ 2027-02-22",
         "GS 2027-04-12",
         "JNJ 2027-01-26",
+        "MRSH 2027-01-27",
         "PEP 2027-02-01",
         "UNH 2027-01-25"
       ],
-      "count": 5
+      "count": 6
     },
     {
       "level": "warn",
@@ -158,16 +159,6 @@
       "tickers": [
         "AVB",
         "EA"
-      ],
-      "count": 2
-    },
-    {
-      "level": "warn",
-      "code": "renamed",
-      "msg": "2 tickers were found under a new symbol. Update data/sp500.json.",
-      "tickers": [
-        "FI→FISV",
-        "MMC→MRSH"
       ],
       "count": 2
     },
