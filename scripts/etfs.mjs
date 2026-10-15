@@ -32,8 +32,8 @@
        no first file is written without most funds' holdings.
 
    Pure pieces are exported for tests; main() runs only when this file is
-   called directly, as track.mjs does. It cannot import refresh.mjs, which
-   exits without a token and runs on load, so it has its own small gate.
+   called directly, as track.mjs does. It keeps its own small gate rather
+   than importing refresh.mjs.
 
    Env:
      FINNHUB_TOKEN    repo secret; without it prices are skipped
@@ -44,6 +44,7 @@
    ========================================================================== */
 
 import fs from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { sessionDate } from "./dates.mjs";
@@ -369,9 +370,12 @@ const DOWN_AFTER = 8;
    host's deadline either, so an SEC that accepts a connection and never
    answers is cut off on time, not 30 or 60 seconds later on Finnhub's. */
 function makeNet({ ua, finnhubApi, token, perMin, deadline, secDeadline = deadline }) {
-  const host = (perSec, name, end) => ({ gate: limiter(perSec), name, end, failures: 0, down: false });
-  const SEC = host(8, "SEC", secDeadline);                 /* SEC asks for <= 10 a second */
-  const FINNHUB = host(perMin / 60, "Finnhub", deadline);  /* the free tier allows 60 a minute */
+  const host = (perSec, name, end, headers) => ({ gate: limiter(perSec), name, end, headers, failures: 0, down: false });
+  /* The SEC asks for <= 10 a second, and for a "Name email" agent. That
+     contact is for the SEC only: Finnhub gets no custom header, as in
+     refresh.mjs. */
+  const SEC = host(8, "SEC", secDeadline, { "User-Agent": ua });
+  const FINNHUB = host(perMin / 60, "Finnhub", deadline, {});  /* the free tier allows 60 a minute */
   const late = (via) => Date.now() >= via.end;
 
   async function get(url, { via, json, label, big }) {
@@ -381,7 +385,7 @@ function makeNet({ ua, finnhubApi, token, perMin, deadline, secDeadline = deadli
       if (late(via)) return undefined;
       try {
         const wait = Math.min(big ? TIMEOUT_MS * 2 : TIMEOUT_MS, via.end - Date.now());
-        const res = await fetch(url, { headers: { "User-Agent": ua }, signal: AbortSignal.timeout(Math.max(1, wait)) });
+        const res = await fetch(url, { headers: via.headers, signal: AbortSignal.timeout(Math.max(1, wait)) });
         if (res.status === 429) { await res.body?.cancel(); await sleep(2000 * attempt); continue; }
         if (res.status === 404) { await res.body?.cancel(); via.failures = 0; return null; }
         if (!res.ok) { await res.body?.cancel(); throw new Error(`HTTP ${res.status}`); }
@@ -453,6 +457,7 @@ export async function main(opts = {}) {
 
   const on = today(now);
   const runSession = sessionDate(new Date(now));
+  const quoteSessions = new Map();     /* how many fund quotes are stamped with each session */
   const net = makeNet({
     ua: env.SEC_USER_AGENT || "StockOrNot open-source project contact@example.com",
     finnhubApi: env.FINNHUB_API || "https://finnhub.io/api/v1",
@@ -476,13 +481,19 @@ export async function main(opts = {}) {
   /* Names: our list's own, and the SEC's conformed titles for the same CIKs,
      which are written the way filings name holdings ("HONEYWELL
      INTERNATIONAL INC", not "Honeywell"). Loaded once, and only on a night
-     that reads a filing. */
-  let nameIndex = null;
+     that reads a filing. A night the SEC's list cannot be had, no filing is
+     read: our short names alone miss companies we score (IBM, Honeywell,
+     Amazon), and a reading stands for a month. They are read the next night. */
+  let nameIndex;            /* undefined: not asked yet; null: not to be had tonight */
   async function names() {
-    if (nameIndex) return nameIndex;
+    if (nameIndex !== undefined) return nameIndex;
     const pairs = stocks.map((s) => [s.n, s.cik]);
     const ct = await net.sec(`${SEC_WWW}/files/company_tickers.json`, "SEC ticker list", { json: true });
-    for (const r of Object.values(ct || {})) {
+    if (!ct || typeof ct !== "object") {
+      warn("  ! no N-PORT read tonight without the SEC's ticker list: they are read the next night");
+      return (nameIndex = null);
+    }
+    for (const r of Object.values(ct)) {
       const cik = String(r?.cik_str ?? "").padStart(10, "0");
       if (cikToTicker.has(cik) && r.title) pairs.push([r.title, cik]);
     }
@@ -529,6 +540,8 @@ export async function main(opts = {}) {
 
   /* true: read; a string: refused, and why; undefined: not downloaded tonight */
   async function readFiling(f, found, rec) {
+    /* without the SEC's titles: not read tonight, asked again tomorrow */
+    if (!(await names())) return undefined;
     const url = `https://www.sec.gov/Archives/edgar/data/${bare(f.trust)}/${noDash(found.accession)}/primary_doc.xml`;
     const xml = await net.sec(url.replace("https://www.sec.gov", SEC_WWW), `N-PORT ${f.t}`, { big: true });
     if (typeof xml !== "string") return undefined;
@@ -692,6 +705,7 @@ export async function main(opts = {}) {
         ytd: pick("yearToDatePriceReturnDaily"), beta: pick("beta")
       };
       const session = q.t ? sessionDate(new Date(q.t * 1000)) : runSession;
+      if (q.t && session) quoteSessions.set(session, (quoteSessions.get(session) || 0) + 1);
       closes[f.t] = mergeCloses(closes[f.t], session, px);
       priced++;
     }
@@ -718,8 +732,18 @@ export async function main(opts = {}) {
     return out;
   });
 
+  /* The session the prices are from, as refresh.mjs files the companies:
+     the one most fund quotes are stamped with, else the companies' own (when
+     it is not older than the file being replaced: a stale data folder must
+     not file backwards), and the run's date only without either. The job
+     runs on market holidays too, and gets the last session's prices back;
+     filed under the holiday, they would read as that day's, and a kept price
+     would name the wrong day. */
+  const companies = /^\d{4}-\d{2}-\d{2}$/.test(snap?.session || "") && !(prev?.session > snap.session) ? snap.session : null;
+  const session = [...quoteSessions].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? 1 : -1))[0]?.[0] ||
+    companies || runSession;
   const next = {
-    v: 1, updated: new Date().toISOString(), session: runSession,
+    v: 1, updated: new Date().toISOString(), session,
     counts: {
       listed: etfs.length, priced,
       withHoldings: etfs.filter((r) => r.hold?.length).length,
@@ -761,6 +785,10 @@ export async function main(opts = {}) {
   return { written: verdict.ok, next };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/* the file's real path: argv keeps a symlinked path, import.meta.url does not */
+const calledDirectly = (() => {
+  try { return !!process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href; } catch { return false; }
+})();
+if (calledDirectly) {
   main().catch((err) => { console.error(oneLine(err?.stack || err)); process.exit(1); });
 }

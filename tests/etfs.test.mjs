@@ -688,6 +688,7 @@ test("10. a whole night against mock SEC and Finnhub servers writes all three fi
     assert.equal(docs(), before);
     assert.equal(browsed(), looked);
     const two = await read("etfs.json");
+    assert.equal(two.session, "2026-10-14");    /* the session the quote is stamped with, not the run's date */
     assert.equal(two.etfs[0].price, 603);
     assert.deepEqual(two.etfs[0].hold, i.hold);
     assert.equal(two.etfs[0].er, 0.03);
@@ -705,7 +706,7 @@ test("10. a whole night against mock SEC and Finnhub servers writes all three fi
     /* the file it would have written keeps IVV's last price, range, returns
        and beta, marked with their session, and drops that session's day move */
     const i3 = three.result.next.etfs[0];
-    assert.deepEqual([i3.price, i3.lo, i3.hi, i3.r13, i3.beta, i3.stale], [603, 480, 615, 6.2, 1, "2026-10-15"]);
+    assert.deepEqual([i3.price, i3.lo, i3.hi, i3.r13, i3.beta, i3.stale], [603, 480, 615, 6.2, 1, "2026-10-14"]);
     assert.deepEqual([i3.change, i3.open, i3.prev], [null, null, null]);
 
     /* a hand fix and a hand-typed fee: IVV's filing is read again for the
@@ -724,11 +725,14 @@ test("10. a whole night against mock SEC and Finnhub servers writes all three fi
     assert.deepEqual([i4.er, i4.erSrc, i4.erAsOf], [0.0299, "list", "2026-03-31"]);
     assert.deepEqual([i4.price, i4.change, i4.stale], [603, 0.4, undefined]);
 
-    /* every SEC request said who is asking, and every Finnhub one carried the key */
+    /* every SEC request said who is asking, and every Finnhub one carried
+       the key and not the SEC's contact, which is for the SEC only */
     assert.ok(server.hits.some((h) => h.startsWith("/quote?")));
     server.hits.forEach((h, n) => {
-      if (/^\/(quote|stock\/metric)\?/.test(h)) assert.match(h, /[?&]token=test(&|$)/, h);
-      else assert.equal(server.agents[n], env.SEC_USER_AGENT, h);
+      if (/^\/(quote|stock\/metric)\?/.test(h)) {
+        assert.match(h, /[?&]token=test(&|$)/, h);
+        assert.notEqual(server.agents[n], env.SEC_USER_AGENT, h);
+      } else assert.equal(server.agents[n], env.SEC_USER_AGENT, h);
     });
 
     /* and late in the job it does nothing at all */
@@ -861,7 +865,7 @@ test("13. an SEC that takes requests and never answers is cut off at its own dea
 test("14. nothing the SEC or Finnhub sends becomes a workflow command in the job's log", async () => {
   const dir = await scratchData([IVV_FUND]);
   /* two unmatched holdings whose names carry a newline and a command, one
-     written as &#10;, one as it stands; a ticker list and a Finnhub reply
+     written as &#10;, one as it stands; a report index and a Finnhub reply
      that are not JSON, which an error message quotes. The runner also
      takes "##[" anywhere in a line as the older form of a command. */
   const holdings = [
@@ -873,7 +877,7 @@ test("14. nothing the SEC or Finnhub sends becomes a workflow command in the job
   const base = await ivvAndDia({ price: 600.5 });
   const server = await mockSec([
     [(u) => u.pathname === "/Archives/edgar/data/1100663/000207169126012459/primary_doc.xml", () => [200, ivv, "text/xml"]],
-    [(u) => u.pathname === "/files/company_tickers.json", () => [200, "##[error]from the SEC", "application/json"]],
+    [(u) => u.pathname === "/Archives/edgar/data/1100663/000110066326000037/index.json", () => [200, "##[error]from the SEC", "application/json"]],
     [(u) => u.pathname === "/stock/metric", () => [200, "\n::error::from Finnhub", "application/json"]],
     ...base
   ]);
@@ -894,7 +898,7 @@ test("14. nothing the SEC or Finnhub sends becomes a workflow command in the job
   assert.equal(lines.length, said.length, JSON.stringify(said));
   assert.deepEqual(lines.filter((l) => l.trimStart().startsWith("::") || l.includes("##[")), []);
   /* still all there, on one line each */
-  assert.ok(said.includes(`  ! SEC ticker list: Unexpected token '#', "# #[error]f"... is not valid JSON`), JSON.stringify(said));
+  assert.ok(said.includes(`  ! report index IVV: Unexpected token '#', "# #[error]f"... is not valid JSON`), JSON.stringify(said));
   assert.ok(said.includes(`  ! finnhub /stock/metric: Unexpected token ':', " ::error::f"... is not valid JSON`), JSON.stringify(said));
   const summary = lines.find((l) => l.startsWith("ETFs: "));
   assert.match(summary, /unmatched ≥0\.5%: Nestle SA ::error title=x::from a name \(IVV 6\.\d%\), Roche Holding AG ::warning::from a name # #\[error\]too \(IVV 3\.\d%\)/);
@@ -904,8 +908,8 @@ test("14. nothing the SEC or Finnhub sends becomes a workflow command in the job
 });
 
 test("the company job's warnings keep a reply on one line the same way", async () => {
-  /* scripts/refresh.mjs runs as soon as it is imported, so its helper is
-     read from the source, and must be the one this job uses */
+  /* the helper is read from refresh.mjs's source, and must be the one this
+     job uses */
   const src = await fs.readFile(path.join(HERE, "..", "scripts", "refresh.mjs"), "utf8");
   const def = src.match(/^const oneLine = (.*);$/m);
   assert.ok(def, "refresh.mjs prints replies as they come");
@@ -916,4 +920,70 @@ test("the company job's warnings keep a reply on one line the same way", async (
     `Unexpected token ':', " ::error::x # #[error]y"... is not valid JSON`);
   /* and every error message it prints goes through it */
   assert.equal(src.match(/\$\{err\.message\}/g), null);
+});
+
+test("a night without the SEC's ticker list reads no filing, and the next night reads them in full", async () => {
+  /* Our short names alone miss companies we score (DIA's IBM, Honeywell,
+     Amazon), and a reading stands for a month: so none is made that night */
+  const dir = await scratchData([IVV_FUND, DIA_FUND]);
+  let down = true;
+  const server = await mockSec([
+    [(u) => down && u.pathname === "/files/company_tickers.json", () => [503, "busy", "text/plain"]],
+    ...(await ivvAndDia({ price: 600.5 }))
+  ]);
+  const night = (n) => quietly(() => main({ data: dir, env: { ...envFor(server), ETF_SKIP_PRICES: "1" }, now: NIGHT1 + n * 864e5 }));
+  const docs = () => server.hits.filter((h) => h.includes("primary_doc")).length;
+  const rec = (r, t) => r.next.etfs.find((x) => x.t === t);
+  try {
+    /* the first night: nothing read, so no first file, and no LEI learned */
+    const one = await night(0);
+    assert.equal(one.result.written, false);
+    assert.equal(docs(), 0);
+    assert.match(one.lines[0], /0 N-PORTs read, .*; no etfs\.json written yet \(nothing was priced or read tonight\)/);
+    await assert.rejects(fs.access(path.join(dir, "lei.json")));
+
+    /* the next night the list is back: both read in full, the first file written */
+    down = false;
+    const two = await night(1);
+    assert.equal(two.result.written, true);
+    const d = rec(two.result, "DIA");
+    assert.deepEqual([d.cover, d.out, d.nport.read], [100, [], "2026-10-16"]);
+    assert.equal(rec(two.result, "IVV").nport.read, "2026-10-16");
+
+    /* a later night without it: a re-read a hand fix asks for waits a night,
+       and the reading it has stays as it was */
+    await writeList(dir, [IVV_FUND, DIA_FUND], { [NESTLE]: "0000320193" });
+    down = true;
+    const before = docs();
+    const three = await night(2);
+    assert.equal(three.result.written, true);
+    assert.equal(docs(), before);
+    const i3 = rec(three.result, "IVV");
+    assert.equal(i3.nport.read, "2026-10-16");
+    assert.ok(i3.out.some(([lei]) => lei === NESTLE));
+    down = false;
+    const i4 = rec((await night(3)).result, "IVV");
+    assert.equal(i4.nport.read, "2026-10-18");
+    assert.ok(!i4.out.some(([lei]) => lei === NESTLE));
+  } finally {
+    await server.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a night's session is the one its quotes are stamped with, else the companies'", async () => {
+  /* the run on a market holiday: the clock says 2026-10-15, the prices are
+     2026-10-14's, as the companies' snapshot says */
+  const dir = await scratchData([IVV_FUND]);
+  const snap = JSON.parse(await fs.readFile(path.join(dir, "snapshot.json"), "utf8"));
+  await fs.writeFile(path.join(dir, "snapshot.json"), JSON.stringify({ ...snap, session: "2026-10-14" }));
+  const server = await mockSec(await ivvAndDia({ price: 600.5 }));
+  const night = (more) => quietly(() => main({ data: dir, env: { ...envFor(server), ...more }, now: NIGHT1 + 864e5 }));
+  try {
+    assert.equal((await night({})).result.next.session, "2026-10-14");                       /* IVV's quote */
+    assert.equal((await night({ ETF_SKIP_PRICES: "1" })).result.next.session, "2026-10-14");  /* the companies' */
+  } finally {
+    await server.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });

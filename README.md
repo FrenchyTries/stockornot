@@ -244,9 +244,10 @@ revenue. Three ways to hear about it:
    report date, set to remind you at 9am a week before and 9am the day before.
    Apple Calendar and Outlook keep those reminders. Google Calendar applies its
    own defaults instead.
-3. **By email.** Signed-in users can switch on *Email me seven days before…*. The
-   nightly Action runs `scripts/earnings-alerts.mjs` after publishing the data,
-   and sends each company once per report date. To enable it:
+3. **By email.** Signed-in users can switch on *Email me when anything in my
+   cart is a week from reporting…*. The nightly Action runs
+   `scripts/earnings-alerts.mjs` after publishing the data, and sends each
+   company once per report date. To enable it:
    - run `supabase/schema.sql` again in the Supabase SQL editor (it is safe to re-run; it adds the alert tables and a check that each saved cart is a list)
    - add repository secrets `SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` ([resend.com](https://resend.com))
    - optionally set a repository variable `ALERT_FROM`, e.g. `StockOrNot <alerts@stockornot.com>`, on a domain Resend has verified
@@ -264,7 +265,7 @@ So the work happens in a **GitHub Action** that runs every weekday evening,
 after the close (22:20 UTC):
 
 ```
-.github/workflows/refresh.yml  →  scripts/refresh.mjs  →  scripts/audit.mjs  →  scripts/etfs.mjs  →  scripts/build-pages.mjs
+.github/workflows/refresh.yml  →  scripts/refresh.mjs  →  scripts/audit.mjs  →  scripts/etfs.mjs  →  scripts/track.mjs  →  scripts/build-pages.mjs
 ```
 
 Which does:
@@ -299,8 +300,11 @@ Which does:
    shareholder report, and its price from Finnhub. It does nothing when the
    job is already running late, and a failure never holds back the company
    data. [`docs/ETFS.md`](docs/ETFS.md) has the details.
+7. **The track record** — `scripts/track.mjs` moves each week's top and bottom
+   fifth by score forward by tonight's closes, into `data/track.json`. A
+   failure never holds back the prices.
 
-Output lands in `data/snapshot.json` (market data, ~0.6MB), `data/detail/*.json`
+Output lands in `data/snapshot.json` (market data, ~0.8MB), `data/detail/*.json`
 (history, daily closes, analysts), `data/filings/*.json` (10-K prose, lazy-loaded
 per card) and `data/fundamentals/` (the cached XBRL figures). The ETF step adds
 three files: `data/etfs.json` (one record per fund), `data/etf-closes.json`
@@ -396,7 +400,8 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
 - **The constituent list is a static file.** `data/sp500.json` is a point-in-time
   snapshot of the index. Companies that join or leave won't be picked up until
   someone edits it; tickers Finnhub can't price are logged as `skipped` in the
-  snapshot and dropped from the deck.
+  snapshot and dropped from the deck, and from the company pages, the sitemap
+  and `/stock`, until they quote again.
 - **10-K parsing is heuristic.** Finding "Item 1A" in a document that has no
   consistent markup across 500 filers means some companies parse cleanly and
   others don't. When parsing fails the card says so and links to the filing.
@@ -426,7 +431,8 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
 One system for every page, in `styles.css`: the deck, the dialogs, the company
 pages, and the method, pricing, privacy, terms, support and not-found pages.
 Dark and quiet, set in [Inter](https://rsms.me/inter/) (served from `fonts/`, SIL Open Font License),
-with hairline rules instead of boxes inside boxes, one accent colour, and the
+with hairline rules instead of boxes inside boxes, one accent colour (a deeper
+shade of it under white text), and the
 five financial checks marked with small line icons (`lib/icons.mjs`). Up and down
 moves carry a ▲/▼ glyph and a signed number as well as colour, so nothing depends
 on colour alone. `prefers-reduced-motion` and `forced-colors` are honoured. The
@@ -440,13 +446,17 @@ it left by, a company's score counts up the first time it reaches the top, and
 a removal from the cart folds the row away and offers an **Undo**. With reduced
 motion all of it is instant.
 
-The link preview (`og.png`), the home-screen icon and the store screenshots
-are all captured from the running site by `marketing/capture.cjs`, so they
-change when the design does rather than drifting from it.
+The link preview (`og.png`) and the home-screen icon are captured from the
+running site by `marketing/capture.cjs`, so they change when the design does
+rather than drifting from it. The App Store screenshots are not: they are taken
+from the iPhone app in the Simulator ([`marketing/README.md`](marketing/README.md),
+and step 12 of "The day on the Mac" in [`docs/APP_STORE.md`](docs/APP_STORE.md)).
 
-No framework, no build step. Plain HTML, CSS and JavaScript, some JSON, and three
-small serverless functions under `api/` for the parts that need a secret: the
-brokerage and the news.
+No framework and no bundler: the website's code is served as written, and two small Node
+scripts build the rest (`scripts/build-pages.mjs` the company pages and
+`public/`, `scripts/build-app.mjs` the iPhone app's copy). Plain HTML, CSS and
+JavaScript, some JSON, and three small serverless functions under `api/` for the
+parts that need a secret: the brokerage and the news.
 
 ## Licence
 

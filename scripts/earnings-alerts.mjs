@@ -28,6 +28,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { upcoming, expectation, track, whenWord, quarterLabel, eps, money } from "../lib/earnings.mjs";
+import { nyClock } from "./dates.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const DATA = path.join(ROOT, "data");
@@ -198,7 +199,10 @@ async function main() {
 
   const ids = prefs.map((p) => p.user_id);
   const carts = new Map(), logged = new Set();
-  const today = new Date().toISOString().slice(0, 10);
+  /* Days are counted on New York's calendar, the one report dates are on:
+     the job runs after midnight UTC, still the evening before in New York,
+     so the UTC date called tomorrow's report "today". */
+  const ny = nyClock(), today = ny.date;
   for (const part of chunks(ids, 80)) {
     const list = `(${part.join(",")})`;
     for (const c of await restAll(`carts?select=user_id,items&user_id=in.${list}&order=user_id`)) carts.set(c.user_id, c.items);
@@ -221,8 +225,11 @@ async function main() {
   for (const p of prefs) {
     try {
       const days = p.days_before || 7;
-      let due = upcoming(cartItems(carts.get(p.user_id)), byTicker, { days })
-        .filter((u) => !logged.has(`${p.user_id}|${u.t}|${u.date}`));
+      /* a report dated today in New York has come out by the evening the job
+         usually runs in; only a run late enough to end after New York's
+         midnight, before the morning's open, still tells of one */
+      let due = upcoming(cartItems(carts.get(p.user_id)), byTicker, { days, today })
+        .filter((u) => (u.days >= 1 || (u.days === 0 && ny.minutes < 9 * 60 + 30)) && !logged.has(`${p.user_id}|${u.t}|${u.date}`));
       if (!due.length) continue;
 
       const to = await emailOf(p.user_id);

@@ -191,7 +191,8 @@
       <form class="auth-step" id="authEmailStep">
         <p class="auth-blurb">
           Your cart lives on this device right now, so it disappears if you switch
-          devices or clear your history. Sign in and it follows you.
+          devices or <span class="web-only">clear your history</span><span class="app-only">delete the app</span>.
+          Sign in and it follows you.
         </p>
         <label class="auth-label" for="authEmail">Email address</label>
         <input class="auth-input" type="email" id="authEmail" name="email"
@@ -227,7 +228,7 @@
                inputmode="numeric" autocomplete="one-time-code"
                maxlength="20" placeholder="000000">
         <button type="submit" class="primary-btn wide" id="authVerify">Sign in with the code</button>
-        <button type="button" class="link-btn" id="authBack">Use a different address</button>
+        <button type="button" class="link-btn" id="authBack">Send again or use a different address</button>
       </form>
 
       <!-- signed out: App Review's account, the only one with a password
@@ -305,9 +306,9 @@
     </div>
     <p class="block-note acct-fine">
       <b>Not investment advice.</b> Every figure here comes from
-      <a href="https://finnhub.io" target="_blank" rel="noopener">Finnhub</a> or the company's own
+      <a href="https://finnhub.io" target="_blank" rel="noopener">Finnhub</a> or the companies' and funds' own
       <a href="https://www.sec.gov/edgar" target="_blank" rel="noopener">SEC filings</a>
-      and may be stale, mis-parsed or wrong. Read the actual 10-K before you buy anything.
+      and may be stale, mis-parsed or wrong. Read the actual filing before you buy anything.
     </p>
   </section>
 </main>
@@ -343,7 +344,7 @@
   <div class="sheet-inner">
     <header class="sheet-head detail-head">
       <div class="dh-id">
-        <h2 id="detailTitle">—</h2>
+        <h2 id="detailTitle" tabindex="-1">—</h2>
         <p id="detailName">—</p>
       </div>
       <div class="dh-price">

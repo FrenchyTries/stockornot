@@ -179,7 +179,7 @@ test("reminders switched on offline are scheduled from the copy in the app, and 
   const setUp = ({ fromApp, stamp, updated }) => {
     const store = new Map(stamp ? [["ts.notifyData", stamp]] : []);
     const ctx = vm.createContext({
-      lists: [], wanted: true, Promise,
+      lists: [], pruned: [], wanted: true, Promise,
       state: { all: [{ t: "AAPL" }], cart: [{ t: "AAPL" }], byTicker: {}, updated, snapshotFromApp: fromApp },
       earn: { reminders: () => [{ id: 20261015 }] },
       localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
@@ -190,9 +190,10 @@ test("reminders switched on offline are scheduled from the copy in the app, and 
     ctx.native = {
       canNotify: () => true, notifyWanted: () => ctx.wanted, setNotifyWanted: (on) => { ctx.wanted = on; },
       askNotify: () => Promise.resolve("granted"),
-      reschedule: (list) => { ctx.lists.push(Array.from(list, (n) => n.id)); return Promise.resolve(true); }
+      reschedule: (list) => { ctx.lists.push(Array.from(list, (n) => n.id)); return Promise.resolve(true); },
+      prune: (tickers) => { ctx.pruned.push(Array.from(tickers)); return Promise.resolve(true); }
     };
-    vm.runInContext(appCode("reminderTimer", "NOTIFY_ON", "NOTIFY_DENIED", "NOTIFY_DATA", "scheduleReminders", "setLocalNotify"), ctx);
+    vm.runInContext(appCode("reminderTimer", "NOTIFY_ON", "NOTIFY_DENIED", "NOTIFY_DATA", "UNDO_MS", "scheduleReminders", "setLocalNotify"), ctx);
     const settle = () => new Promise((ok) => setImmediate(ok));
     return { ctx, store, settle, run: async () => { ctx.scheduleReminders(); await settle(); return { lists: ctx.lists.length, stamp: store.get("ts.notifyData") ?? null }; } };
   };
@@ -210,6 +211,17 @@ test("reminders switched on offline are scheduled from the copy in the app, and 
   assert.deepEqual(await run({ fromApp: false, stamp: NEW, updated: NEW }), { lists: 1, stamp: NEW });
   assert.deepEqual(await run({ fromApp: false, stamp: NEW, updated: OLD }), { lists: 0, stamp: NEW });
 
+  /* whenever the list is left alone, a company taken out of the cart still loses its reminder */
+  for (const o of [{ fromApp: true, stamp: NEW, updated: OLD }, { fromApp: true, stamp: OLD, updated: OLD }, { fromApp: false, stamp: NEW, updated: OLD }]) {
+    const p = setUp(o);
+    p.ctx.state.cart = [{ t: "MSFT" }];
+    await p.run();
+    assert.deepEqual([p.ctx.lists, p.ctx.pruned], [[], [["MSFT"]]], JSON.stringify(o));
+  }
+  const fresh = setUp({ fromApp: false, stamp: OLD, updated: NEW });
+  await fresh.run();
+  assert.deepEqual([fresh.ctx.lists, fresh.ctx.pruned], [[[20261015]], []]);
+
   /* off and on again, still offline: everything cancelled, then scheduled again from the copy */
   const t = setUp({ fromApp: true, stamp: OLD, updated: OLD });
   t.ctx.setLocalNotify(false);
@@ -220,6 +232,79 @@ test("reminders switched on offline are scheduled from the copy in the app, and 
   assert.deepEqual(t.ctx.lists, [[], [20261015]]);
   assert.equal(t.store.get("ts.notifyData"), OLD);
   assert.equal(t.ctx.els["#earnLocalNote"].textContent, t.ctx.NOTIFY_ON);
+});
+
+/* Offline, a company taken out of the cart loses its reminder only once the
+   cart's Undo is gone: put back in time, it keeps the reminder, which data
+   that old could not build again. */
+test("an offline prune waits until the cart's Undo is gone", () => {
+  const timers = new Map();
+  let id = 0;
+  const ctx = vm.createContext({
+    pruned: [], Promise,
+    state: { all: [{ t: "AAPL" }], cart: [{ t: "AAPL" }], byTicker: {}, updated: "2026-10-01T00:30:00Z", snapshotFromApp: true },
+    earn: { reminders: () => [] },
+    localStorage: { getItem: () => "2026-10-13T00:30:00Z", setItem() {}, removeItem() {} },
+    setTimeout: (fn, ms) => { timers.set(++id, { fn, ms }); return id; },
+    clearTimeout: (n) => { timers.delete(n); }
+  });
+  ctx.native = {
+    canNotify: () => true, notifyWanted: () => true, reschedule: () => Promise.resolve(true),
+    prune: (tickers) => { ctx.pruned.push(Array.from(tickers)); return Promise.resolve(true); }
+  };
+  vm.runInContext(appCode("reminderTimer", "NOTIFY_DATA", "UNDO_MS", "scheduleReminders"), ctx);
+  const fire = () => { const [n, t] = [...timers][0]; timers.delete(n); t.fn(); return t.ms; };
+
+  ctx.state.cart = [];                     /* AAPL taken out */
+  ctx.scheduleReminders();
+  assert.equal(fire(), 1000);
+  assert.deepEqual(ctx.pruned, [], "not while Undo is offered");
+  ctx.state.cart = [{ t: "AAPL" }];        /* Undo */
+  ctx.scheduleReminders();
+  assert.equal(timers.size, 1, "the waiting prune is dropped");
+  assert.equal(fire(), 1000);
+  assert.equal(fire(), 6000);
+  assert.deepEqual(ctx.pruned, [["AAPL"]], "AAPL keeps its reminder");
+  ctx.state.cart = [];                     /* out again, and left out */
+  ctx.scheduleReminders();
+  fire();
+  assert.equal(fire(), 6000);
+  assert.deepEqual(ctx.pruned, [["AAPL"], []]);
+});
+
+/* A snapshot that did not arrive is the visitor's connection, not a site
+   with no data: the setup steps are only for a copy of the site on the
+   maintainer's own computer that has no data in it yet. */
+test("only a local copy with no data shows the setup steps; everyone else can try again", () => {
+  const shown = (hostname, reason, inApp = false) => {
+    const ctx = vm.createContext({ location: { hostname }, native: { inApp }, title: null,
+      showMessage: (title) => { ctx.title = title; }, repoUrl: () => "https://github.com" });
+    vm.runInContext(appCode("setupScreen"), ctx);
+    ctx.setupScreen(reason);
+    return ctx.title;
+  };
+  const RETRY = "Couldn't load the companies", SETUP = "No data yet";
+  for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
+    assert.equal(shown(host, "missing"), SETUP, host);
+    assert.equal(shown(host, "empty"), SETUP, host);
+    assert.equal(shown(host, "failed"), RETRY, host);
+  }
+  for (const reason of ["missing", "empty", "failed"]) {
+    assert.equal(shown("stockornot.com", reason), RETRY, reason);
+    assert.equal(shown("www.stockornot.com", reason), RETRY, reason);
+    /* the app's own address is localhost too */
+    assert.equal(shown("localhost", reason, true), RETRY, reason);
+  }
+});
+
+test("a snapshot that did not arrive is told apart from a copy with no data", () => {
+  const ctx = vm.createContext({});
+  vm.runInContext(appCode("snapshotProblem"), ctx);
+  assert.equal(ctx.snapshotProblem(new Error("missing")), "missing");
+  assert.equal(ctx.snapshotProblem(new Error("empty")), "empty");
+  for (const err of [new Error("http 503"), new TypeError("Failed to fetch"), new SyntaxError("Unexpected end of JSON input"), null]) {
+    assert.equal(ctx.snapshotProblem(err), "failed", String(err));
+  }
 });
 
 /* A code copied from the email can come with spaces round it, or split by a

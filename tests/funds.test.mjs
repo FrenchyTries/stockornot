@@ -364,7 +364,7 @@ test("a holding filed under one share class is named as the company", () => {
   const googl = snap.stocks.find((s) => s.t === "GOOGL");
   if (!googl) return;
   const r = readFund(fund({ hold: [["GOOGL", 60], ["AAPL", 40]] }), ctx, DEFAULT_STYLE, { companies: snap.stocks });
-  assert.ok(r.cons.includes("One company, " + companyName(googl.n) + ", is 60% of it."), r.cons.join(" | "));
+  assert.ok(r.cons.includes("One company, " + companyName(googl.n) + ", is 60.0% of it."), r.cons.join(" | "));
   assert.doesNotMatch(r.cons.join(" "), /\(Class [A-Z]\)/);
 });
 

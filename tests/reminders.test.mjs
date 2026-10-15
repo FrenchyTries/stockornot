@@ -57,6 +57,8 @@ test("one notification per day, with the day it fires as its yyyymmdd id", () =>
   assert.equal(out[0].body, "AAPL and MSFT report on Wednesday, October 28.");
   assert.equal(out[1].title, "NVDA reports in a week");
   assert.ok(Number.isInteger(out[0].id) && out[0].id < 2 ** 31);
+  /* each names its companies, so one for a company taken out of the cart can be found */
+  assert.deepEqual(out.map((r) => r.t), [["AAPL", "MSFT"], ["NVDA"]]);
 });
 
 test("a company in the cart twice is named once", () => {

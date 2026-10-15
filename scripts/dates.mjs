@@ -25,6 +25,16 @@ function stepBack(iso) {
   return d.toISOString().slice(0, 10);
 }
 
+/** New York's calendar date at a moment, as YYYY-MM-DD. */
+export function nyDate(when = new Date()) {
+  return nyParts(when).date;
+}
+
+/** New York's date and minutes past midnight at a moment. */
+export function nyClock(when = new Date()) {
+  return nyParts(when);
+}
+
 /** The trading session a moment belongs to, as YYYY-MM-DD. */
 export function sessionDate(when) {
   const d = when instanceof Date ? when : new Date(when);

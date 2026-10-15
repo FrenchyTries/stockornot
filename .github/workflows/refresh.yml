@@ -90,8 +90,10 @@ jobs:
 
       # Moves the score's weekly picks forward by tonight's prices (see the
       # header of scripts/track.mjs). After the audit, so only data that passed
-      # it is counted; a failure here never holds the prices back.
+      # it is counted; a failure here never holds the prices back. Skipped on
+      # limited test runs, which would file a whole day under a few prices.
       - name: Follow the score's picks
+        if: ${{ !github.event.inputs.limit }}
         continue-on-error: true
         run: node scripts/track.mjs
 
@@ -132,7 +134,10 @@ jobs:
           if git diff --cached --quiet; then
             echo "Nothing changed."
           else
-            git commit -m "Data refresh $(date -u +'%Y-%m-%d')"
+            # Named after the trading session the data holds (scripts/dates.mjs),
+            # not the UTC date it lands on, which is already the next day.
+            session=$(node -p 'require("./data/snapshot.json").session || ""' 2>/dev/null || true)
+            git commit -m "Data refresh ${session:-$(date -u +'%Y-%m-%d')}"
             git push "$remote" "HEAD:${GITHUB_REF_NAME}"
           fi
 

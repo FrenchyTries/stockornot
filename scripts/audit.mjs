@@ -155,7 +155,12 @@ function checkCompleteness(snap, prev) {
   const missing = {
     financials: snap.stocks.filter((s) => !num(s.fin?.revenue)).map((s) => s.t),
     earnings:   snap.stocks.filter((s) => !s.earnings?.date).map((s) => s.t),
-    filings:    snap.stocks.filter((s) => !s.sec?.detail).map((s) => s.t)
+    filings:    snap.stocks.filter((s) => !s.sec?.detail).map((s) => s.t),
+    /* Finnhub's ratios (market cap, P/E, margins, the 52-week range), which
+       the score is built from. Every night so far has had a market cap for
+       every company; a /stock/metric outage that refresh.mjs could not
+       cover with an earlier night's figures blanked nearly all of them. */
+    ratios:     snap.stocks.filter((s) => !num(s.mc)).map((s) => s.t)
   };
 
   for (const [what, list] of Object.entries(missing)) {
@@ -164,6 +169,18 @@ function checkCompleteness(snap, prev) {
     else if (list.length)
       add("warn", `${what}-missing`, `${list.length} companies have no ${what}.`, list);
   }
+
+  /* Kept from an earlier night because tonight's request failed (see
+     refresh.mjs): published, but named, so a refusal that lasts is seen. */
+  const carried = snap.stocks.filter((s) => typeof s.ratiosFrom === "string");
+  if (carried.length)
+    add("warn", "ratios-carried",
+        `${carried.length} companies' ratios could not be fetched from Finnhub tonight; the last ones ` +
+        `fetched are shown, the oldest from ${carried.map((s) => s.ratiosFrom).sort()[0]}.`,
+        carried.map((s) => `${s.t} ${s.ratiosFrom}`));
+  if (num(snap.counts?.filingsCarried) && snap.counts.filingsCarried > 0)
+    add("warn", "filings-carried",
+        `${snap.counts.filingsCarried} companies kept last night's 10-K and 10-Q links: their SEC submissions index did not load.`);
 
   /* Coverage that silently erodes run over run is the failure mode nobody
      notices, because each individual day looks fine. */

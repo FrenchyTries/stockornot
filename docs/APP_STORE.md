@@ -147,9 +147,10 @@ First, no Mac needed (in this order):
       asked for anything: the nightly job stops calling them with pull
       request #4, as neither ever answered it. The last of their data, a
       weekly chart for one company (CRH), is dropped by the first nightly
-      run after the merge. A build made before that run's data commit still
-      carries it, so the build for Apple waits for that commit (step 10 of
-      "The day on the Mac").
+      run after the merge that gets a price for CRH. A build made before
+      then still carries it, so the build for Apple waits for that run's
+      data commit, or leaves the chart out by hand (step 10 of "The day on
+      the Mac").
 - [ ] **Run all of `supabase/schema.sql`** in Supabase's SQL editor, if not
       done since pull request #3. Until it runs, Delete my account tells
       people to email instead, and "email us to delete" is one of the most
@@ -354,22 +355,31 @@ password, it is the Mac's own login password, and nothing shows as you type.
    - The header and the close buttons of the sheets sit clear of the camera
      cut-out at the top.
 10. **Send it to Apple,** only once pull request #4 is merged and the
-    nightly run after the merge has made its data commit, which drops the
-    last of Yahoo's data ("Check the data terms" above). First, in Terminal
-    in the `mobile` folder, bring in the merge and that night's data,
-    whichever branch step 6 left you on, and check:
+    nightly run after the merge has made its data commit, which normally
+    drops the last of Yahoo's data ("Check the data terms" above). First,
+    in Terminal in the `mobile` folder, bring in the merge and that night's
+    data, whichever branch step 6 left you on, and check:
     ```bash
     git pull origin main
-    node -e 'console.log(require("../data/detail/CRH.json").chart ? "Wait: no nightly data commit since the merge yet" : "Ready")'
+    node -e 'console.log(require("../data/detail/CRH.json").chart ? "Wait: CRH has no nightly data since the merge yet" : "Ready")'
     ```
-    Go on only when it prints `Ready`. Then run `npm run sync` (exactly that,
-    with no `CSP=off` in front), so the build that goes to Apple is the
-    current code with its security policy. (Once `data/etfs.json` exists but
-    the ETF build is not ready yet, use the line in "ETFs in the listing"
-    instead, which leaves the funds out.) Then at the top of Xcode pick "Any
-    iOS Device (arm64)", then Product → Archive. When the Organizer window
-    opens: Distribute App → App Store Connect → Distribute. Xcode makes the
-    certificates it needs.
+    Go on only when it prints `Ready`. If it still says `Wait` once two
+    nightly data commits have come in since the merge (`git log --oneline -5`
+    lists them as "Data refresh", above the merge), CRH got no price on
+    those nights, and its file stays as it is until it does. Do not wait for
+    it: take the chart out of your copy of the file (the check then prints
+    `Ready`), and once the sync below has run, put the file back with
+    `git checkout -- ../data/detail/CRH.json`:
+    ```bash
+    node -e 'const f="../data/detail/CRH.json", d=require(f); delete d.chart; require("fs").writeFileSync(f, JSON.stringify(d))'
+    ```
+    Then run `npm run sync` (exactly that, with no `CSP=off` in front), so
+    the build that goes to Apple is the current code with its security
+    policy. (Once `data/etfs.json` exists but the ETF build is not ready
+    yet, use the line in "ETFs in the listing" instead, which leaves the
+    funds out.) Then at the top of Xcode pick "Any iOS Device (arm64)", then
+    Product → Archive. When the Organizer window opens: Distribute App →
+    App Store Connect → Distribute. Xcode makes the certificates it needs.
 11. **TestFlight.** App Store Connect → Apps → StockOrNot → TestFlight. Wait
     for the build to finish processing (an email comes; minutes to half an
     hour). Internal Testing → + → a group with yourself in it, then install
@@ -663,8 +673,8 @@ membership's price.
 >
 > Where the native features are:
 > 1. Haptics: a tap on each swipe in the Deck, and a tick as a card crosses the line (on a device).
-> 2. Share sheet: the Share button at the top of a company's full record (tap any card); Cart → Export CSV; Account → Download my data.
-> 3. Local notifications: Cart → Earnings dates (or Account → Earnings alerts) → "Notify me on this iPhone". Permission is asked only when it is switched on, and the app works without it. The phone schedules a notification at 9 a.m. a week before each company in the cart reports; nothing is sent to a server.
+> 2. Share sheet: the Share button at the top of a company's full record (tap any card); Cart → Export CSV (the cart's buttons appear once it holds a company: swipe a card right or tap Add to cart); Account → Download my data (signed in).
+> 3. Local notifications: Account → Earnings alerts (or Cart → Earnings dates, once the cart holds a company) → "Notify me on this iPhone". Permission is asked only when it is switched on, and the app works without it. The phone schedules a notification at 9 a.m. a week before each company in the cart reports; nothing is sent to a server.
 > 4. Offline: in Airplane Mode the Deck, Cart, Compare and Track still work, on the data built into the app.
 > 5. Links to the method, terms, privacy policy and SEC filings open in an in-app Safari view.
 >

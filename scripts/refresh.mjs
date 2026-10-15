@@ -21,7 +21,9 @@
    ========================================================================== */
 
 import fs from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { extractFundamentals, FUNDAMENTALS_VERSION } from "./fundamentals.mjs";
 import { parseTenK } from "./tenk.mjs";
 import { sessionDate } from "./dates.mjs";
@@ -75,11 +77,6 @@ function analystTtl(ticker) {
   return ANALYST_TTL_DAYS + (h % 6);   /* 6-11 days */
 }
 
-if (!TOKEN) {
-  console.error("FINNHUB_TOKEN is not set. Add it under Settings -> Secrets and variables -> Actions.");
-  process.exit(1);
-}
-
 /* ----------------------------------------------------------------- helpers */
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -127,6 +124,9 @@ async function getJSON(url, { headers = {}, gate, tries = 3, label = "" } = {}) 
       await sleep(700 * attempt);
     }
   }
+  /* Rate-limited on every try. Said in the log like any other failure: the
+     Finnhub key is shared with /api/news, so a busy evening can do this. */
+  console.warn(`  ! ${label || url}: rate-limited (HTTP 429) ${tries} times`);
   return null;
 }
 
@@ -159,6 +159,52 @@ function pickMetric(m, ...keys) {
     if (typeof v === "number" && isFinite(v)) return v;
   }
   return null;
+}
+
+/* ------------------------------------------------- ratios kept for a while
+
+   Every Finnhub figure on a row but the quote comes from one /stock/metric
+   call. When that call fails (a 5xx, or 429s on the key /api/news shares),
+   the row used to go out with every one of them blank: a night of that,
+   tried on a copy, left 476 of 501 companies without a score. Last night's
+   figures are kept instead, put back under the first name the row reads
+   each one from, so the share-class and EPS checks below still apply to
+   them. For a week at most: a company whose ratios stop coming for good
+   loses them, and the audit names it. */
+
+const RATIO_CARRY_DAYS = 7;
+
+/* snapshot field -> the Finnhub name its pickMetric() call tries first */
+export const METRIC_NAMES = {
+  mc: "marketCapitalization", pe: "peTTM", pb: "pbQuarterly", ps: "psTTM", roe: "roeTTM", roa: "roaTTM",
+  nm: "netProfitMarginTTM", gm: "grossMarginTTM", om: "operatingMarginTTM", rg: "revenueGrowthTTMYoy",
+  rg5: "revenueGrowth5Y", eg: "epsGrowthTTMYoy", beta: "beta", lo: "52WeekLow", hi: "52WeekHigh",
+  dy: "dividendYieldIndicatedAnnual", payout: "payoutRatioTTM", de: "totalDebt/totalEquityQuarterly",
+  cr: "currentRatioQuarterly", r13: "13WeekPriceReturnDaily", r26: "26WeekPriceReturnDaily",
+  r52: "52WeekPriceReturnDaily", pef: "forwardPE", pfcf: "pfcfShareTTM", evEbitda: "evEbitdaTTM",
+  qr: "quickRatioQuarterly", ic: "netInterestCoverageTTM", eg5: "epsGrowth5Y", dg5: "dividendGrowthRate5Y",
+  ytd: "yearToDatePriceReturnDaily", rs52: "priceRelativeToS&P50052Week", vol: "10DayAverageTradingVolume"
+};
+
+/** Last night's row `was` as a /stock/metric answer, and the session its
+    figures are from: the row's own ratiosFrom when they were already kept
+    over, else that snapshot's session. Null when there is nothing to keep,
+    or the figures are more than RATIO_CARRY_DAYS older than session `on`. */
+/** True when a /stock/metric answer has none of the figures a row reads: a
+    failed request (null), an empty answer, or one whose every such figure
+    is null. Finnhub's answer has about a hundred other keys, which do not
+    count. */
+export function noRatios(metricRes) {
+  return !metricRes || !Object.values(METRIC_NAMES).some((n) => numOrNull(metricRes.metric?.[n]) !== null);
+}
+
+export function carriedRatios(was, wasSession, on) {
+  if (!was) return null;
+  const from = typeof was.ratiosFrom === "string" ? was.ratiosFrom : wasSession;
+  if (typeof from !== "string" || !((new Date(on) - new Date(from)) / 864e5 <= RATIO_CARRY_DAYS)) return null;
+  const metric = {};
+  for (const [k, name] of Object.entries(METRIC_NAMES)) if (numOrNull(was[k]) !== null) metric[name] = was[k];
+  return Object.keys(metric).length ? { metric, from } : null;
 }
 
 /* ------------------------------------------------------ SEC XBRL via frames
@@ -357,6 +403,19 @@ async function tickersForCik(cik) {
   return secTickers.get(cik) || [];
 }
 
+/** The symbol a company that failed to quote now trades under, or null.
+    Only a real rename: the SEC no longer lists the old ticker for the CIK,
+    and the new one is not another class already in the index (Alphabet,
+    Fox and News Corp list both classes under one CIK and Berkshire lists A
+    and B, so one failed quote turned GOOGL into a second GOOG, and Berkshire
+    into its Class A at hundreds of thousands of dollars a share). A company
+    still listed under its own ticker is skipped for the night instead. Only
+    a well-formed ticker: it becomes a file name and part of a page. */
+export function renamedTo(ticker, listed, known) {
+  if (listed.includes(ticker)) return null;
+  return listed.find((t) => t !== ticker && TICKER.test(t) && !known.has(t)) || null;
+}
+
 /* A quarterly EPS figure fifty times the company's own trailing annual EPS
    is another share class's (Berkshire B has carried Class A's ~$8,467
    estimate against ~$44 of annual EPS, 190×). Genuine outliers, companies
@@ -365,6 +424,32 @@ function plausibleEps(v, annualEps) {
   if (typeof v !== "number" || !isFinite(v)) return true;
   if (typeof annualEps !== "number" || !isFinite(annualEps) || annualEps <= 0) return true;
   return Math.abs(v) <= Math.max(annualEps * 50, 5);
+}
+
+/** The tickers sp500.json lists after another with the same CIK: Alphabet C,
+    Fox B, News Corp B. Finnhub gives every class of a company one 52-week
+    range, the first class's (News Corp B was shown A's $31.66 high while it
+    traded at $32.58), so these publish none. */
+export function laterClasses(companies) {
+  const seen = new Set(), later = new Set();
+  for (const c of companies) {
+    if (!c.cik) continue;
+    if (seen.has(c.cik)) later.add(c.t);
+    else seen.add(c.cik);
+  }
+  return later;
+}
+
+/** The session tonight's prices are from: the one most quotes are stamped
+    with (the later one on a tie), or `fallback` when no quote had a stamp.
+    Not the run's own date: the job also runs on market holidays and gets the
+    last session's prices back, which filed under the holiday read as that
+    day's move and close, and as a day of trading in the track record. */
+export function quotedSession(counts, fallback) {
+  let best = null;
+  for (const [session, n] of counts)
+    if (best === null || n > counts.get(best) || (n === counts.get(best) && session > best)) best = session;
+  return best ?? fallback;
 }
 
 /* ------------------------------------------------------------------ pipeline */
@@ -429,6 +514,23 @@ async function main() {
   await fs.mkdir(FUND_DIR, { recursive: true });
 
   const renamed = [];
+  const inIndex = new Set(universe.companies.map((x) => x.t));   /* every class, even on a LIMIT run */
+  const later = laterClasses(universe.companies);
+  const quoteSessions = new Map();     /* session -> how many quotes are stamped with it */
+
+  /* Last night's snapshot. Its ratios, for a company whose /stock/metric
+     call fails tonight (see carriedRatios). And its filing links, by CIK,
+     for a company whose SEC submissions index does not load tonight (a
+     rate-limit block, a 5xx, a timeout): only a downloaded index changes
+     the links, as the financials stay when companyfacts fails, and the
+     cached 10-K reading below still matches them. */
+  const prior = await fs.readFile(path.join(DATA, "snapshot.json"), "utf8").then(JSON.parse).catch(() => null);
+  const priorSession = prior?.session || (prior?.updated ? sessionDate(prior.updated) : null);
+  const priorRows = new Map((prior?.stocks || []).filter((s) => s?.t).map((s) => [s.t, s]));
+  const priorSec = new Map((prior?.stocks || []).filter((s) => s?.cik && s.sec).map((s) => [s.cik, s.sec]));
+  const ratiosCarried = [], ratiosLost = [];
+  let filingsCarried = 0;
+
   const market = (t) => Promise.all([
     finnhub(`/quote?symbol=${encodeURIComponent(t)}`),
     finnhub(`/stock/metric?metric=all&symbol=${encodeURIComponent(t)}`)
@@ -446,8 +548,7 @@ async function main() {
       let [quote, metricRes] = await market(c.t);
 
       if (!quoted(quote)) {
-        /* only a well-formed ticker: it becomes a file name and part of a page */
-        const alt = (await tickersForCik(c.cik)).find((t) => t !== c.t && TICKER.test(t));
+        const alt = renamedTo(c.t, await tickersForCik(c.cik), inIndex);
         const retry = alt ? await market(alt) : null;
         if (retry && quoted(retry[0])) {
           console.log(`${tag}  now trades as ${alt}: update data/sp500.json`);
@@ -461,7 +562,13 @@ async function main() {
         }
       }
       const safeName = c.t.replace(/[^A-Z0-9.]/gi, "_");
-      const m = metricRes?.metric || {};
+      /* a failed request, or an answer with no figures in it: last night's
+         figures, for a while */
+      const failed = noRatios(metricRes);
+      const carried = failed ? carriedRatios(priorRows.get(c.t), priorSession, runSession) : null;
+      if (carried) ratiosCarried.push(c.t);
+      else if (failed) ratiosLost.push(c.t);
+      const m = carried?.metric || metricRes?.metric || {};
 
       /* The bulk calendar only carries dates that are already announced, which is
          a minority of the index at any moment. Ask per symbol for the rest, and
@@ -476,8 +583,14 @@ async function main() {
 
       /* -- SEC filing history -- */
       const sub = await sec(`${SEC_DATA}/submissions/CIK${c.cik}.json`, `submissions ${c.t}`);
-      const tenK = sub ? filingFromSubmissions(sub, c.cik, "10-K") : null;
-      const tenQ = sub ? filingFromSubmissions(sub, c.cik, "10-Q") : null;
+      let tenK = sub ? filingFromSubmissions(sub, c.cik, "10-K") : null;
+      let tenQ = sub ? filingFromSubmissions(sub, c.cik, "10-Q") : null;
+      const was = !sub && priorSec.get(c.cik);
+      if (was && (was.tenK || was.tenQ)) {
+        tenK = was.tenK || null;
+        tenQ = was.tenQ || null;
+        filingsCarried++;
+      }
 
       /* -- 10-K contents, cached by accession -- */
       let detail = null;
@@ -567,6 +680,7 @@ async function main() {
       /* Our own record of the close, one point per session. This is what the
          price chart is drawn from; it grows by a point a night. */
       const session = quote.t ? sessionDate(new Date(quote.t * 1000)) : runSession;
+      if (quote.t && session) quoteSessions.set(session, (quoteSessions.get(session) || 0) + 1);
       const closes = (priorDetail?.closes || []).filter((p) => p[0] !== session);
       if (session && numOrNull(quote.c)) closes.push([session, +quote.c.toFixed(4)]);
       closes.sort((a, b) => (a[0] < b[0] ? -1 : 1));
@@ -597,11 +711,13 @@ async function main() {
       }
 
       /* Share-class sanity: another class's price range or per-share figures
-         (Berkshire B carried Class A's) are dropped rather than published. */
+         (Berkshire B carried Class A's) are dropped rather than published,
+         and a later class of a company has no range of its own (laterClasses). */
       const px = numOrNull(quote.c);
       const peNow = pickMetric(m, "peTTM", "peBasicExclExtraTTM", "peAnnual");
       const annualEps = px && peNow && peNow > 0 ? px / peNow : null;
       let lo = pickMetric(m, "52WeekLow"), hi = pickMetric(m, "52WeekHigh");
+      if (later.has(companies[i].t)) lo = hi = null;
       if (lo !== null && hi !== null && px && (px < lo * 0.5 || px > hi * 2)) {
         console.warn(`  ! ${c.t}: 52-week range ${lo}–${hi} does not fit a ${px} price; dropped`);
         lo = hi = null;
@@ -668,6 +784,8 @@ async function main() {
         ytd:      pickMetric(m, "yearToDatePriceReturnDaily"),
         rs52:     pickMetric(m, "priceRelativeToS&P50052Week"),
         vol:      pickMetric(m, "10DayAverageTradingVolume", "3MonthAverageTradingVolume"),
+        /* only when the figures above are an earlier night's (carriedRatios) */
+        ...(carried ? { ratiosFrom: carried.from } : {}),
 
         earnings: nextReport,
 
@@ -702,9 +820,10 @@ async function main() {
   const withFilings = stocks.filter((s) => s.sec.detail).length;
   const withCharts = stocks.filter((s) => s.deep.chart).length;
   const withAnalyst = stocks.filter((s) => s.deep.analyst).length;
+  const snapSession = quotedSession(quoteSessions, runSession);
   const snapshot = {
     updated: new Date().toISOString(),
-    session: runSession,
+    session: snapSession,
     universe: "S&P 500",
     counts: {
       companies: stocks.length,
@@ -747,6 +866,10 @@ async function main() {
     }
   }
 
+  /* Only on a night that needed it, so an ordinary night's counts are as
+     before. The audit warns on it: a lasting SEC refusal must still show. */
+  if (filingsCarried) snapshot.counts.filingsCarried = filingsCarried;
+
   await fs.writeFile(path.join(DATA, "snapshot.json"), JSON.stringify(snapshot));
   console.log(
     `\nDone in ${((Date.now() - started) / 60000).toFixed(1)} min\n` +
@@ -756,10 +879,27 @@ async function main() {
 ` +
     `  analyst calls: ${analystSpent} attempted, ${analystOk} returned data, ${analystEmpty} came back empty
 ` +
-    `  10-Ks: ${filingsFetched} downloaded, ${filingsCached} from cache
+    `  10-Ks: ${filingsFetched} downloaded, ${filingsCached} from cache, ` +
+      `${filingsCarried} kept last night's links (their SEC submissions index did not load)
 ` +
-    `  financials: ${fundCount.fetched} fetched, ${fundCount.cached} cached, ${fundCount.stale} carried over, ${fundCount.frames} from frames`
+    `  ratios: ${ratiosCarried.length + ratiosLost.length} failed to load (Finnhub /stock/metric), ` +
+      `${ratiosCarried.length} kept from an earlier night, ${ratiosLost.length} left blank${ratiosLost.length ? ` (${ratiosLost.slice(0, 25).join(", ")}${ratiosLost.length > 25 ? ", …" : ""})` : ""}
+` +
+    `  financials: ${fundCount.fetched} fetched, ${fundCount.cached} cached, ${fundCount.stale} carried over, ${fundCount.frames} from frames` +
+    (snapSession !== runSession ? `\n  filed under the ${snapSession} session, the one most quotes are stamped with, not the run's date (${runSession})` : "")
   );
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+/* Pure pieces are exported for tests; the refresh runs only when this file
+   is called directly. */
+/* the file's real path: argv keeps a symlinked path, import.meta.url does not */
+const calledDirectly = (() => {
+  try { return !!process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href; } catch { return false; }
+})();
+if (calledDirectly) {
+  if (!TOKEN) {
+    console.error("FINNHUB_TOKEN is not set. Add it under Settings -> Secrets and variables -> Actions.");
+    process.exit(1);
+  }
+  main().catch((err) => { console.error(err); process.exit(1); });
+}

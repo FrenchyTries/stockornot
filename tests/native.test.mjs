@@ -69,19 +69,22 @@ test("imports in Node with nothing to talk to", () => {
   assert.deepEqual(Object.keys(web).sort(), [
     "SITE", "apiUrl", "askNotify", "cameFromApp", "canNotify", "canShare", "dataFetch", "dragEnd", "dragStart",
     "inApp", "notifyPermission", "notifyWanted", "onNotificationTap", "onResume", "openUrl",
-    "reschedule", "routeLinks", "saveFile", "setNotifyWanted", "share", "tap", "tick"
+    "prune", "reschedule", "routeLinks", "saveFile", "setNotifyWanted", "share", "tap", "tick"
   ]);
 });
 
-test("the website fetches data exactly as before", async (t) => {
+test("the website fetches data from its root, whatever address the page is at", async (t) => {
   const calls = [];
   t.mock.method(globalThis, "fetch", async (...args) => { calls.push(args); return json({ ok: 1 }); });
   const init = { cache: "no-cache" };
   const r = await web.dataFetch("data/snapshot.json", init);
   assert.deepEqual(await r.json(), { ok: 1 });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], "data/snapshot.json");
+  /* not "data/…": offline, the home-screen copy shows the deck at /stock/aapl too */
+  assert.equal(calls[0][0], "/data/snapshot.json");
   assert.equal(calls[0][1], init);
+  await web.dataFetch("./data/etfs.json");
+  assert.equal(calls[1][0], "/data/etfs.json");
 });
 
 test("without plugins, every native feature does nothing and says so", async () => {
@@ -307,6 +310,33 @@ test("overlapping reschedules run one after the other", async () => {
   await Promise.all([first, second]);
   assert.deepEqual(log.map(([n, a]) => n.split(".")[1] + (a && a.notifications ? ":" + a.notifications.map((x) => x.id) : "")),
     ["getPending", "schedule:1", "getPending", "cancel:1", "schedule:2"]);
+});
+
+test("prune cancels only the reminders whose companies have all left the cart", async () => {
+  log.length = 0;
+  answers.LocalNotifications.getPending = { notifications: [] };
+  const at = new Date(Date.now() + 864e5);
+  await phone.reschedule([{ id: 20261016, at, t: ["XOM"], title: "XOM reports in a week", body: "" }]);
+  assert.deepEqual(log.at(-1)[1].notifications[0].extra, { open: "earnings", t: ["XOM"] }, "the companies go with it");
+
+  log.length = 0;
+  answers.LocalNotifications.getPending = { notifications: [
+    { id: 20261016, extra: { open: "earnings", t: ["XOM"] } },
+    { id: 20261021, extra: { open: "earnings", t: ["MSFT", "XOM"] } },
+    { id: 20261101, extra: { open: "earnings" } }
+  ] };
+  assert.equal(await phone.prune(["MSFT"]), true);
+  assert.deepEqual(log.map(([n]) => n), ["LocalNotifications.getPending", "LocalNotifications.cancel"]);
+  assert.deepEqual(log[1][1], { notifications: [{ id: 20261016 }] });
+
+  /* nothing gone: no cancel, which refuses an empty list */
+  log.length = 0;
+  assert.equal(await phone.prune(["MSFT", "XOM"]), true);
+  assert.deepEqual(log.map(([n]) => n), ["LocalNotifications.getPending"]);
+
+  answers.LocalNotifications.getPending = () => Promise.reject(new Error("not allowed"));
+  assert.equal(await phone.prune([]), false);
+  answers.LocalNotifications.getPending = { notifications: [] };
 });
 
 test("permission and the person's own choice are kept apart", async () => {

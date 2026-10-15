@@ -26,7 +26,7 @@
    and on the website each of those calls does what the page did before.
    ========================================================================== */
 import {
-  num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos, rangeSummary,
+  num, clamp, money, cap, price, pct, pctPlain, signedNum, x, dateShort, rangePos, rangeSummary,
   FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext, inputs, valuation,
   STYLES, DEFAULT_STYLE, styleById, styleFactors
 } from "./lib/analysis.mjs";
@@ -78,7 +78,7 @@ var state = {
   viewed:  null,          /* distinct companies opened, counted against the allowance */
   authPending: false,     /* true while we are still finding out */
   busy:    false,
-  history: [],            /* recent swipes, newest last: { t, action, added } */
+  history: [],            /* recent swipes, newest last: { t, action, added: addedAt of the cart record the swipe made, or null } */
   sectors: null,          /* per-sector sorted metrics, built once per snapshot */
   scoreCtx: null,         /* the same, for the score's sector half */
   broker:  null,          /* last /api/broker status; null until asked */
@@ -109,14 +109,8 @@ function shuffle(a) {
 
 /* -------------------------------------------- local formatting helpers ---
    Everything shared with the static page builder lives in lib/analysis.mjs;
-   these two are only meaningful in a live page. */
-
-function daysUntil(iso) {
-  if (!iso) return null;
-  var d = new Date(iso + "T12:00:00Z");
-  if (isNaN(d)) return null;
-  return Math.round((d - Date.now()) / 864e5);
-}
+   this one is only meaningful in a live page. Days until a report come from
+   earn.daysUntil, so the card, the cart and the notice count alike. */
 
 function relTime(iso) {
   if (!iso) return "never";
@@ -299,7 +293,9 @@ function buildDeck() {
      The funds come in order instead: those read in full first, then the
      rest, each largest first (lib/funds.mjs deckOrder). */
   var pool = deckPool().filter(function (s) {
-    return state.showSeen || !seenSet.has(s.t);
+    /* "the ones I passed on": the seen list holds adds too, so leave out
+       what is in the cart */
+    return state.showSeen ? !cartItem(s.t) : !seenSet.has(s.t);
   });
   state.deck = deckKind() === "etfs"
     ? funds.deckOrder(pool, funds.readFunds(state.funds, state.scoreCtx, state.style, state.all)).map(function (s) { return s.t; })
@@ -357,7 +353,7 @@ function chooseKind(kind) {
     /* one passed on or added meanwhile from a record (a fund's holding, say)
        is taken out of the rest, as it is from the deck showing */
     state.deck = back.deck.slice(0, back.cursor).concat(back.deck.slice(back.cursor).filter(function (t) {
-      return back.showSeen || !seenSet.has(t);
+      return back.showSeen ? !cartItem(t) : !seenSet.has(t);
     }));
     state.cursor = back.cursor;
     state.history = back.history;
@@ -392,21 +388,26 @@ function renderDeck() {
 
   if (remaining === 0) {
     var etf = deckKind() === "etfs";
+    var actions = [
+      { label: "Go through them again", onClick: function () {
+          forgetSeen(deckPool());
+          state.showSeen = false;
+          buildDeck(); renderDeck();
+      } }
+    ];
+    /* only when one was passed on: with all of them in the cart it would
+       deal an empty deck and this same message */
+    if (deckPool().some(function (s) { return !cartItem(s.t); })) {
+      actions.push({ label: "Show the ones I passed on", kind: "link", onClick: function () {
+          state.showSeen = true;
+          buildDeck(); renderDeck();
+      } });
+    }
     showMessage(
       etf ? "That is all " + state.funds.length + " funds" : "That is all " + state.all.length + " of them",
       etf ? "You have been through every fund we cover. Your cart is still there."
         : "You have been through the whole index. Your cart is still there.",
-      [
-        { label: "Go through them again", onClick: function () {
-            forgetSeen(deckPool());
-            state.showSeen = false;
-            buildDeck(); renderDeck();
-        } },
-        { label: "Show the ones I passed on", kind: "link", onClick: function () {
-            state.showSeen = true;
-            buildDeck(); renderDeck();
-        } }
-      ]
+      actions
     );
     renderDeckBar();
     return;
@@ -702,13 +703,14 @@ function fillStreet(box, deep) {
 
   if (c) {
     var bar = el("div", "rec-bar street-bar");
-    [["buy", c.buy, "rec-b", "Buy"], ["hold", c.hold, "rec-h", "Hold"], ["sell", c.sell, "rec-s", "Sell"]]
+    /* the labels are the line's own shares, which add up to 100 */
+    [["buy", c.buy, "rec-b", "Buy", c.buyPct], ["hold", c.hold, "rec-h", "Hold", c.holdPct], ["sell", c.sell, "rec-s", "Sell", c.sellPct]]
       .forEach(function (p) {
         if (!p[1]) return;
         var seg = el("span", "rec-seg " + p[2]);
         seg.style.width = (p[1] / c.total * 100) + "%";
         seg.title = p[3] + ": " + p[1];
-        if (p[1] / c.total > 0.12) seg.textContent = Math.round(p[1] / c.total * 100) + "%";
+        if (p[1] / c.total > 0.12) seg.textContent = p[4] + "%";
         bar.appendChild(seg);
       });
     box.appendChild(bar);
@@ -725,7 +727,7 @@ function fillStreet(box, deep) {
   if (ins) {
     box.appendChild(el("p", "street-line",
       "Insiders: " + ins.word + " " + ins.when +
-      " (sentiment " + (ins.mspr > 0 ? "+" : "") + ins.mspr.toFixed(0) + " on a −100 to +100 scale)."));
+      " (sentiment " + signedNum(ins.mspr) + " on a −100 to +100 scale)."));
   }
   return true;
 }
@@ -774,11 +776,15 @@ function cardShell(depth) {
   card.style.transform = stackTransform(depth);
   card.style.zIndex = String(50 - depth);
   card.setAttribute("aria-hidden", depth > 0 ? "true" : "false");
+  /* covered: no Tab stops or Enter on a card nobody can see */
+  card.inert = depth > 0;
   if (depth > 0) card.classList.add("is-behind");
 
+  /* the stamps only show as a card is swiped away; a screen reader would
+     otherwise start every card with "In cart, Pass" */
   card.innerHTML =
-    '<div class="stamp add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>In cart</div>' +
-    '<div class="stamp pass"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>Pass</div>' +
+    '<div class="stamp add" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>In cart</div>' +
+    '<div class="stamp pass" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>Pass</div>' +
     '<div class="card-scroll"></div>';
   return card;
 }
@@ -871,7 +877,7 @@ function makeCard(s, depth) {
   var e = s.earnings;
   var eb = el("div", "c-earnings");
   if (e && e.date) {
-    var d = daysUntil(e.date);
+    var d = earn.daysUntil(e.date);
     var when = d === null ? "" : d < 0 ? "just reported" : d === 0 ? "today" : d === 1 ? "tomorrow" : "in " + d + " days";
     if (d !== null && d >= 0 && d <= earn.ALERT_DAYS) eb.classList.add("is-soon");
     /* Vendor fields go in as text, never as markup. */
@@ -1128,7 +1134,10 @@ function holdList(f, n) {
     li.appendChild(name);
     li.appendChild(el("span", "hold-w", pctPlain(h[1], 1)));
     var lab = scoreLabel(v);
-    var chip = el("span", "hold-score tone-" + lab.tone, num(v) ? String(v) : "—");
+    var chip = el("span", "hold-score tone-" + lab.tone);
+    /* a bare number is all a screen reader would say; the title is not read everywhere */
+    if (num(v)) { chip.appendChild(el("span", "sr-only", "score ")); chip.appendChild(document.createTextNode(String(v))); }
+    else { chip.appendChild(el("span", "sr-only", "no score")); chip.appendChild(el("span", "", "—")).setAttribute("aria-hidden", "true"); }
     chip.title = num(v) ? "Its score: " + v + ", " + lab.word.toLowerCase() : "No score";
     li.appendChild(chip);
     list.appendChild(li);
@@ -1323,7 +1332,8 @@ function commit(action) {
 
   var s = state.byTicker[entry.ticker];
   var added = action === "add" ? addToCart(s) : false;
-  state.history.push({ t: entry.ticker, action: action, added: added });
+  /* the cart record this swipe made, if any, so Undo takes out only that one */
+  state.history.push({ t: entry.ticker, action: action, added: added ? cartItem(entry.ticker).addedAt : null });
   if (state.history.length > HISTORY_MAX) state.history.shift();
   pressed(action === "add" ? "#btnKeep" : "#btnPass");
 
@@ -1343,6 +1353,7 @@ function commit(action) {
     c.node.style.transform = stackTransform(c.depth);
     c.node.classList.toggle("is-behind", c.depth > 0);
     c.node.setAttribute("aria-hidden", c.depth > 0 ? "true" : "false");
+    c.node.inert = c.depth > 0;
   }
 
   setTimeout(function () {
@@ -1353,15 +1364,23 @@ function commit(action) {
 }
 
 /* Takes back the last swipe: the company returns to the top of the pile, out
-   of the seen list, and out of the cart if that swipe is what put it there. */
+   of the seen list, and out of the cart if that swipe is what put it there.
+   A record added again since is left alone, and one given a note or an
+   amount since goes with the cart's own Undo, so nothing typed goes without
+   a way back. */
 function undo() {
   if (state.busy) return;
   var last = state.history.pop();
   if (!last) return;
-  if (last.added && cartItem(last.t)) {
+  var item = last.added ? cartItem(last.t) : null;
+  if (item && item.addedAt === last.added) {
+    var copy = Object.assign({}, item);
     removeFromCart(last.t);
     persistCart();
     renderCartCount(); renderEarnNotice();
+    if (item.note || (num(item.amount) && item.amount > 0)) {
+      showToast(last.t + " is out of your cart", "Undo", function () { restoreToCart(copy); });
+    }
   }
   unmarkSeen(last.t);
   var idx = state.deck.indexOf(last.t);
@@ -1496,12 +1515,14 @@ function setCartOwner(owner) {
 /* Everything that shows the cart, redrawn after it changed from outside this
    tab. The open cart is left alone while someone is typing in it; its
    handlers look items up by ticker, so they keep working either way. */
-function cartChanged() {
+/* `force`: redraw the cart even while a note or amount in it is being typed
+   in (the cart has left this browser, so what is typed there goes too) */
+function cartChanged(force) {
   renderCartCount();
   renderEarnNotice();
   renderOrderBar();
   var box = $("#viewCart");
-  if (view === "cart" && !box.contains(document.activeElement && document.activeElement.matches("input, textarea") ? document.activeElement : null)) renderCart();
+  if (view === "cart" && (force || !box.contains(document.activeElement && document.activeElement.matches("input, textarea") ? document.activeElement : null))) renderCart();
 }
 
 function persistCart() {
@@ -1517,9 +1538,15 @@ function onStorage(ev) {
   if (ev.key === LS.cart || ev.key === LS.owner) {
     var owner = load(LS.owner, null);
     var theirs = load(LS.cart, []);
-    if (owner !== state.cartOwner) { state.cartOwner = owner; setCart(theirs); }
+    if (owner !== state.cartOwner) {
+      /* signed out (or deleted) in the other tab: that cart has left this
+         browser, even if this tab has not yet seen ts.cart change */
+      var signedOut = owner === "" && !!state.cartOwner;
+      state.cartOwner = owner;
+      setCart(signedOut ? [] : theirs);
+    }
     else setCart(cartLib.mergeCarts(cartRecords(), theirs));
-    cartChanged();
+    cartChanged(signedOut);
   } else if (ev.key === LS.seen) {
     load(LS.seen, []).forEach(function (t) { if (!seenSet.has(t)) { seenSet.add(t); state.seen.push(t); } });
   }
@@ -1643,6 +1670,10 @@ function signOutAndForget() {
     }
     return auth.signOut();
   }).then(function () {
+    /* offline with an access token that has run out, the library does not
+       sign out; auth.signOut() removes the session itself, and no listener
+       hears of it */
+    if (state.user) { state.user = null; state.authPending = false; refreshTier(); setSyncNote(); }
     clearTimeout(sync.timer); clearTimeout(sync.retryTimer);
     /* Signing out on a shared computer has to end the brokerage connection
        too: its cookie belongs to the browser, not the account, and would
@@ -1652,10 +1683,12 @@ function signOutAndForget() {
       portfolio = null;
       renderBrokerPanel(); renderOrderBar();
     });
+    /* the cart is emptied before the owner changes, so another tab never
+       sees the owner gone while the old cart is still stored */
     if (owned) {
-      setCartOwner("");
       setCart([]);
       save(LS.cart, []);
+      setCartOwner("");
       cartChanged();
     }
     return true;
@@ -1795,7 +1828,9 @@ function renderCart() {
     var e = live && live.earnings;
     var d = e && e.date ? earn.daysUntil(e.date) : null;
     var meta = el("p", "ci-meta");
-    meta.textContent = "Added " + dateShort(item.addedAt.slice(0, 10)) + " at " + price(item.priceAtAdd) +
+    /* the day it was added on the viewer's calendar, not UTC's: something
+       kept at 6pm in California was kept that day */
+    meta.textContent = "Added " + dateShort(earn.localDay(item.addedAt)) + " at " + price(item.priceAtAdd) +
       (e && e.date ? " · reports " + dateShort(e.date) + (d !== null && d >= 0 && d <= earn.ALERT_DAYS ? " (" + (d === 0 ? "today" : d === 1 ? "tomorrow" : "in " + d + " days") + ")" : "") : "");
     if (d !== null && d >= 0 && d <= earn.ALERT_DAYS) meta.classList.add("is-soon");
     row.appendChild(meta);
@@ -1904,7 +1939,7 @@ function exportCsv() {
     var now = live && num(live.price) ? live.price : "";
     var chg = now !== "" && num(i.priceAtAdd) && i.priceAtAdd > 0
       ? (((now - i.priceAtAdd) / i.priceAtAdd) * 100).toFixed(2) : "";
-    rows.push([text(i.t), text(i.n), text(i.sector), text(String(i.addedAt || "").slice(0, 10)),
+    rows.push([text(i.t), text(i.n), text(i.sector), text(earn.localDay(i.addedAt)),
                num(i.priceAtAdd) ? i.priceAtAdd : "", now, chg, num(i.amount) ? i.amount : "", text(i.note)]);
   });
   /* A text cell that starts with = + - @ is run as a formula by spreadsheet
@@ -1919,7 +1954,7 @@ function exportCsv() {
 
   /* the byte-order mark tells Excel the file is UTF-8. A download on the
      website; in the app, the share sheet (Save to Files, Mail…). */
-  native.saveFile("stockornot-cart-" + new Date().toISOString().slice(0, 10) + ".csv",
+  native.saveFile("stockornot-cart-" + earn.localDay(Date.now()) + ".csv",
     "text/csv;charset=utf-8", "\ufeff" + csv).then(savedOrSay);
 }
 
@@ -2556,7 +2591,8 @@ function renderEarnNotice() {
 /* The app's reminders: one notification at 9 a.m. a week before each report
    in the cart, scheduled on the phone (earn.reminders, native.reschedule).
    The whole list is replaced each time, a second after the cart last
-   changed, so a burst of swipes schedules once. Nothing is scheduled before
+   changed, so a burst of swipes schedules once (or, on data older than the
+   list was built from, only pruned: see NOTIFY_DATA). Nothing is scheduled before
    the companies have loaded: an empty list would cancel every reminder. */
 var reminderTimer = null;
 var NOTIFY_ON = "On: a notification at 9 a.m. a week before each report.";
@@ -2573,6 +2609,7 @@ var NOTIFY_DENIED = "Notifications are off for StockOrNot. Turn them on in Setti
    copy in the app builds one: the next launch that reaches the site
    replaces it with newer data. */
 var NOTIFY_DATA = "ts.notifyData";
+var UNDO_MS = 6000;   /* how long the cart's Undo stays offered (showToast) */
 
 function scheduleReminders() {
   if (!native.canNotify() || !native.notifyWanted()) return;
@@ -2583,8 +2620,16 @@ function scheduleReminders() {
     var built = null;
     try { built = localStorage.getItem(NOTIFY_DATA); } catch (e) { /* private mode */ }
     var now = String(state.updated || "");
-    if (built && now < built) return;
-    if (state.snapshotFromApp && built && !(now > built)) return;
+    if ((built && now < built) || (state.snapshotFromApp && built && !(now > built))) {
+      /* data too old to rebuild from must not move the dates, but a company
+         taken out of the cart still loses its reminder, once the cart's Undo
+         is no longer offered: a company put back keeps the reminder that data
+         this old could not build again (putting it back clears this timer) */
+      reminderTimer = setTimeout(function () {
+        native.prune(state.cart.map(function (i) { return i.t; }));
+      }, UNDO_MS);
+      return;
+    }
     native.reschedule(earn.reminders(state.cart, state.byTicker)).then(function (ok) {
       if (ok && now) try { localStorage.setItem(NOTIFY_DATA, now); } catch (e) { /* private mode */ }
     });
@@ -2704,6 +2749,13 @@ function openEarnings() {
   openDialog($("#dlgEarnings"));
 }
 
+/* "Turn them off" in an alert email opened the sheet (alertsOffLink), and,
+   where nobody was signed in, when the sign-in to do that was started
+   (alertsOffAt): the alerts are switched off once it completes. */
+var alertsOffLink = false;
+var alertsOffAt = 0;
+var ALERTS_OFF_FOR_MS = 3600e3;
+
 function renderEmailToggle() {
   var box = $("#earnEmail");
   var note = $("#earnEmailNote");
@@ -2720,15 +2772,23 @@ function renderEmailToggle() {
   }
   if (!state.user) {
     box.checked = false;
+    /* this browser cannot know whether they are on, so it does not say "off" */
+    box.indeterminate = alertsOffLink;
     box.disabled = true;
     note.innerHTML = "";
-    note.appendChild(document.createTextNode("Sign in so there is an address to send it to. "));
+    note.appendChild(document.createTextNode(alertsOffLink
+      ? "This browser is not signed in, so it cannot tell whether your alerts are on. Sign in with the address they go to and they are switched off, or reply \"unsubscribe\" to any alert. "
+      : "Sign in so there is an address to send it to. "));
     var go = el("button", "link-btn", "Sign in");
     go.type = "button";
-    go.addEventListener("click", function () { closeDialog($("#dlgEarnings")); openAuth(); });
+    go.addEventListener("click", function () {
+      if (alertsOffLink) alertsOffAt = Date.now();
+      closeDialog($("#dlgEarnings")); openAuth();
+    });
     note.appendChild(go);
     return;
   }
+  box.indeterminate = false;
   box.disabled = true;
   note.textContent = "Checking…";
   auth.fetchAlertPrefs().then(function (r) {
@@ -2741,6 +2801,33 @@ function renderEmailToggle() {
     note.textContent = box.checked
       ? "On. One email to " + (state.user.email || "your account address") + " on the first evening anything in your cart is within a week of reporting; each report is mentioned once."
       : "Off.";
+  });
+}
+
+/* Signed in to switch the alerts off (above): do that, then show the switch. */
+function alertsOffAfterSignIn(user) {
+  var asked = alertsOffAt && Date.now() - alertsOffAt < ALERTS_OFF_FOR_MS;
+  alertsOffAt = 0;
+  if (!asked) return;
+  auth.saveAlertPrefs({ email: false, days_before: earn.ALERT_DAYS }).then(function (r) {
+    if (!state.user || state.user.id !== user.id) return;
+    whenLoaded(function () {
+      /* the switch shows what is saved; if that is still "on", say so */
+      function show() {
+        openEarnings();
+        if (r && r.ok) return;
+        var msg = "Your alerts could not be switched off just now. Untick the box to try again.";
+        var box = $("#toast"), act = $("#toastAction");
+        /* "Signed in as …. Not you? Sign out" from the link is still on
+           screen: add to it, do not replace it */
+        if (box.getClientRects().length && !act.hidden && act.textContent === "Sign out") $("#toastText").textContent += " " + msg;
+        else showToast(msg, null, null, 10000);
+      }
+      /* after the question about whose cart this is, when that is open */
+      var owner = $("#dlgOwner");
+      if (owner.open) owner.addEventListener("close", show, { once: true });
+      else show();
+    });
   });
 }
 
@@ -3078,8 +3165,9 @@ function buildAnalyst(deep) {
       var td = el("td", "");
       var mark = el("span", "delta small " + dir);
       mark.appendChild(el("span", "arrow", dir === "up" ? "▲" : dir === "down" ? "▼" : "–"));
-      mark.appendChild(el("span", "", (m.mspr > 0 ? "+" : "") + m.mspr.toFixed(0) +
-        (num(m.change) && m.change !== 0 ? " · " + (m.change > 0 ? "+" : "-") + money(Math.abs(m.change), false) + " shares" : "")));
+      /* signed the app's way: a real minus, and no "-0" */
+      mark.appendChild(el("span", "", signedNum(m.mspr) +
+        (num(m.change) && m.change !== 0 ? " · " + (m.change > 0 ? "+" : "") + money(m.change, false) + " shares" : "")));
       td.appendChild(mark);
       tr.appendChild(td);
       itb.appendChild(tr);
@@ -3142,7 +3230,11 @@ function buildPeers(s, peers) {
   thead.appendChild(hr);
   t.appendChild(thead);
   var tb = el("tbody");
+  var starred = false;
   [s].concat(peers).forEach(function (p) {
+    /* the same mark the card and Compare put on a bank's one-year jump */
+    var odd = inputs(p).rgSuspect;
+    if (odd) starred = true;
     var tr = el("tr", p.t === s.t ? "is-self" : "");
     var th = el("th", "");
     th.scope = "row";
@@ -3155,7 +3247,7 @@ function buildPeers(s, peers) {
       th.appendChild(b);
     }
     tr.appendChild(th);
-    [cap(p.mc), num(p.pe) && p.pe > 0 ? x(p.pe) : "n/a", pct(p.rg), pctPlain(p.nm, 0), pct(p.r52)]
+    [cap(p.mc), num(p.pe) && p.pe > 0 ? x(p.pe) : "n/a", pct(p.rg) + (odd ? "*" : ""), pctPlain(p.nm, 0), pct(p.r52)]
       .forEach(function (v) { tr.appendChild(el("td", "", v)); });
     tb.appendChild(tr);
   });
@@ -3163,6 +3255,7 @@ function buildPeers(s, peers) {
   var scroll = el("div", "table-scroll");
   scroll.appendChild(t);
   wrap.appendChild(scroll);
+  if (starred) wrap.appendChild(el("p", "block-note", "*Far out of line with the five-year trend, which in the Financials sector is usually interest income swinging with rates. The score uses the five-year figure instead."));
   return wrap;
 }
 
@@ -3250,7 +3343,7 @@ function section(title, node) {
 }
 
 /* The sheet's header: who it is, the price and the day's move. `when`,
-   " on Oct 7", dates a fund's price kept from an earlier night. */
+   " on Oct 7", dates the move once it is not today's, as the card does. */
 function detailHead(s, name, when) {
   detailTicker = s.t;
   $("#detailShare").hidden = !native.canShare;
@@ -3274,6 +3367,9 @@ function fillChart(chartBox, points, recorded, none) {
     return;
   }
   var ranges = el("div", "range-toggle");
+  /* the chosen range is said, not only shaded, as on the Stocks|ETFs switch */
+  ranges.setAttribute("role", "group");
+  ranges.setAttribute("aria-label", "Chart range");
   var chartSlot = el("div", "");
   var spanDays = (new Date(points[points.length - 1][0]) - new Date(points[0][0])) / 864e5;
   /* Only offer windows the data actually covers, then "All". */
@@ -3297,9 +3393,11 @@ function fillChart(chartBox, points, recorded, none) {
     windows.forEach(function (r, i) {
       var b = el("button", "chip" + (i === windows.length - 1 ? " is-on" : ""), r.label);
       b.type = "button";
+      b.setAttribute("aria-pressed", i === windows.length - 1 ? "true" : "false");
       b.addEventListener("click", function () {
-        Array.prototype.forEach.call(ranges.children, function (x) { x.classList.remove("is-on"); });
+        Array.prototype.forEach.call(ranges.children, function (x) { x.classList.remove("is-on"); x.setAttribute("aria-pressed", "false"); });
         b.classList.add("is-on");
+        b.setAttribute("aria-pressed", "true");
         draw(r.months);
       });
       ranges.appendChild(b);
@@ -3315,14 +3413,19 @@ function fillChart(chartBox, points, recorded, none) {
 
 function openDetail(s) {
   if (!s) return;
-  if (funds.isFund(s)) { openFundDetail(s); return; }
-  detailHead(s, s.n + " · " + s.s);
+  /* a peer or a holding opened from inside the sheet: the button pressed
+     goes with the old record, so the reader starts again at the new name */
+  var refocus = $("#dlgDetail").open;
+  if (funds.isFund(s)) { openFundDetail(s); if (refocus) $("#detailTitle").focus(); return; }
+  /* "on Oct 13" once the close is not today's, as the card says it */
+  detailHead(s, s.n + " · " + s.s, sessionWord() !== "today" ? " " + sessionWord() : "");
 
   var body = $("#detailBody");
   body.innerHTML = "";
   body.appendChild(el("p", "block-note", "Loading the full record…"));
 
   openDialog($("#dlgDetail"));
+  if (refocus) $("#detailTitle").focus();
 
   Promise.all([loadDeep(s.t), loadDetail(s.t)]).then(function (both) {
     if (detailTicker !== s.t) return;
@@ -3579,7 +3682,10 @@ function cannotKnow() {
 }
 
 function openFundDetail(f) {
-  detailHead(f, f.n + " · ETF" + (f.issuer ? " · " + f.issuer : ""), fundDayNote(f));
+  /* nearly every fund's name already ends in "ETF" */
+  /* "on Oct 13" once the fund's close is not today's, as its card says it */
+  var fw = sessionWord(fundDay(f));
+  detailHead(f, f.n + (/\bETF\b/.test(f.n) ? "" : " · ETF") + (f.issuer ? " · " + f.issuer : ""), fw !== "today" ? " " + fw : "");
   var body = $("#detailBody");
   body.innerHTML = "";
   var read = fundReading(f);
@@ -3836,7 +3942,7 @@ function cmpFigures(s) {
     day:   fig(null, el("span", "delta small " + dir, num(s.change) ? pct(s.change, 2) : "—")),
     r52:   fig(null, pct(s.r52, 0)),
     mc:    fig(null, cap(s.mc)),
-    next:  fig(null, e && e.date && daysUntil(e.date) >= 0 ? dateShort(e.date).replace(/, \d{4}$/, "") : "—")
+    next:  fig(null, e && e.date && earn.daysUntil(e.date) >= 0 ? dateShort(e.date).replace(/, \d{4}$/, "") : "—")
   };
 }
 
@@ -3858,7 +3964,7 @@ var CMP_ROWS = [
   ["years", "Years to repay debt", -1, "Years of operating cash flow it would take to pay off the long-term debt. Under 3 is comfortable."],
   ["Valuation"],
   ["pe", "P/E", -1, "Price against the last twelve months of earnings per share."],
-  ["fair", "Fair P/E for its growth", 0, "8 + 1.5 × (growth + dividend yield): the P/E its growth would justify, as on the card."],
+  ["fair", "Fair P/E for its growth", 0, "8 + 1.5 × (growth + dividend yield; growth alone for a REIT), the yield counted up to 8% and the two together up to 25: the P/E its growth would justify, as on the card."],
   ["pef", "Forward P/E", -1, "Price against next year's expected earnings. Analysts' forecasts, not scored."],
   ["pfcf", "Price / free cash flow", -1, "Market value against last year's free cash flow: the cash version of the P/E."],
   ["dy", "Dividend yield", 0, "A year of dividends as a share of the price. Left out where the provider's yield and its payout ratio disagree."],
@@ -4007,7 +4113,12 @@ function renderCompare() {
     if (r.length === 1) { section(r[0]); return; }
     var figs = cols.map(function (c) { return c.fig[r[0]]; });
     var way = r[0] === "pfcf" && figs[0].kind !== figs[1].kind ? 0 : r[2];
-    row(r[1], figs.map(function (g) { return g.t; }), stronger(figs.map(function (g) { return g.v; }), way), r[3]);
+    /* two figures that print alike are not told apart, as on the factor rows */
+    if (typeof figs[0].t === "string" && figs[0].t === figs[1].t) way = 0;
+    /* "Day's move on Oct 13" once that close is no longer today's, as the
+       card says it; in the label, since both columns share the session */
+    var label = r[0] === "day" && sessionWord() !== "today" ? r[1] + " " + sessionWord() : r[1];
+    row(label, figs.map(function (g) { return g.t; }), stronger(figs.map(function (g) { return g.v; }), way), r[3]);
   });
 
   row("Full record", cols.map(function (c) {
@@ -4112,9 +4223,12 @@ function renderFundCompare() {
 
   section("Price");
   row("Price", cols.map(function (c) { return price(c.f.price) + (num(c.f.price) ? fundDayNote(c.f) : ""); }));
-  row("Day's move", cols.map(function (c) {
+  /* dated in the label as on the company side; a fund whose own quote is
+     from another day says so in its cell */
+  var fdayIso = state.fundsSession || snapshotDay(), fday = sessionWord(fdayIso);
+  row("Day's move" + (fday !== "today" ? " " + fday : ""), cols.map(function (c) {
     var dir = !num(c.f.change) ? "flat" : c.f.change > 0.005 ? "up" : c.f.change < -0.005 ? "down" : "flat";
-    return el("span", "delta small " + dir, num(c.f.change) ? pct(c.f.change, 2) + fundDayNote(c.f) : "—");
+    return el("span", "delta small " + dir, num(c.f.change) ? pct(c.f.change, 2) + (fundDay(c.f) !== fdayIso ? fundDayNote(c.f) : "") : "—");
   }));
   row("Past year", cols.map(function (c) { return pct(c.f.r52, 0); }), null, "The fund's price over the last 52 weeks, without its distributions.");
 
@@ -4334,15 +4448,28 @@ function renderDataAge() {
    `day`, if given, in place of the snapshot's */
 function sessionWord(day) {
   day = day || snapshotDay();
-  var today = new Date().toLocaleDateString("en-CA");      /* YYYY-MM-DD, local */
+  var today = earn.localDay(Date.now());     /* YYYY-MM-DD on the viewer's calendar, as report days are counted */
   return !day || day === today ? "today" : "on " + dateShort(day).replace(/, \d{4}$/, "");
 }
 
+/* Why the companies did not load: "missing" (no snapshot file) and "empty"
+   (a file with no companies) say the copy has no data yet; anything else is
+   "failed", a file that did not arrive (offline, cut short, a server error,
+   unreadable). */
+function snapshotProblem(err) {
+  return err && (err.message === "missing" || err.message === "empty") ? err.message : "failed";
+}
+
 function setupScreen(reason) {
-  /* The app holds its own copy of the data, so getting here means neither
-     that nor the website answered. The setup steps below are for whoever
-     runs a copy of the site, never for someone with the app. */
-  if (native.inApp) {
+  /* The setup steps below are for whoever runs a copy of the site on their
+     own computer with no data in it yet ("missing" or "empty"). Everyone
+     else is offered another try: anyone not on localhost (stockornot.com,
+     a preview, a phone on the local network), anyone whose file did not
+     arrive ("failed"), and the app, which holds its own copy of the data,
+     so getting here means neither that nor the website answered; its own
+     address is localhost too, hence the inApp check. */
+  var local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  if (native.inApp || !local || reason === "failed") {
     showMessage("Couldn't load the companies", "Check the connection, then try again.",
       [{ label: "Retry", onClick: function () { location.reload(); } }]);
     return;
@@ -4662,6 +4789,8 @@ function wireAuth() {
   var fresh = auth.isAuthCallback();
   var fromLink = fresh;
   var linkError = auth.callbackError();
+  /* a sign-in link asked for from "Turn them off" comes back to ?alerts=off */
+  if (fresh && /[?&]alerts=off(&|$)/.test(location.search)) alertsOffAt = Date.now();
   var whoShown = false;
   /* The app signs in with the emailed code: the link in the same email opens
      the website in Safari (lib/auth.mjs), which cannot sign the app in. */
@@ -4700,7 +4829,9 @@ function wireAuth() {
     }
     var btn = $("#authSend");
     btn.disabled = true; btn.textContent = "Sending…";
-    auth.sendCode(email).then(function (r) {
+    /* asked for from "Turn them off": the link comes back to finish that */
+    var alertsOff = !!alertsOffAt && Date.now() - alertsOffAt < ALERTS_OFF_FOR_MS;
+    auth.sendCode(email, { alertsOff: alertsOff }).then(function (r) {
       btn.disabled = false; btn.textContent = sendLabel;
       if (!r.ok) return authError(r.error);
       pending = email;
@@ -4747,8 +4878,8 @@ function wireAuth() {
       btn.disabled = false; btn.textContent = "Sign in";
       $("#authPass").value = "";
       if (!r.ok) return authError(r.error);
-      /* a link asked for earlier, for another address before "Use a
-         different address", is forgotten here too: privacy.html promises
+      /* a code asked for earlier, for another address before going back
+         to the address step, is forgotten here too: privacy.html promises
          the record does not outlive the sign-in */
       auth.forgetAsked();
     });
@@ -4764,6 +4895,7 @@ function wireAuth() {
   $("#acctExport").addEventListener("click", function () {
     var btn = $("#acctExport");
     btn.disabled = true; btn.textContent = "Gathering…";
+    authError("");
     auth.myData().then(function (r) {
       btn.disabled = false; btn.textContent = "Download my data";
       if (!r.ok) return authError(r.error);
@@ -4774,7 +4906,7 @@ function wireAuth() {
         stored_in_this_browser: {
           cart: cartRecords(),
           scoring_style: state.style,
-          companies_swiped_past: state.seen.length,
+          cards_swiped_past: state.seen.length,
           compare: load(CMP_KEY, null),
           /* every StockOrNot setting as stored. The sign-in session is left
              out: it is a key to the account, not information about you. */
@@ -4782,7 +4914,7 @@ function wireAuth() {
         }
       };
       /* a download on the website, the share sheet in the app */
-      native.saveFile("stockornot-my-data-" + new Date().toISOString().slice(0, 10) + ".json",
+      native.saveFile("stockornot-my-data-" + earn.localDay(Date.now()) + ".json",
         "application/json", JSON.stringify(out, null, 2)).then(function (result) {
         if (result === "failed") authError("The file could not be saved. Try again.");
       });
@@ -4821,11 +4953,12 @@ function wireAuth() {
         portfolio = null;
         renderBrokerPanel(); renderOrderBar();
       });
-      /* as on signing out: a cart that never joined the account stays */
+      /* as on signing out: a cart that never joined the account stays, and
+         the cart is emptied before the owner changes */
       if (owned) {
-        setCartOwner("");
         setCart([]);
         save(LS.cart, []);
+        setCartOwner("");
         cartChanged();
       }
       $("#acctDeleteConfirm").hidden = true;
@@ -4870,6 +5003,9 @@ function wireAuth() {
     /* One place decides what being signed in means, so a session restored on
        page load and a fresh sign-in take exactly the same path. */
     auth.onAuthChange(function (user) {
+      /* offline with an access token that has run out, the library reports
+         nobody but keeps the session; a refused refresh removes it */
+      user = user || auth.storedUser();
       var same = user && state.user && state.user.id === user.id;
       state.user = user;
       state.authPending = false;
@@ -4880,11 +5016,12 @@ function wireAuth() {
       if (user) {
         auth.tidyUrl();
         /* token refreshes arrive here too; only a new person needs the check */
-        if (!same) { ensureCartOwner(user, fresh); sayWho(user); }
+        if (!same) { ensureCartOwner(user, fresh); sayWho(user); alertsOffAfterSignIn(user); }
       }
     });
 
     auth.currentUser().then(function (user) {
+      user = user || auth.storedUser();
       var same = user && state.user && state.user.id === user.id;
       state.authPending = false;
       state.user = user;
@@ -4892,7 +5029,7 @@ function wireAuth() {
       renderAccountTab();
       if ($("#dlgEarnings").open) renderEmailToggle();
       auth.tidyUrl();
-      if (user && !same) { ensureCartOwner(user, fresh); sayWho(user); }
+      if (user && !same) { ensureCartOwner(user, fresh); sayWho(user); alertsOffAfterSignIn(user); }
       if (!user && linkError) {
         openAuth();
         showAuthStep("authEmailStep");
@@ -4935,6 +5072,8 @@ function init() {
      in storage or this page load is the return leg of a sign-in link. Either
      way somebody is signed in, and the account tab should not claim otherwise. */
   state.authPending = auth.isConfigured() && (auth.hasStoredSession() || auth.isAuthCallback());
+  /* read now: the sign-in library tidies the address before the companies load */
+  var linkFailed = !!auth.callbackError();
   wireAuth();
   renderAccountTab();
   renderCartCount();
@@ -4949,7 +5088,7 @@ function init() {
       /* only data problems land on the setup screen — a render bug should throw */
       console.warn("snapshot:", err);
       renderDataAge();
-      setupScreen(err && err.message === "missing" ? "missing" : "empty");
+      setupScreen(snapshotProblem(err));
       return null;
     })
     .then(function (snap) {
@@ -4988,8 +5127,13 @@ function init() {
       /* "Turn them off" in an alert email lands here: open the alert settings
          straight away (signing in first, if need be, is part of that dialog) */
       if (new URLSearchParams(location.search).get("alerts") === "off") {
-        history.replaceState(null, "", location.pathname);
-        openEarnings();
+        /* a sign-in link sent from here comes back to this address too: its
+           tokens stay until the sign-in library has read them */
+        history.replaceState(null, "", location.pathname + (auth.isAuthCallback() ? location.hash : ""));
+        alertsOffLink = true;
+        /* an expired or used link: the sign-in form says so, and the sheet
+           would cover it */
+        if (!linkFailed) openEarnings();
       }
     });
 }

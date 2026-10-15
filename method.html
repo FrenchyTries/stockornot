@@ -87,8 +87,10 @@
   <p>Each input is mapped onto a 0&ndash;100 curve through fixed anchor points, with straight-line
   interpolation between them. The anchors were chosen to sit near long-run market norms, not fitted to
   any historical return. Growth reads this year's revenue and earnings per share and the five-year
-  revenue and earnings trends, with five-year revenue counted twice because a single year is noisy.
-  Stability reads beta, the width of the 52-week range, dividend yield, the debt and interest cover.
+  revenue and earnings trends, with five-year revenue counted twice because a single year is noisy;
+  for Energy and Materials this year's change in earnings per share is left out, as explained
+  under <a href="#numbers">Numbers that lie</a>. Stability reads beta, the width of the 52-week
+  range, dividend yield, the debt and interest cover.
   Profitability and momentum work the same way. Value works differently, because a price only means
   something next to what it buys.</p>
 
@@ -104,21 +106,26 @@
   <p>That is a tempered form of Benjamin Graham's old rule of thumb, 8.5 + 2 &times; growth, which runs
   hot at the growth rates of today's largest companies. Growth means the lasting kind: the five-year
   revenue and earnings trends, with this year's revenue counted a third, floored at zero and capped at
-  25% a year, because almost nothing compounds faster than that for long. A company growing 10% a year
-  with a 2% dividend gets a fair P/E of 26; one growing 3% with no dividend, 12.5.</p>
+  25% a year, because almost nothing compounds faster than that for long. Without five-year figures,
+  this year's revenue stands in, and with no growth figure at all 6% is assumed. The dividend counts
+  up to 8%, since a higher yield usually means the market expects a cut, and growth and dividend
+  together count up to 25, so a company already at the growth cap gets nothing more for its dividend.
+  A company growing 10% a year with a 2% dividend gets a fair P/E of 26; one growing 3% with no
+  dividend, 12.5.</p>
 
   <p>Where five years of revenue says little about what lasts, the cap is lower: 10% for Financials,
   which grow about as fast as their capital; 8% for Utilities, whose growth follows the regulated rate
   base; 8% for Real Estate, whose faster growth comes from issuing shares to buy property; and 8% for
-  Materials and 6% for Energy, whose five-year figures start from the 2020 trough.</p>
+  Materials and 6% for Energy, whose five-year figures start from the 2020 trough. Energy and Materials
+  companies also have their P/E read on mid-cycle earnings, as explained under <a href="#numbers">Numbers that lie</a>.</p>
 
   <p>The actual multiple divided by the fair one is what gets scored:</p>
 
-  <table>
+  <div class="table-scroll"><table>
     <caption>Actual multiple &divide; fair multiple, mapped</caption>
     <thead><tr><th class="num">Ratio</th><th class="num">0.4</th><th class="num">0.6</th><th class="num">0.75</th><th class="num">1.0</th><th class="num">1.25</th><th class="num">1.5</th><th class="num">2</th><th class="num">3</th><th class="num">5</th></tr></thead>
     <tbody><tr><th>Score</th><td class="num">90</td><td class="num">76</td><td class="num">62</td><td class="num">55</td><td class="num">48</td><td class="num">42</td><td class="num">30</td><td class="num">16</td><td class="num">6</td></tr></tbody>
-  </table>
+  </table></div>
 
   <p>On the card, under 0.75 reads <strong>cheap</strong>, up to 1.25 <strong>about fair</strong>, up
   to 1.5 <strong>a bit pricey</strong>, and above that <strong>expensive</strong>. Each business is
@@ -148,8 +155,9 @@
     normal and says nothing about its price.</li>
   </ul>
 
-  <p>When the two measures disagree, one cheap and the other dear, the card says
-  <strong>Mixed</strong> and names which is which rather than averaging the disagreement away.
+  <p>When the two measures disagree, one cheap and the other dear, or the P/E alone is a bit pricey
+  or expensive while the two together would read fair or cheap, the card says <strong>Mixed</strong>
+  and names which is which rather than averaging the disagreement away.
   Forward P/E and EV/EBITDA are shown for reference but not scored: a forward P/E rests on analysts'
   forecasts, and the score reads only what has been reported.</p>
 
@@ -162,7 +170,7 @@
   being marked down for a grocer's margins. Momentum stays absolute, because a sector falling together
   is not a reason to prefer the one falling slowest.</p>
 
-  <h2>Numbers that lie, and what is done about them</h2>
+  <h2 id="numbers">Numbers that lie, and what is done about them</h2>
 
   <ul class="limits">
     <li><b>Negative equity.</b> Companies that have bought back more stock than they have equity, often
@@ -188,15 +196,36 @@
     the five-year trend, only the five-year figure is used, and the one-year figure is left out of the
     sector ranks too.</li>
 
+    <li><b>Interest earned.</b> Interest cover is operating profit divided by the interest paid, net
+    of interest earned. Beside a profit, a negative figure means the company earns more interest
+    than it pays, or the provider's figures are out of step, and would otherwise read as the worst
+    cover there is, so it is left out. Only with a loss does a negative figure count, as the worst
+    cover.</li>
+
+    <li><b>Commodity peaks.</b> Energy and Materials companies earn what oil, gas and metal prices let
+    them, so a peak year makes them look cheap, profitable and fast-growing all at once. When the
+    latest year was profitable, their earnings and net margin are read as half the latest year and
+    half the average of the years on file, up to five, and the P/E that results is kept between half
+    and three times the reported one. Their one-year change in earnings per share is never counted as
+    growth, nor named in the case for or against. The card says when its earnings are read this
+    way.</li>
+
+    <li><b>Dividends that contradict themselves.</b> A dividend yield should be about the payout ratio
+    divided by the P/E. When the provider's yield is more than twice that figure plus a point, or under
+    half of it less a point, nothing says which number is wrong, so the dividend is counted nowhere:
+    not in the fair multiple, not in stability and not in the case for and against. The card says
+    so.</li>
+
     <li><b>Share classes.</b> Alphabet, Fox and News Corp each trade under two tickers with the same
-    filings. Each company is counted once in its sector, and is never its own closest peer.</li>
+    filings. Each company is counted once in its sector, is never its own closest peer, and gets one
+    score: both tickers carry the score of the class listed first.</li>
   </ul>
 
   <h2>From five factors to one score</h2>
 
   <p>The five results are multiplied by their weights and summed. Averaging five readings pulls
-  every company toward the middle: across the S&amp;P 500 the blend runs from about 20 to 87, and
-  half of all companies sit roughly between 45 and 60. A score that never leaves the fifties says very
+  every company toward the middle: across the S&amp;P 500 the blend runs from about 20 to 85, and
+  half of all companies sit roughly between 45 and 62. A score that never leaves the fifties says very
   little, so the number on the card is where the blend places the company in the index: the share
   of the other S&amp;P 500 companies it beats, from 1 to 99. A score of 90 means ahead of 90% of the
   index on these five factors, the same idea as a percentile.</p>
@@ -328,11 +357,11 @@
   A published fee is not thin evidence, so unlike a company factor it is never pulled toward the
   middle.</p>
 
-  <table>
+  <div class="table-scroll"><table>
     <caption>Expense ratio, % a year, mapped</caption>
     <thead><tr><th class="num">Fee</th><th class="num">0.02</th><th class="num">0.05</th><th class="num">0.1</th><th class="num">0.2</th><th class="num">0.35</th><th class="num">0.5</th><th class="num">0.75</th><th class="num">1.0</th><th class="num">1.5</th></tr></thead>
     <tbody><tr><th>Score</th><td class="num">96</td><td class="num">90</td><td class="num">80</td><td class="num">66</td><td class="num">50</td><td class="num">38</td><td class="num">24</td><td class="num">14</td><td class="num">6</td></tr></tbody>
-  </table>
+  </table></div>
 
   <p>The 0.03% the largest S&amp;P 500 funds charge reads 94; 0.35%, about where plain index funds
   end, reads 50. On the card the fee is also given in money: 0.03% is $3 a year on every
@@ -482,7 +511,7 @@
     <a href="/support">Support</a>
   </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
-  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
+  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the companies' and funds' own
   <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
   Read the actual filing before you buy anything.</p>
 </footer>

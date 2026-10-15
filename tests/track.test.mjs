@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isoWeek, dayRatios, step, advance } from "../scripts/track.mjs";
+import { isoWeek, dayRatios, step, advance, notCounted } from "../scripts/track.mjs";
 
 test("weeks are ISO weeks, Monday to Sunday", () => {
   assert.equal(isoWeek("2026-10-05"), "2026-W41");   /* a Monday */
@@ -14,6 +14,18 @@ test("a split or a bad print is set aside for the day, not counted", () => {
   assert.deepEqual(Object.keys(r).sort(), ["A", "C"]);
   assert.equal(step(["A", "C"], r), (1.02 + 0.99) / 2);
   assert.equal(step(["B", "Z"], r), 1);               /* nobody moved: flat */
+});
+
+test("a smaller split is set aside when the quote's previous close is restated for it", () => {
+  const last = { A: 150, B: 120, C: 125, R: 100, N: 100, F: 100, U: 150 };
+  const prices = { A: 102, B: 90.9, C: 100, R: 150, N: 97.5, F: 75, U: 102 };
+  /* A 3-for-2 and 2% up, B 4-for-3 and 1% up, C 5-for-4, R 2-for-3 (reverse):
+     their previous close is restated. N and F are real falls, and U a 3-for-2
+     the feed did not restate, which counts as it always did. */
+  const prevs = { A: 100, B: 90, C: 100, R: 150, N: 100, F: 100, U: 150 };
+  assert.deepEqual(dayRatios(last, prices, prevs), { N: 0.975, F: 0.75, U: 0.68 });
+  /* without previous closes, nothing changes */
+  assert.deepEqual(Object.keys(dayRatios(last, prices)).sort(), ["A", "B", "C", "F", "N", "R", "U"]);
 });
 
 const company = (t, i, price) => ({ t, n: t, s: i % 2 ? "Industrials" : "Health Care", cik: "c" + i, price, lo: price * 0.8, hi: price * 1.2, mc: 10000,
@@ -46,4 +58,41 @@ test("each week's picks are followed forward, and a re-run of a night changes no
   assert.equal(t.groups.length, 2);
   assert.deepEqual([t.groups[1].top, t.groups[1].days], [1, 0]);
   assert.equal(t.groups[0].days, 2);
+});
+
+test("a 3-for-2 split in a group is not counted as its loss", () => {
+  const snap = { stocks: Array.from({ length: 500 }, (_, i) => company("T" + i, i, 150)) };
+  let t = advance(null, snap, "2026-10-05");
+  const victim = t.groups[0].members.top[0];
+  /* the snapshot carries each quote's previous close as prev */
+  const next = { stocks: snap.stocks.map((s) => (s.t === victim ? { ...s, price: 100, prev: 100 } : { ...s, prev: 150 })) };
+  t = advance(t, next, "2026-10-06");
+  assert.deepEqual([t.groups[0].top, t.groups[0].index, t.groups[0].days], [1, 1, 1]);
+});
+
+test("a 2-for-1 split on a day the stock rose is not counted either", () => {
+  /* 150 split to 75, then up 25% to 93.75: inside the 40% band */
+  assert.deepEqual(dayRatios({ X: 150, Y: 150 }, { X: 93.75, Y: 150 }, { X: 75, Y: 150 }), { Y: 1 });
+});
+
+test("after a missed night, a real fall of a split's size is counted", () => {
+  const snap = { stocks: Array.from({ length: 500 }, (_, i) => company("T" + i, i, 150)) };
+  let t = advance(null, snap, "2026-10-05");
+  const victim = t.groups[0].members.top[0];
+  /* 2026-10-06 was never counted: tonight's previous closes are that day's,
+     not the last ones counted; the victim fell by a third on the 6th */
+  const next = { stocks: snap.stocks.map((s) => (s.t === victim ? { ...s, price: 100, prev: 100 } : { ...s, price: 150, prev: 151 })) };
+  t = advance(t, next, "2026-10-07");
+  const n = t.groups[0].members.top.length;
+  assert.ok(Math.abs(t.groups[0].top - (n - 1 + 2 / 3) / n) < 1e-6, String(t.groups[0].top));
+});
+
+test("a limited test run is never counted, though it merges into a full snapshot", () => {
+  const full = Array.from({ length: 501 }, (_, i) => ({ t: "T" + i, price: 100 }));
+  assert.equal(notCounted({ stocks: full, counts: { companies: 501 } }), null);
+  assert.match(notCounted({ stocks: full, counts: { companies: 501, partialRun: 6 } }), /limited run of 6 companies/);
+  /* a limited run whose companies all failed to quote */
+  assert.match(notCounted({ stocks: full, counts: { companies: 501, partialRun: 0 } }), /limited run of 0 companies/);
+  assert.match(notCounted({ stocks: full.slice(0, 6), counts: { companies: 6 } }), /^6 companies is not the full index/);
+  assert.match(notCounted({}), /^0 companies/);
 });

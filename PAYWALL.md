@@ -2,7 +2,10 @@
 
 > **Switched off for development.** `DEV_UNLIMITED = true` in `lib/tier.mjs`
 > treats every visitor as a member: unlimited companies, unlimited cart. Flip it
-> back to `false` to restore the tiers below. Nothing else needs to change.
+> back to `false` to restore the tiers below. Then put `/pricing` back in the
+> sitemap list in `scripts/build-pages.mjs`, and reword the notice at the top of
+> `pricing.html` (`#notLive`) and its two descriptions, which say nothing is for
+> sale yet. `tests/pages.test.mjs` checks both, either way round.
 
 The tiers are built. The enforcement is not. This file is the honest account of
 the gap, so nobody ships a payment button on top of a gate that does not hold.
@@ -65,8 +68,9 @@ first charge.
 
 - **Data licensing.** Finnhub's free tier is personal, non-commercial use only.
   Charging for a product built on it requires their paid tier, from about $50 a
-  month. Yahoo's chart endpoint has no commercial licence at any price and must
-  be replaced outright.
+  month. The price chart no longer comes from Yahoo, whose chart endpoint has no
+  commercial licence at any price: it is drawn from Finnhub's nightly closes,
+  under the same licence as the rest.
 
   SEC EDGAR is US government work in the public domain: the filings, the
   five-year financials and the risk factors carry no such restriction. The
@@ -81,9 +85,9 @@ first charge.
   Investment Advisers Act. The publisher's exemption may well apply and is
   fact-specific. This needs a securities lawyer, not a guess.
 
-- **Terms of service.** Required once money is involved, and by both app
-  stores. The privacy policy exists at `/privacy` (`privacy.html`); it has to
-  be updated to name the payment provider before membership opens.
+- **Terms of service.** The terms (`/terms`, `terms.html`) and the privacy
+  policy (`/privacy`, `privacy.html`) exist; both have to be updated to name
+  the payment provider before membership opens.
 
 ## Why the button says "Opening soon"
 
