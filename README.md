@@ -4,7 +4,9 @@ Every company in the S&P 500, one card at a time. Each card puts the whole
 picture in front of you — price, valuation, growth, margins, the balance sheet
 as filed, the next earnings date, and what the company's own 10-K says about its
 business and its risks — with the arguments for and against it laid out. Then you
-decide: swipe right and it goes in your cart, left and it's gone.
+decide: swipe right and it goes in your cart, left and it's gone. About fifty of
+the ETFs that hold those companies have a deck of their own, each read through
+the companies it owns.
 
 **→ [Open it](https://stockornot.com)**
 
@@ -65,8 +67,8 @@ month-by-month **insider sentiment**, and the last ten days of **headlines**.
 
 On a phone, *Add to Home Screen* installs it as an app with its own icon, and
 it opens with no signal on the last data it saw (`sw.js`, network first, so
-nobody online is ever shown a stale page). The App Store version is planned in
-[`docs/APP_STORE.md`](docs/APP_STORE.md).
+nobody online is ever shown a stale page). There is an iPhone app too; see
+[The iPhone app](#the-iphone-app) below.
 
 Scroll the card to read it all. Drag it sideways, press **Not for me** or
 **Add to cart** under the deck, or use <kbd>←</kbd> / <kbd>→</kbd>. The round
@@ -82,10 +84,10 @@ on a wide screen, with the deck in the middle:
 | Tab | What it holds |
 |---|---|
 | **Track** | The track record: each week's top and bottom fifth by score, followed forward against the whole index (`data/track.json`, the same table as `/track`) |
-| **Compare** | Two companies head to head: the score and its factors, then the figures behind the five checks (growth, margins, cash and debt, valuation, price), with the stronger figure on each row marked. It opens on the two largest companies; tap either to swap it for any other, from the cart, the largest, or by ticker or name |
+| **Compare** | Two companies head to head: the score and its factors, then the figures behind the five checks (growth, margins, cash and debt, valuation, price), with the stronger figure on each row marked. It opens on the two largest companies; tap either to swap it for any other, from the cart, the largest, or by ticker or name. Its own Stocks \| ETFs switch sets fund against fund instead: the fund reading and its parts, the fee, and how much the two hold in common. A fund is never set against a company |
 | **Deck** | The cards |
 | **Cart** | The cart, below |
-| **Account** | Signing in, earnings alerts, the brokerage, membership and the site's pages |
+| **Account** | Signing in, the scoring style, earnings alerts, the brokerage (website only), the site's pages and Contact support |
 
 Each tab has its own address (`/#cart`, `/#compare`…), so the Back button steps
 between them and a link opens the same one. The arrow keys swipe only while the
@@ -106,6 +108,33 @@ two in step). The choice is kept in the browser. The track record and the
 company pages use Balanced. None of these investors is affiliated with
 StockOrNot.
 
+## ETFs
+
+A **Stocks | ETFs** switch at the top of the deck opens about fifty US stock
+ETFs that mostly own S&P 500 companies: the index trackers and funds built
+from its companies, the eleven sector funds, and broader large-company funds
+(`data/etf-list.json`, kept by hand). A fund never gets a company's score. It
+gets a **fund reading** out of 100 on fixed scales (`lib/funds.mjs`): what it
+owns (0.40), the holdings-weighted average of our company scores in the chosen
+style, with the part we cannot score counted as 50; what it costs (0.35), the
+expense ratio; and how spread out it is (0.25), from the effective number of
+holdings and the weight of the largest ten. Only a fund read in full, with at
+least 80% of its stock holdings in companies we score and at most 10% in cash,
+futures and the like, gets a number, and it is never a place among companies.
+Where the number would be, any other fund says what it is instead, **Partly
+read** or **Holdings only** with the figure behind it (how much of it we
+matched, or how much is cash), and one whose newest holdings are more than
+200 days old says **Out of date**. Holdings come from each fund's quarterly
+SEC filing (Form N-PORT), so they are two to five months old, and the card
+dates them. The fund deck is not shuffled: the funds read in full come first,
+then the rest, each largest first by net assets. Funds go in the same cart,
+marked ETF and left out of the earnings dates, and Compare has its own switch
+for fund against fund. A fund has no card until some of its holdings have been
+read and matched, and the switches stay hidden until `data/etfs.json` has at
+least two such funds. [How a fund is read](https://stockornot.com/method#funds)
+has the curves and what a fund reading cannot know; [`docs/ETFS.md`](docs/ETFS.md)
+has the data.
+
 ## Your data
 
 Creating an account asks for a tick agreeing to the terms; the version and the
@@ -117,6 +146,24 @@ and everything attached to it through `delete_my_account()` in
 `supabase/schema.sql`. That function, and the policy that lets people read
 their own alert log, take effect once the schema file is run again in
 Supabase's SQL editor; until then the button says to write in instead.
+
+## The iPhone app
+
+`mobile/` is the iPhone app, a [Capacitor](https://capacitorjs.com) shell
+around this same interface. `node scripts/build-app.mjs` copies `index.html`,
+`app.js`, `styles.css`, `lib/` and a copy of the data into `mobile/www` (build
+output, never committed), and the app then reads fresh `data/*.json` and
+headlines from stockornot.com, falling back to its own copy offline
+(`lib/native.mjs`). In the app the brokerage, order amounts and membership are
+gone, sign-in asks for the emailed code, and the phone adds haptics, the share
+sheet and earnings reminders scheduled on the phone. It is built on a Mac with
+`cd mobile && npm ci && npm run ios`, which opens the Xcode project in
+`mobile/ios`. Because every installed copy reads tonight's data, the format of
+`data/*.json` may only gain fields. A build shows funds only when it carries
+its own copy of `data/etfs.json` with funds in it (`loadFundsFile` in
+`lib/funds.mjs`), so a copy that went to App Review without the ETF side never
+grows one when the website's data gains funds. Everything else, from the Mac's
+setup to the store listing, is in [`docs/APP_STORE.md`](docs/APP_STORE.md).
 
 ## The cart
 
@@ -197,9 +244,10 @@ revenue. Three ways to hear about it:
    report date, set to remind you at 9am a week before and 9am the day before.
    Apple Calendar and Outlook keep those reminders. Google Calendar applies its
    own defaults instead.
-3. **By email.** Signed-in users can switch on *Email me seven days before…*. The
-   nightly Action runs `scripts/earnings-alerts.mjs` after publishing the data,
-   and sends each company once per report date. To enable it:
+3. **By email.** Signed-in users can switch on *Email me when anything in my
+   cart is a week from reporting…*. The nightly Action runs
+   `scripts/earnings-alerts.mjs` after publishing the data, and sends each
+   company once per report date. To enable it:
    - run `supabase/schema.sql` again in the Supabase SQL editor (it is safe to re-run; it adds the alert tables and a check that each saved cart is a list)
    - add repository secrets `SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` ([resend.com](https://resend.com))
    - optionally set a repository variable `ALERT_FROM`, e.g. `StockOrNot <alerts@stockornot.com>`, on a domain Resend has verified
@@ -217,7 +265,7 @@ So the work happens in a **GitHub Action** that runs every weekday evening,
 after the close (22:20 UTC):
 
 ```
-.github/workflows/refresh.yml  →  scripts/refresh.mjs  →  scripts/audit.mjs  →  scripts/build-pages.mjs
+.github/workflows/refresh.yml  →  scripts/refresh.mjs  →  scripts/audit.mjs  →  scripts/etfs.mjs  →  scripts/track.mjs  →  scripts/build-pages.mjs
 ```
 
 Which does:
@@ -245,12 +293,28 @@ Which does:
    `data/detail/<TICKER>.json`, which is what the price chart draws.
    `scripts/backfill-closes.mjs` rebuilt the earlier sessions from this
    repository's own history.
+6. **ETFs** — after the audit, `scripts/etfs.mjs` reads each fund in
+   `data/etf-list.json`: its holdings from its latest SEC N-PORT filing
+   (`scripts/nport.mjs`, which matches them to our companies by LEI, ticker or
+   name, and never reads a CUSIP or ISIN), its expense ratio from its
+   shareholder report, and its price from Finnhub. It does nothing when the
+   job is already running late, and a failure never holds back the company
+   data. [`docs/ETFS.md`](docs/ETFS.md) has the details.
+7. **The track record** — `scripts/track.mjs` moves each week's top and bottom
+   fifth by score forward by tonight's closes, into `data/track.json`. A
+   failure never holds back the prices.
 
-Output lands in `data/snapshot.json` (market data, ~0.6MB), `data/detail/*.json`
+Output lands in `data/snapshot.json` (market data, ~0.8MB), `data/detail/*.json`
 (history, daily closes, analysts), `data/filings/*.json` (10-K prose, lazy-loaded
-per card) and `data/fundamentals/` (the cached XBRL figures). `scripts/audit.mjs`
-checks the result before anything is committed, and refuses to publish a
-snapshot that is worse than yesterday's. Only data is committed.
+per card) and `data/fundamentals/` (the cached XBRL figures). The ETF step adds
+three files: `data/etfs.json` (one record per fund), `data/etf-closes.json`
+(every fund's nightly closes, in one file so the nightly commit grows by three
+files rather than fifty) and `data/lei.json` (which holding is which of our
+companies, learned from the S&P 500 trackers' own filings). Funds never go into
+the snapshot, which installed copies of the app read as companies.
+`scripts/audit.mjs` checks the result before anything is committed, and
+refuses to publish a snapshot that is worse than yesterday's. Only data is
+committed.
 
 The site itself is served by Vercel, which also runs the functions under `api/`.
 **Vercel builds the 500 company pages, the sitemap and robots.txt on every
@@ -336,7 +400,8 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
 - **The constituent list is a static file.** `data/sp500.json` is a point-in-time
   snapshot of the index. Companies that join or leave won't be picked up until
   someone edits it; tickers Finnhub can't price are logged as `skipped` in the
-  snapshot and dropped from the deck.
+  snapshot and dropped from the deck, and from the company pages, the sitemap
+  and `/stock`, until they quote again.
 - **10-K parsing is heuristic.** Finding "Item 1A" in a document that has no
   consistent markup across 500 filers means some companies parse cleanly and
   others don't. When parsing fails the card says so and links to the filing.
@@ -350,17 +415,24 @@ FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
   left out of the score for every company in the Financials sector, because for
   banks, insurers and brokers borrowing is the business. That also covers
   payment networks and exchanges, which the sector label cannot tell apart.
-- **No screens or search yet.** The deck is every company in random order;
-  swiped ones stay hidden until you ask for them back.
+- **ETF holdings are months old, and only stock funds are read.** A fund is
+  read from its last public N-PORT filing, two to five months back, and only
+  US stock funds that mostly own S&P 500 companies are covered: no bond,
+  international, small-company, commodity, crypto, leveraged or inverse funds.
+  Tracking difference, taxes, trading costs and securities lending are not read.
+- **No screens or search yet.** The deck is every company in random order (the
+  funds in the order above); swiped ones stay hidden until you ask for them
+  back.
 
 ---
 
 ## Design notes
 
 One system for every page, in `styles.css`: the deck, the dialogs, the company
-pages, and the method, pricing, privacy and not-found pages. Dark and quiet, set in
-[Inter](https://rsms.me/inter/) (served from `fonts/`, SIL Open Font License),
-with hairline rules instead of boxes inside boxes, one accent colour, and the
+pages, and the method, pricing, privacy, terms, support and not-found pages.
+Dark and quiet, set in [Inter](https://rsms.me/inter/) (served from `fonts/`, SIL Open Font License),
+with hairline rules instead of boxes inside boxes, one accent colour (a deeper
+shade of it under white text), and the
 five financial checks marked with small line icons (`lib/icons.mjs`). Up and down
 moves carry a ▲/▼ glyph and a signed number as well as colour, so nothing depends
 on colour alone. `prefers-reduced-motion` and `forced-colors` are honoured. The
@@ -374,13 +446,17 @@ it left by, a company's score counts up the first time it reaches the top, and
 a removal from the cart folds the row away and offers an **Undo**. With reduced
 motion all of it is instant.
 
-The link preview (`og.png`), the home-screen icon and the store screenshots
-are all captured from the running site by `marketing/capture.cjs`, so they
-change when the design does rather than drifting from it.
+The link preview (`og.png`) and the home-screen icon are captured from the
+running site by `marketing/capture.cjs`, so they change when the design does
+rather than drifting from it. The App Store screenshots are not: they are taken
+from the iPhone app in the Simulator ([`marketing/README.md`](marketing/README.md),
+and step 12 of "The day on the Mac" in [`docs/APP_STORE.md`](docs/APP_STORE.md)).
 
-No framework, no build step. Plain HTML, CSS and JavaScript, some JSON, and three
-small serverless functions under `api/` for the parts that need a secret: the
-brokerage and the news.
+No framework and no bundler: the website's code is served as written, and two small Node
+scripts build the rest (`scripts/build-pages.mjs` the company pages and
+`public/`, `scripts/build-app.mjs` the iPhone app's copy). Plain HTML, CSS and
+JavaScript, some JSON, and three small serverless functions under `api/` for the
+parts that need a secret: the brokerage and the news.
 
 ## Licence
 

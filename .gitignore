@@ -9,3 +9,10 @@ node_modules/
 /public/
 /sitemap.xml
 /robots.txt
+
+# The iPhone app's copy of the site, built by `node scripts/build-app.mjs`
+# (cd mobile && npm run build) and copied into the Xcode project by
+# `cap sync`. Build output like public/: rebuilt every time, never committed.
+# mobile/node_modules is covered by node_modules/ above, and the copies inside
+# mobile/ios by Capacitor's own mobile/ios/.gitignore.
+/mobile/www/

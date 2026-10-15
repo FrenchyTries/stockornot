@@ -1,16 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { consensus } from "../lib/insight.mjs";
 import { pct, pctPlain, inputs, rankAmong, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext, rangeSummary, valuation, rawFactors,
   FACTORS, STYLES, DEFAULT_STYLE, styleById, styleFactors } from "../lib/analysis.mjs";
 import fs from "node:fs";
 import { beatRecord, insiderSummary, financialChecks, historyChecks, buildSectorStats, sectorView, nearestPeers } from "../lib/insight.mjs";
 import { CHECK_ICONS } from "../lib/icons.mjs";
+import { signedNum } from "../lib/analysis.mjs";
 
 test("values that round to zero print as zero", () => {
   assert.equal(pct(-0.04), "0.0%");
   assert.equal(pct(0.04, 0), "0%");
   assert.equal(pctPlain(-0.2, 0), "0%");
   assert.equal(pct(2.5), "+2.5%");
+});
+
+test("a signed number with no unit keeps the same rules: 0 for nothing, a real minus", () => {
+  /* insider sentiment: -0.4 is "0", never "-0" */
+  assert.equal(signedNum(-0.4), "0");
+  assert.equal(signedNum(0.02), "0");
+  assert.equal(signedNum(-33.2), "\u221233");
+  assert.equal(signedNum(-97.5), "\u221298");
+  assert.equal(signedNum(89), "+89");
+  assert.equal(signedNum(null), "—");
 });
 
 test("ranks count ties for neither side and leave out the company's own value", () => {
@@ -379,5 +391,111 @@ test("the method page's table of styles matches the weights the app uses", () =>
     assert.ok(row, "no row for " + st.label);
     const cells = [...row.matchAll(/<td>([^<]*)/g)].map((m) => m[1] === "&ndash;" ? 0 : Number(m[1]));
     assert.deepEqual(cells, FACTORS.map((f) => Math.round(st.weights[f.id] * 100)), st.label);
+  }
+});
+
+/* ------------------------------------------------------ after the recheck */
+
+test("interest earned is left out of interest cover, and the card never says 'only −X times'", () => {
+  /* a negative cover beside an operating profit: more interest earned than paid */
+  const earner = base({ ic: -47.8, om: 18 });
+  assert.equal(inputs(earner).icOk, false);
+  assert.equal(rawFactors(earner).factors.stable, rawFactors(base({ ic: null, om: 18 })).factors.stable);
+  assert.ok(rawFactors(earner).factors.stable > rawFactors(base({ ic: 0.5, om: 18 })).factors.stable);
+  assert.doesNotMatch(prosAndCons(earner, null, { all: true }).cons.join(" | "), /interest bill/);
+  /* with an operating loss it is the worst cover there is, as before, and said by the loss lines */
+  const loser = base({ ic: -5, om: -10, nm: -12 });
+  assert.equal(inputs(loser).icOk, true);
+  assert.equal(rawFactors(loser).factors.stable, rawFactors(base({ ic: 0, om: -10, nm: -12 })).factors.stable);
+  /* the sign is read on the profit after interest: a net loss with a thin operating profit is
+     poor cover, a net profit beside an operating loss is interest earned */
+  assert.equal(inputs(base({ ic: -0.75, om: 0.71, nm: -1.11 })).icOk, true);
+  assert.equal(inputs(base({ ic: -6.8, om: -2.21, nm: 1.08 })).icOk, false);
+  assert.equal(inputs(base({ ic: -5, om: -10, nm: null })).icOk, true);
+  assert.doesNotMatch(prosAndCons(loser, null, { all: true }).cons.join(" | "), /interest bill only/);
+  /* the test is on the figure as it prints */
+  assert.doesNotMatch(prosAndCons(base({ ic: 2.97 }), null, { all: true }).cons.join(" | "), /interest bill/);
+  assert.match(prosAndCons(base({ ic: 2.4 }), null, { all: true }).cons.join(" | "), /covers its interest bill only 2\.4 times/);
+});
+
+test("a commodity producer's one-year EPS is neither praised nor blamed, and the note says so", () => {
+  for (const eg of [80, -30]) {
+    const miner = base({ s: "Materials", eg });        /* no prior-year figures: no mid-cycle reading */
+    const pc = prosAndCons(miner, null, { all: true });
+    assert.ok(![...pc.pros, ...pc.cons].some((t) => /^Earnings per share|EPS/.test(t)), JSON.stringify(pc));
+    assert.ok(scoreStock(miner).notes.some((n) => /change in earnings per share is not counted as growth/.test(n)));
+    /* nor priced against it */
+    const dear = prosAndCons(base({ s: "Materials", pe: 23, eg }), null, { all: true });
+    assert.ok(![...dear.pros, ...dear.cons].some((t) => /earnings per share/i.test(t)), JSON.stringify(dear));
+    const maker = prosAndCons(base({ eg }), null, { all: true });
+    assert.ok([...maker.pros, ...maker.cons].some((t) => /^Earnings per share/.test(t)));
+  }
+});
+
+test("the dividend in the fair multiple is the yield on the card, and only what counted", () => {
+  const why = (over) => valueCheck(base(over)).why;
+  /* counted in full */
+  assert.match(why({ rg: 10, rg5: 10, eg5: 10, dy: 2 }), /the 26× that 10% a year of growth plus a 2\.0% dividend would justify/);
+  /* at the growth cap a dividend adds nothing, so none is named */
+  const capped = why({ rg: 30, rg5: 30, eg5: 30, dy: 1.8 });
+  assert.match(capped, /25%\+ a year of growth would justify/);
+  assert.doesNotMatch(capped, /dividend/);
+  /* past a cap, the real yield and the part that counted, never the cap as the yield */
+  const high = base({ rg: 17, rg5: 17, eg5: 17, dy: 8.7 });
+  assert.equal(valuation(high).fair, 8 + 1.5 * 25);
+  assert.match(valueCheck(high).why, /17% a year of growth plus an 8\.7% dividend \(8\.0% of it counted\) would justify/);
+  assert.match(why({ rg: 3, rg5: 3, eg5: 3, dy: 9.5 }), /plus a 9\.5% dividend \(8\.0% of it counted\)/);
+});
+
+test("the fair P/E's hint names only the growth figures it used", () => {
+  const hint = (s) => valueCheck(s).rows.find((r) => r[0] === "Fair P/E for its growth")[2];
+  assert.match(hint(base({ eg5: 8 })), /the five-year revenue and earnings trends, with this year's revenue counted a third/);
+  /* too new for five years of filings */
+  assert.match(hint(base({ rg5: null, eg5: null, rg: 13 })), /from this year's revenue alone/);
+  /* a bank whose one-year revenue is set aside */
+  const bank = base({ s: "Financials", rg: 90, rg5: 5, eg5: 8 });
+  assert.equal(inputs(bank).rgSuspect, true);
+  assert.match(hint(bank), /the five-year revenue and earnings trends \(this year's revenue is set aside/);
+  assert.doesNotMatch(hint(bank), /counted a third/);
+  /* earnings alone */
+  assert.match(hint(base({ s: "Financials", rg: null, rg5: null, eg5: 13 })), /from the five-year earnings trend, floored/);
+});
+
+test("a P/E the case against calls pricey is never answered with a plain 'about fair'", () => {
+  const s = base({ pe: 26, fin: { ...base().fin, fcf: 6e8 } });
+  assert.ok(prosAndCons(s).cons.some((c) => /^Pricey for its growth/.test(c)), prosAndCons(s).cons.join(" | "));
+  assert.deepEqual(valueCheck(s).answer, { text: "Mixed: pricey on earnings, fair on cash", tone: "mid" });
+  /* a P/E within the fair band is left as it was */
+  assert.equal(valueCheck(base({ pe: 18 })).answer.text, "Yes, about fair");
+});
+
+test("figures that round to zero or are negative print the way the rest of the card does", () => {
+  const all = (s) => { const pc = prosAndCons(s, null, { all: true }); return pc.pros.concat(pc.cons).join(" | "); };
+  assert.doesNotMatch(all(base({ rg5: -0.04 })), /shrunk 0\.0%/);
+  assert.match(all(base({ rg5: -2 })), /Revenue has shrunk 2\.0% a year/);
+  assert.match(all(base({ beta: -0.11 })), /Moves less than the market \(beta \u22120\.11\)/);
+  assert.doesNotMatch(all(base({ beta: -0.11 })), /beta -/);
+  assert.match(all(base({ fin: { ...base().fin, fcf: 1e5 } })), /Free cash flow is only a sliver of its market value/);
+});
+
+test("the analyst split adds up to 100, and equal counts stay equal", () => {
+  const split = (buy, hold, sell) => { const c = consensus({ trend: [{ buy, hold, sell }] }); return [c.buyPct, c.holdPct, c.sellPct]; };
+  assert.deepEqual(split(3, 12, 9), [13, 50, 37]);
+  assert.deepEqual(split(21, 3, 0), [88, 12, 0]);
+  assert.deepEqual(split(1, 1, 1), [33, 33, 33]);         /* three equal counts: never 34/33/33 */
+  assert.deepEqual(split(8, 8, 2), [44, 44, 11]);         /* two equal counts are never shown apart */
+  assert.deepEqual(split(5, 0, 0), [100, 0, 0]);
+});
+
+test("two share classes at different prices get one score and one sector rank", () => {
+  const stocks = [];
+  for (let i = 0; i < 12; i++) stocks.push(base({ t: "C" + i, cik: "c" + i, pe: 10 + i, mc: 1000 * (i + 1), price: 42 + i }));
+  /* the second class trades higher, with no 52-week range of its own */
+  stocks.push(base({ t: "NWSA", cik: "n", price: 45 }), base({ t: "NWS", cik: "n", price: 52, lo: null, hi: null }));
+  const ctx = buildScoreContext(stocks);
+  for (const st of STYLES) {
+    const a = scoreStock(stocks.at(-2), ctx, st.id), b = scoreStock(stocks.at(-1), ctx, st.id);
+    assert.equal(a.overall, b.overall, st.id);
+    assert.deepEqual(a.place, b.place, st.id);
   }
 });

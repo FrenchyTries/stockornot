@@ -40,6 +40,11 @@ jobs:
       contents: write
 
     steps:
+      # When the job started, so the ETF step can tell how much of the
+      # 180 minutes is left before it starts any work of its own.
+      - name: Note the start time
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       # v5 of both run on Node 24; v4 ran on Node 20, which GitHub retired.
       # persist-credentials: false keeps the write token out of .git/config,
       # so the steps that download and parse outside data never hold it.
@@ -65,10 +70,30 @@ jobs:
       - name: Audit before publishing
         run: node scripts/audit.mjs
 
+      # ETFs from the hand-kept data/etf-list.json (docs/ETFS.md): holdings
+      # from their SEC filings, prices from the same Finnhub key. Why it is a
+      # step here (rule 12): it adds no workflow, no schedule and no secret,
+      # and it rides this job's one data commit a night. It runs after the
+      # audit, so it never shares Finnhub's 60-a-minute limit with the
+      # companies and can never hold their data back: past 150 minutes into
+      # the job it does nothing, it stops itself well inside its own 15, a
+      # failure here lets the commit go ahead, and every file it writes is
+      # whole or untouched. Skipped on limited test runs.
+      - name: Build the ETF data
+        if: ${{ !github.event.inputs.limit }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          FINNHUB_TOKEN: ${{ secrets.FINNHUB_TOKEN }}
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+        run: node scripts/etfs.mjs
+
       # Moves the score's weekly picks forward by tonight's prices (see the
       # header of scripts/track.mjs). After the audit, so only data that passed
-      # it is counted; a failure here never holds the prices back.
+      # it is counted; a failure here never holds the prices back. Skipped on
+      # limited test runs, which would file a whole day under a few prices.
       - name: Follow the score's picks
+        if: ${{ !github.event.inputs.limit }}
         continue-on-error: true
         run: node scripts/track.mjs
 
@@ -83,7 +108,7 @@ jobs:
       - name: Commit if anything changed
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILT: data/snapshot.json data/audit.json data/filings data/detail data/fundamentals data/track.json
+          BUILT: data/snapshot.json data/audit.json data/filings data/detail data/fundamentals data/track.json data/etfs.json data/etf-closes.json data/lei.json
         run: |
           git config user.name  "stockornot-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -109,7 +134,10 @@ jobs:
           if git diff --cached --quiet; then
             echo "Nothing changed."
           else
-            git commit -m "Data refresh $(date -u +'%Y-%m-%d')"
+            # Named after the trading session the data holds (scripts/dates.mjs),
+            # not the UTC date it lands on, which is already the next day.
+            session=$(node -p 'require("./data/snapshot.json").session || ""' 2>/dev/null || true)
+            git commit -m "Data refresh ${session:-$(date -u +'%Y-%m-%d')}"
             git push "$remote" "HEAD:${GITHUB_REF_NAME}"
           fi
 

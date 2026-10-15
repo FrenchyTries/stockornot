@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="StockOrNot" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black" />
 <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
 
@@ -59,6 +59,13 @@
 <main>
   <section class="stage view" id="deck" aria-label="Company deck">
     <div class="deck-wrap">
+
+      <!-- companies or funds; shown by app.js only once there are funds. Toggle
+           buttons, not radios: the arrow keys stay the deck's Pass and Add -->
+      <div class="range-toggle kind-switch" id="kindSwitch" role="group" aria-label="What to swipe through" hidden>
+        <button type="button" class="chip is-on" data-kind="stocks" aria-pressed="true">Stocks</button>
+        <button type="button" class="chip" data-kind="etfs" aria-pressed="false">ETFs</button>
+      </div>
 
       <div class="deck" id="deckEl">
         <div class="deck-msg" id="deckMsg" hidden>
@@ -92,14 +99,20 @@
   <section class="view page" id="viewCompare" aria-labelledby="compareTitle" hidden>
     <header class="page-head">
       <h1 id="compareTitle" tabindex="-1">Compare</h1>
-      <span class="head-note">Two companies, head to head</span>
+      <span class="head-note" id="cmpHeadNote">Two companies, head to head</span>
     </header>
 
-    <p class="block-note first">Tap either company to swap it. On each row the stronger figure is in blue.</p>
+    <!-- company against company, or fund against fund; shown once there are two funds -->
+    <div class="range-toggle kind-switch" id="cmpKind" role="group" aria-label="What to compare" hidden>
+      <button type="button" class="chip is-on" data-kind="stocks" aria-pressed="true">Stocks</button>
+      <button type="button" class="chip" data-kind="etfs" aria-pressed="false">ETFs</button>
+    </div>
+
+    <p class="block-note first" id="cmpHelp">Tap either company to swap it. On each row the stronger figure is in blue.</p>
     <div id="cmpStyle"></div>
 
     <div class="cmp-body" id="cmpBody"></div>
-    <p class="block-note">Not investment advice. The score describes the latest filings; it does not predict the price.</p>
+    <p class="block-note" id="cmpFoot">Not investment advice. The score describes the latest filings; it does not predict the price.</p>
   </section>
 
   <!-- ============================ CART ============================ -->
@@ -177,8 +190,9 @@
       <!-- signed out: step 1, ask for the email -->
       <form class="auth-step" id="authEmailStep">
         <p class="auth-blurb">
-          Your cart lives in this browser right now, so it disappears if you switch
-          devices or clear your history. Sign in and it follows you.
+          Your cart lives on this device right now, so it disappears if you switch
+          devices or <span class="web-only">clear your history</span><span class="app-only">delete the app</span>.
+          Sign in and it follows you.
         </p>
         <label class="auth-label" for="authEmail">Email address</label>
         <input class="auth-input" type="email" id="authEmail" name="email"
@@ -191,23 +205,44 @@
         <button type="submit" class="primary-btn wide" id="authSend">Email me a sign-in link</button>
         <p class="auth-fine">
           No password to make up or forget. We use your
-          address to save your cart and nothing else without asking.
+          address to save your cart and nothing else without asking. You stay
+          signed in on this device until you sign out.
         </p>
       </form>
 
       <!-- signed out: step 2, the code -->
       <form class="auth-step" id="authCodeStep" hidden>
         <p class="auth-blurb">
-          Check <b id="authSentTo"></b>. Click the sign-in link in the email and you're
-          done. It expires in a few minutes.
+          Check <b id="authSentTo"></b>.
+          <span class="web-only">Click the sign-in link in the email and you're
+          done. It expires in a few minutes.</span>
+          <span class="app-only">Type the code from the email. Tapping the link signs in
+          Safari, not this app, and uses the code up.</span>
         </p>
-        <p class="auth-or"><span>or, if the email gave you a code</span></p>
-        <label class="auth-label" for="authCode">Six-digit code</label>
+        <p class="auth-or web-only"><span>or, if the email gave you a code</span></p>
+        <label class="auth-label" for="authCode">Code from the email</label>
+        <!-- no pattern: a code pasted with spaces or dashes in it must reach
+             app.js, which keeps only the digits; inputmode alone brings up
+             the number pad, and maxlength leaves room for the separators -->
         <input class="auth-input code" type="text" id="authCode" name="code"
-               inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*"
-               maxlength="6" placeholder="000000">
+               inputmode="numeric" autocomplete="one-time-code"
+               maxlength="20" placeholder="000000">
         <button type="submit" class="primary-btn wide" id="authVerify">Sign in with the code</button>
-        <button type="button" class="link-btn" id="authBack">Use a different address</button>
+        <button type="button" class="link-btn" id="authBack">Send again or use a different address</button>
+      </form>
+
+      <!-- signed out: App Review's account, the only one with a password
+           (REVIEW_EMAIL in lib/supabase-config.js) -->
+      <form class="auth-step" id="authPassStep" hidden>
+        <p class="auth-blurb">
+          <b id="authPassWho"></b> is the account for Apple's App Review. It signs in with the
+          password in the review notes rather than an email.
+        </p>
+        <label class="auth-label" for="authPass">Password</label>
+        <input class="auth-input" type="password" id="authPass" name="password"
+               autocomplete="current-password" required>
+        <button type="submit" class="primary-btn wide" id="authPassGo">Sign in</button>
+        <button type="button" class="link-btn" id="authPassBack">Use a different address</button>
       </form>
 
       <!-- signed in -->
@@ -215,7 +250,7 @@
         <p class="auth-blurb">
           Signed in as <b id="authWho"></b>. Your cart saves automatically and will be
           here on any device you sign in from. Signing out saves it one last time,
-          then clears it from this browser.
+          then clears it from this device.
         </p>
         <button type="button" class="ghost-btn wide" id="authSignOut">Sign out</button>
         <div class="acct-data">
@@ -226,8 +261,9 @@
         <div class="acct-confirm" id="acctDeleteConfirm" hidden>
           <p class="auth-blurb">
             This deletes your account for good: the email address, the saved cart with its notes and
-            amounts, and your alert settings. It cannot be undone. A brokerage account at Alpaca is
-            not touched; this browser just disconnects from it.
+            amounts, and your alert settings. It cannot be undone.
+            <span class="web-only">A brokerage account at Alpaca is not touched; this browser just
+            disconnects from it.</span>
           </p>
           <button type="button" class="danger-btn wide" id="acctDeleteGo">Delete everything</button>
           <button type="button" class="ghost-btn wide" id="acctDeleteKeep">Keep my account</button>
@@ -247,13 +283,14 @@
       </button>
       <button type="button" class="row-link" id="acctAlerts">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-        <span><b>Earnings alerts</b><small>An email a week before anything in your cart reports</small></span>
+        <span><b>Earnings alerts</b><small class="web-only">An email a week before anything in your cart reports</small><small class="app-only">A notification or an email a week before anything in your cart reports</small></span>
       </button>
       <button type="button" class="row-link" id="acctBroker">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16M6 10v8M10 10v8M14 10v8M18 10v8M3 20h18M12 3l9 5H3z"/></svg>
         <span><b>Brokerage</b><small id="acctBrokerNote">Connect Alpaca to place the cart's orders</small></span>
       </button>
-      <a class="row-link" href="/pricing">
+      <!-- shown only once membership can be bought (tier.DEV_UNLIMITED off) -->
+      <a class="row-link" href="/pricing" id="acctMember" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18M7 15h4"/></svg>
         <span><b>Membership</b><small id="acctPlan">See what it includes</small></span>
       </a>
@@ -262,15 +299,16 @@
     <h2 class="block-h row-list-h">About</h2>
     <div class="row-list">
       <a class="row-link" href="/method"><span><b>How the score works</b></span></a>
-      <a class="row-link" href="/stock"><span><b>Every company</b></span></a>
+      <a class="row-link web-only" href="/stock"><span><b>Every company</b></span></a>
       <a class="row-link" href="/privacy"><span><b>Privacy</b></span></a>
       <a class="row-link" href="/terms"><span><b>Terms</b></span></a>
+      <a class="row-link" href="mailto:hello@stockornot.com"><span><b>Contact support</b></span></a>
     </div>
     <p class="block-note acct-fine">
       <b>Not investment advice.</b> Every figure here comes from
-      <a href="https://finnhub.io" target="_blank" rel="noopener">Finnhub</a> or the company's own
+      <a href="https://finnhub.io" target="_blank" rel="noopener">Finnhub</a> or the companies' and funds' own
       <a href="https://www.sec.gov/edgar" target="_blank" rel="noopener">SEC filings</a>
-      and may be stale, mis-parsed or wrong. Read the actual 10-K before you buy anything.
+      and may be stale, mis-parsed or wrong. Read the actual filing before you buy anything.
     </p>
   </section>
 </main>
@@ -306,13 +344,17 @@
   <div class="sheet-inner">
     <header class="sheet-head detail-head">
       <div class="dh-id">
-        <h2 id="detailTitle">—</h2>
+        <h2 id="detailTitle" tabindex="-1">—</h2>
         <p id="detailName">—</p>
       </div>
       <div class="dh-price">
         <span id="detailPrice">—</span>
         <span id="detailChange"></span>
       </div>
+      <!-- shown where there is a share sheet (app.js, openDetail) -->
+      <button type="button" class="icon-btn" id="detailShare" hidden aria-label="Share">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M8 11H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-2"/></svg>
+      </button>
       <button type="button" class="icon-btn" data-close aria-label="Close detail">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -523,7 +565,13 @@
           <span id="earnEmailLabel">Email me when anything in my cart is a week from reporting, with what the street expects.</span>
         </label>
         <p class="block-note" id="earnEmailNote"></p>
-        <div class="earn-cal">
+        <!-- the app: a notification scheduled on the phone, in place of the calendar file -->
+        <label class="switch app-only" id="earnLocalRow">
+          <input type="checkbox" id="earnLocal">
+          <span>Notify me on this iPhone a week before anything in my cart reports.</span>
+        </label>
+        <p class="block-note app-only" id="earnLocalNote"></p>
+        <div class="earn-cal web-only">
           <button type="button" class="ghost-btn" id="btnIcs">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>
             <span>Add to my calendar</span>
@@ -542,6 +590,6 @@
   <button type="button" class="toast-btn" id="toastAction">Undo</button>
 </div>
 
-<script type="module" src="app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>

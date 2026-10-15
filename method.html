@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>How the score works | StockOrNot</title>
-<meta name="description" content="Every factor behind the StockOrNot score, the thresholds it uses, where the numbers come from, and the things it cannot know. Written plainly, including the parts that do not flatter it." />
+<meta name="description" content="Every factor behind the StockOrNot score and the ETF fund reading, the thresholds they use, where the numbers come from, and the things they cannot know. Written plainly, including the parts that do not flatter it." />
 <link rel="canonical" href="https://stockornot.com/method" />
 <meta name="color-scheme" content="dark" />
 <meta name="theme-color" content="#0b0c0e" />
@@ -33,7 +33,6 @@
   <nav class="topnav" aria-label="Site">
     <a href="/stock">Companies</a>
     <a href="/method" aria-current="page">How the score works</a>
-    <a href="/pricing">Pricing</a>
   </nav>
   <div class="topbar-actions">
     <a class="primary-btn" href="/">Open the deck</a>
@@ -57,6 +56,10 @@
 
   <p>A company scoring 76 is not a better investment than one scoring 41. It is a company whose
   filings score higher against these particular thresholds, which is a much narrower claim.</p>
+
+  <p class="note">Exchange-traded funds are read differently, on a fixed scale of their own, and are
+  never given a company's score. That is set out further down, under
+  <a href="#funds">How a fund is read</a>.</p>
 
   <h2>The five factors</h2>
 
@@ -84,8 +87,10 @@
   <p>Each input is mapped onto a 0&ndash;100 curve through fixed anchor points, with straight-line
   interpolation between them. The anchors were chosen to sit near long-run market norms, not fitted to
   any historical return. Growth reads this year's revenue and earnings per share and the five-year
-  revenue and earnings trends, with five-year revenue counted twice because a single year is noisy.
-  Stability reads beta, the width of the 52-week range, dividend yield, the debt and interest cover.
+  revenue and earnings trends, with five-year revenue counted twice because a single year is noisy;
+  for Energy and Materials this year's change in earnings per share is left out, as explained
+  under <a href="#numbers">Numbers that lie</a>. Stability reads beta, the width of the 52-week
+  range, dividend yield, the debt and interest cover.
   Profitability and momentum work the same way. Value works differently, because a price only means
   something next to what it buys.</p>
 
@@ -101,21 +106,26 @@
   <p>That is a tempered form of Benjamin Graham's old rule of thumb, 8.5 + 2 &times; growth, which runs
   hot at the growth rates of today's largest companies. Growth means the lasting kind: the five-year
   revenue and earnings trends, with this year's revenue counted a third, floored at zero and capped at
-  25% a year, because almost nothing compounds faster than that for long. A company growing 10% a year
-  with a 2% dividend gets a fair P/E of 26; one growing 3% with no dividend, 12.5.</p>
+  25% a year, because almost nothing compounds faster than that for long. Without five-year figures,
+  this year's revenue stands in, and with no growth figure at all 6% is assumed. The dividend counts
+  up to 8%, since a higher yield usually means the market expects a cut, and growth and dividend
+  together count up to 25, so a company already at the growth cap gets nothing more for its dividend.
+  A company growing 10% a year with a 2% dividend gets a fair P/E of 26; one growing 3% with no
+  dividend, 12.5.</p>
 
   <p>Where five years of revenue says little about what lasts, the cap is lower: 10% for Financials,
   which grow about as fast as their capital; 8% for Utilities, whose growth follows the regulated rate
   base; 8% for Real Estate, whose faster growth comes from issuing shares to buy property; and 8% for
-  Materials and 6% for Energy, whose five-year figures start from the 2020 trough.</p>
+  Materials and 6% for Energy, whose five-year figures start from the 2020 trough. Energy and Materials
+  companies also have their P/E read on mid-cycle earnings, as explained under <a href="#numbers">Numbers that lie</a>.</p>
 
   <p>The actual multiple divided by the fair one is what gets scored:</p>
 
-  <table>
+  <div class="table-scroll"><table>
     <caption>Actual multiple &divide; fair multiple, mapped</caption>
     <thead><tr><th class="num">Ratio</th><th class="num">0.4</th><th class="num">0.6</th><th class="num">0.75</th><th class="num">1.0</th><th class="num">1.25</th><th class="num">1.5</th><th class="num">2</th><th class="num">3</th><th class="num">5</th></tr></thead>
     <tbody><tr><th>Score</th><td class="num">90</td><td class="num">76</td><td class="num">62</td><td class="num">55</td><td class="num">48</td><td class="num">42</td><td class="num">30</td><td class="num">16</td><td class="num">6</td></tr></tbody>
-  </table>
+  </table></div>
 
   <p>On the card, under 0.75 reads <strong>cheap</strong>, up to 1.25 <strong>about fair</strong>, up
   to 1.5 <strong>a bit pricey</strong>, and above that <strong>expensive</strong>. Each business is
@@ -145,8 +155,9 @@
     normal and says nothing about its price.</li>
   </ul>
 
-  <p>When the two measures disagree, one cheap and the other dear, the card says
-  <strong>Mixed</strong> and names which is which rather than averaging the disagreement away.
+  <p>When the two measures disagree, one cheap and the other dear, or the P/E alone is a bit pricey
+  or expensive while the two together would read fair or cheap, the card says <strong>Mixed</strong>
+  and names which is which rather than averaging the disagreement away.
   Forward P/E and EV/EBITDA are shown for reference but not scored: a forward P/E rests on analysts'
   forecasts, and the score reads only what has been reported.</p>
 
@@ -159,7 +170,7 @@
   being marked down for a grocer's margins. Momentum stays absolute, because a sector falling together
   is not a reason to prefer the one falling slowest.</p>
 
-  <h2>Numbers that lie, and what is done about them</h2>
+  <h2 id="numbers">Numbers that lie, and what is done about them</h2>
 
   <ul class="limits">
     <li><b>Negative equity.</b> Companies that have bought back more stock than they have equity, often
@@ -185,15 +196,36 @@
     the five-year trend, only the five-year figure is used, and the one-year figure is left out of the
     sector ranks too.</li>
 
+    <li><b>Interest earned.</b> Interest cover is operating profit divided by the interest paid, net
+    of interest earned. Beside a profit, a negative figure means the company earns more interest
+    than it pays, or the provider's figures are out of step, and would otherwise read as the worst
+    cover there is, so it is left out. Only with a loss does a negative figure count, as the worst
+    cover.</li>
+
+    <li><b>Commodity peaks.</b> Energy and Materials companies earn what oil, gas and metal prices let
+    them, so a peak year makes them look cheap, profitable and fast-growing all at once. When the
+    latest year was profitable, their earnings and net margin are read as half the latest year and
+    half the average of the years on file, up to five, and the P/E that results is kept between half
+    and three times the reported one. Their one-year change in earnings per share is never counted as
+    growth, nor named in the case for or against. The card says when its earnings are read this
+    way.</li>
+
+    <li><b>Dividends that contradict themselves.</b> A dividend yield should be about the payout ratio
+    divided by the P/E. When the provider's yield is more than twice that figure plus a point, or under
+    half of it less a point, nothing says which number is wrong, so the dividend is counted nowhere:
+    not in the fair multiple, not in stability and not in the case for and against. The card says
+    so.</li>
+
     <li><b>Share classes.</b> Alphabet, Fox and News Corp each trade under two tickers with the same
-    filings. Each company is counted once in its sector, and is never its own closest peer.</li>
+    filings. Each company is counted once in its sector, is never its own closest peer, and gets one
+    score: both tickers carry the score of the class listed first.</li>
   </ul>
 
   <h2>From five factors to one score</h2>
 
   <p>The five results are multiplied by their weights and summed. Averaging five readings pulls
-  every company toward the middle: across the S&amp;P 500 the blend runs from about 20 to 87, and
-  half of all companies sit roughly between 45 and 60. A score that never leaves the fifties says very
+  every company toward the middle: across the S&amp;P 500 the blend runs from about 20 to 85, and
+  half of all companies sit roughly between 45 and 62. A score that never leaves the fifties says very
   little, so the number on the card is where the blend places the company in the index: the share
   of the other S&amp;P 500 companies it beats, from 1 to 99. A score of 90 means ahead of 90% of the
   index on these five factors, the same idea as a percentile.</p>
@@ -231,7 +263,8 @@
   <p class="note"><sup>*</sup> Deep value reads momentum the other way round: a price that has
   fallen counts in its favour. Each style is our reading of what that investor has published, not
   how they invest today, and none of them is affiliated with StockOrNot or has endorsed it. The
-  track record and the company pages use Balanced.</p>
+  track record and the company pages use Balanced. For a fund, a style changes only what it owns,
+  as <a href="#funds">How a fund is read</a> explains.</p>
 
   <h2>Where the numbers come from</h2>
 
@@ -241,10 +274,11 @@
 
   <p>The whole set rebuilds each weekday evening after the American close, so prices are that session's
   close rather than live. Every card shows how old its data is. The cards themselves are static files.
-  Headlines in the full record are fetched when you open it, through this site's own server, and
-  placing orders goes through it to your brokerage. Your cart lives in your browser; if you sign in, it
-  is also stored with your account, notes included, so it can follow you between devices and the
-  nightly job can email you before anything in it reports.</p>
+  Headlines in the full record are fetched when you open it, through this site's own server, and on
+  the website placing orders goes through it to your brokerage; the iPhone app places no orders. Your
+  cart lives in your browser or the app; if you sign in, it is also stored with your account, notes
+  included, so it can follow you between devices and the nightly job can email you before anything
+  in it reports.</p>
 
   <h2>What it cannot know</h2>
 
@@ -283,6 +317,172 @@
     filing is the authority, not this page.</li>
   </ul>
 
+  <h2 id="funds">How a fund is read</h2>
+
+  <p>Where funds are shown, a Stocks | ETFs switch at the top of the deck opens about fifty
+  exchange-traded funds: US stock funds that mostly own the same S&amp;P 500 companies. They are the
+  funds that track the index, funds that pick or weight its companies another way (the largest,
+  growth, value, equal weight, dividends, low volatility), the eleven sector funds, and broader US
+  funds, from large-company and Nasdaq-100 funds to funds of the whole US market. A fund is not a
+  company, and it never gets a company's score. It gets a <strong>fund reading</strong> out of 100, a
+  blend of three parts, each on a fixed scale:</p>
+
+  <table>
+    <caption>Weights, which sum to 1.00</caption>
+    <thead>
+      <tr><th>Part</th><th>What it reads</th><th class="num">Weight</th><th class="num">No fee read</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>What it owns</td><td>Its holdings, each at the score on that company's own card</td><td class="num">0.40</td><td class="num">0.60</td></tr>
+      <tr><td>What it costs</td><td>The expense ratio, taken from the fund every year whatever it does</td><td class="num">0.35</td><td class="num">&ndash;</td></tr>
+      <tr><td>How spread out</td><td>How many companies really carry it</td><td class="num">0.25</td><td class="num">0.40</td></tr>
+    </tbody>
+  </table>
+
+  <p class="note">Until a fund's expense ratio has been read from its SEC filings, the other two
+  parts carry the reading between them, 0.60 and 0.40, and the card says the cost has not been
+  read.</p>
+
+  <p><strong>What it owns</strong> takes each holding at the score on that company's own card, weights
+  it as the fund holds it, and averages over the part of its stock holdings we can score. The part we
+  cannot score counts as 50, the middle, so a fund cannot read well on the slice it happens to show
+  us: if we can score 80% of a fund's stock holdings and they average 90, it reads 0.8 &times; 90 +
+  0.2 &times; 50 = 82. Share classes count once, so Alphabet's two tickers are one company here as
+  everywhere else, and its holdings list names the company, not one of its classes.</p>
+
+  <p><strong>What it costs</strong> is the expense ratio on one curve. Of everything that can be known
+  about a fund in advance, the fee has the strongest evidence behind it: studies of fund returns keep
+  finding that, among funds of the same kind, the cheaper ones do better more often. And an index
+  fund owns much the same companies as its rivals, so what it charges is most of what sets it apart.
+  A published fee is not thin evidence, so unlike a company factor it is never pulled toward the
+  middle.</p>
+
+  <div class="table-scroll"><table>
+    <caption>Expense ratio, % a year, mapped</caption>
+    <thead><tr><th class="num">Fee</th><th class="num">0.02</th><th class="num">0.05</th><th class="num">0.1</th><th class="num">0.2</th><th class="num">0.35</th><th class="num">0.5</th><th class="num">0.75</th><th class="num">1.0</th><th class="num">1.5</th></tr></thead>
+    <tbody><tr><th>Score</th><td class="num">96</td><td class="num">90</td><td class="num">80</td><td class="num">66</td><td class="num">50</td><td class="num">38</td><td class="num">24</td><td class="num">14</td><td class="num">6</td></tr></tbody>
+  </table></div>
+
+  <p>The 0.03% the largest S&amp;P 500 funds charge reads 94; 0.35%, about where plain index funds
+  end, reads 50. On the card the fee is also given in money: 0.03% is $3 a year on every
+  $10,000.</p>
+
+  <p><strong>How spread out</strong> is the average of two curves. The first is the effective number of
+  holdings: one over the sum of the squared weights, which is the number of equal holdings that would
+  be as concentrated. The S&amp;P 500 held by market value behaves like about 40 equal companies,
+  because its largest few are so large. Behaving like 3 reads 6, 6 reads 18, 10 reads 30, 20 reads
+  46, 40 reads 60, 80 reads 72, 150 reads 82, 300 reads 90 and 500 reads 94. The second is the
+  weight of the largest ten holdings: 10% of the fund reads 90, 20% reads 80, 30% reads 68, 40%
+  reads 58, 50% reads 48, 60% reads 38, 75% reads 24 and 90% reads 12. Both run in straight lines
+  between those points, as the company curves do.</p>
+
+  <p>What it owns is <strong>our company score counted a second time</strong>. A fund full of the
+  companies our screen likes this year reads well for that reason alone. The holdings add no
+  judgement of their own: what it owns is only ever the companies' own scores, weighted, with the part
+  we cannot score at 50. In October 2026 a fund holding the S&amp;P 500 by market value reads about 69
+  on what it owns in the Balanced style, because the largest companies screen well this year; the same
+  companies held in equal amounts read 50 under every style, since each company's score is its place
+  in that same index. The reading is not a second opinion on the companies, only a way of adding up
+  the first one.</p>
+
+  <p>Under another <a href="#styles">scoring style</a>, what it owns is read with each holding at its
+  score in that style. Cost and spread stay as they are: none of these investors set out a rule for
+  choosing between funds, so there is no fund weighting &ldquo;after&rdquo; any of them.</p>
+
+  <h2>Which funds get a number</h2>
+
+  <p>A fund gets a number only when we can read it in full: <strong>at least 80% of its stock
+  holdings are companies we score</strong>, and <strong>no more than 10% of the fund is in cash,
+  money-market funds, futures</strong> or anything else that is not a company's shares. 80% is the
+  line the SEC's names rule draws: a fund named after what it invests in must keep at least 80% of its
+  assets there. A fund that misses either line is partly read when we can still match at least 30% of
+  its stock holdings, and not read below that. It still has its card, showing the parts that can be
+  read and why there is no number: where the number would be, it says <strong>Partly read</strong>
+  or <strong>Holdings only</strong> and the figure that kept it from one, such as how much of it we
+  could match. It is never given a number made from a fraction of it.</p>
+
+  <p>Nor is a fund read by holdings that are <strong>more than 200 days old</strong>. Holdings are
+  public about 60 days after each quarter, so even the oldest should be about five months old; older
+  than that, a filing has been missed, and the card says <strong>Out of date</strong> until a newer one
+  is read. A fund whose holdings have not been read at all has no card, and until at least two funds
+  can be shown, the Stocks | ETFs switch does not appear.</p>
+
+  <p>A fund reading is <strong>not a place</strong>. Set among the 500 companies it would compare
+  things that are not alike; set among the funds we chose to cover, it would move whenever one was
+  added, and the four funds that track the S&amp;P 500 itself would crowd the top. So it stays on its
+  fixed scale and does not move when funds come and go. The words beside it use the company score's
+  cut-offs, 80 and above <strong>screens strongly</strong> down to under 20 <strong>screens
+  badly</strong>, but for a fund they mark points on that fixed scale, not fifths of anything. Its
+  rank among the funds read in full appears only as a caption, and only once its fee has been read:
+  a reading without its fee is the 0.60 and 0.40 blend, a different sum, so it is not ranked against
+  the others. Compare sets a fund only against another fund, and marks the stronger reading only when
+  both fees have been read.</p>
+
+  <h2>Where a fund's numbers come from</h2>
+
+  <p>Holdings come from the fund's own report to the SEC, <strong>Form N-PORT</strong>. Funds file one
+  every month, but only the last month of each quarter is made public, about 60 days after the
+  quarter ends, so the holdings a fund is read by are <strong>two to five months old</strong>, and its
+  record gives their date. Each holding is matched to one of our companies by its legal entity
+  identifier, by the ticker the filing gives, or failing both by its name, when that points to
+  exactly one of our companies. Each weight is the holding's share of the fund's stock holdings on
+  that date; prices have moved since.</p>
+
+  <p>A fund's record sets its sectors beside the S&amp;P 500's own. <strong>Outside the S&amp;P
+  500</strong> is the share of its stock holdings we could not match to a company we score: mostly
+  foreign companies in a Nasdaq-100 fund and smaller ones in a total-market fund, and now and then an
+  index company the filing names in a way we could not match, which the record lists by name. In what
+  it owns, all of it counts as 50.</p>
+
+  <p>The expense ratio is read from the fund's annual or half-yearly shareholder report to the SEC
+  (Form N-CSR), or copied by hand from its prospectus there, and the record links to the filing it
+  came from. A shareholder report gives what the fund actually charged over that period, so a fee cut
+  shows from the next report. Prices, the day's move, the 52-week range and the fund's own returns
+  come from Finnhub, as for companies, and the chart is drawn from our own record of each night's
+  close, which starts the night a fund is added. Funds are rebuilt with the companies each weekday
+  evening, after the company data has been checked.</p>
+
+  <h2>What a fund reading cannot know</h2>
+
+  <p>A fund has blind spots of its own, on top of everything the company score cannot see.</p>
+
+  <ul class="limits">
+    <li><b>Its holdings are months old.</b> The reading sees the last public filing, two to five months
+    back. An index fund changes slowly; an actively managed one may have changed completely.</li>
+
+    <li><b>How closely it follows its index.</b> The gap between a fund's return and its index's, its
+    tracking difference, is the best single measure of what holding a fund really costs, and it is not
+    read: it needs the index's own returns, which belong to the index's owner. Two funds with the same
+    fee can differ here.</li>
+
+    <li><b>Taxes.</b> Capital-gain payouts, how its dividends are taxed, and what selling it later
+    costs you depend on how the fund is run and on your own circumstances. None of it is read.</li>
+
+    <li><b>What it costs you to trade.</b> The gap between the buying and selling price, a market price
+    above or below the value of what the fund holds, and any commission come on top of the fee. They
+    are small for the largest funds and can matter for small ones.</li>
+
+    <li><b>Securities lending.</b> Many funds lend out the shares they hold and keep part of the income,
+    which can offset some of the fee, at a small risk if a borrower fails. It is not read.</li>
+
+    <li><b>What its index does next.</b> An index fund follows rules someone else sets. The index can
+    change its rules or its members, and a fund can change its index, its fee or its name (SPLG became
+    SPYM in October 2025). The reading sees the holdings in its last filing and nothing after.</li>
+
+    <li><b>Anything outside the S&amp;P 500.</b> We judge only S&amp;P 500 companies. Anything else a
+    fund owns counts as average, neither good nor bad, and the card says how much of it there is.</li>
+
+    <li><b>A fund is less risky than the average of its parts.</b> Owning 500 companies moves less than
+    the typical one of them, and how spread out it is captures that only roughly.</li>
+
+    <li><b>Most funds are not covered.</b> Bond, international, small-company, commodity, crypto,
+    leveraged, inverse and options-income funds are left out, rather than read on the sliver of them
+    we could see.</li>
+
+    <li><b>Past returns are not part of it.</b> The fund's price, its returns and the monthly returns it
+    files are shown beside the reading, not counted in it, and nothing here has been backtested.</li>
+  </ul>
+
   <h2>What this is not</h2>
 
   <blockquote>This is not investment advice, and it is not a recommendation to buy or sell anything.
@@ -306,12 +506,12 @@
   <nav class="foot-nav" aria-label="Footer">
     <a href="/stock">Companies</a>
     <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
     <a href="/privacy">Privacy</a>
     <a href="/terms">Terms</a>
+    <a href="/support">Support</a>
   </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
-  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
+  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the companies' and funds' own
   <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
   Read the actual filing before you buy anything.</p>
 </footer>

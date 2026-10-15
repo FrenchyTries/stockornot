@@ -32,7 +32,6 @@
   <nav class="topnav" aria-label="Site">
     <a href="/stock">Companies</a>
     <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
   </nav>
   <div class="topbar-actions">
     <a class="primary-btn" href="/">Open the deck</a>
@@ -42,19 +41,21 @@
 
   <p class="eyebrow">Privacy</p>
 
-  <h1>What this site keeps about you, and where.</h1>
+  <h1>What StockOrNot keeps about you, and where.</h1>
 
-  <p class="doc-standfirst">No advertising, no analytics and no tracking scripts. What is kept
-  is what the cart and the alerts need in order to work, and this page lists all of it.</p>
+  <p class="doc-standfirst">No advertising, no analytics and no tracking scripts, on the website or in
+  the iPhone app. What is kept is what the cart and the alerts need in order to work, and this page
+  lists all of it.</p>
 
-  <p class="note">Last updated October 7, 2026.</p>
+  <p class="note">Last updated October 14, 2026.</p>
 
   <h2>Without an account</h2>
 
-  <p>Nothing about you leaves your browser. The cart, with any notes and planned amounts, the
-  cards you have already swiped past, and which companies you have opened (for the free
-  allowance) are kept in your browser's own storage on this device. Clearing this site's data
-  in your browser removes all of it.</p>
+  <p>Nothing about you is kept anywhere but on your device, apart from the short request logs
+  described below. The cart, with any notes and planned amounts, and the cards you have already
+  swiped past are kept in your browser's own storage on this device, or in the iPhone app's own
+  storage on the phone. Clearing this site's data in your browser, or deleting the app, removes all
+  of it.</p>
 
   <h2>With an account</h2>
 
@@ -66,11 +67,10 @@
     <li><b>That you agreed to the terms</b>: which version, and when, recorded as the account is created.</li>
     <li><b>Sign-in records</b>: Supabase, which runs sign-in, logs the IP address and browser of each
     sign-in and session, for security.</li>
-    <li><b>Your cart</b>: the companies in it, when you added them and at what price, your notes and
-    planned amounts, and a record of the last order sent for each, so a retry cannot place it twice.</li>
+    <li><b>Your cart</b>: the companies and funds in it, when you added them and at what price, your
+    notes and planned amounts, and, on the website, a record of the last order sent for each, so a
+    retry cannot place it twice.</li>
     <li><b>Your alert settings</b>, and a log of which alerts have been sent, so no report is emailed twice.</li>
-    <li><b>Membership status</b>, once membership opens. Card details never reach this site; the
-    payment provider handles them.</li>
   </ul>
 
   <p>The database only lets you read or change your own rows. That rule is enforced by the
@@ -83,56 +83,102 @@
   street expects. Turn them off at any time under Account, then Earnings alerts, with the link at
   the bottom of every alert, or by replying "unsubscribe".</p>
 
-  <h2>A brokerage connection</h2>
+  <h2>The iPhone app</h2>
 
-  <p>If you connect an Alpaca account, the keys or sign-in token are encrypted into a cookie
-  in your browser that only this site's server can read. They are not stored in any database
+  <p>The app keeps the same things as the website, in the same way, and an account is just as
+  optional there. What is different about it:</p>
+
+  <ul class="limits">
+    <li><b>It stays on the phone.</b> Without an account, the cart and everything else above are kept in
+    the app's own storage on the phone, and nowhere else. The app fetches the same public data files
+    and headlines the website shows from stockornot.com; Vercel logs those requests like any visit to
+    the site, and they carry nothing else about you.</li>
+    <li><b>Reminders are scheduled by the phone.</b> If you switch on "Notify me on this iPhone" and allow
+    notifications, the phone itself schedules a notification a week before anything in your cart
+    reports. Nothing about them is sent anywhere: there is no push service and no device token. Switch
+    them off in the same place, or in the iPhone's Settings under Notifications.</li>
+    <li><b>Exports go only where you send them.</b> Export CSV, Download my data and Share open the
+    iPhone's share sheet, and the file or link goes to the place you choose there and nowhere else.</li>
+    <li><b>No brokerage and no purchases.</b> The app does not connect to a brokerage, place orders, hold
+    money or sell anything. The parts of this page about a brokerage apply to the website only.</li>
+    <li><b>No other permissions.</b> Notifications are the only thing the app asks permission for, and
+    it works without them.</li>
+  </ul>
+
+  <h2>A brokerage connection (website only)</h2>
+
+  <p>If you connect an Alpaca account on the website, the keys or sign-in token are encrypted into a
+  cookie in your browser that only this site's server can read. They are not stored in any database
   here. The cookie expires after 30 days, or at once when you disconnect. Orders you confirm
-  go straight to Alpaca, whose own privacy policy covers your account there.</p>
+  go to Alpaca through this site's server, which keeps no copy; Alpaca's own privacy policy covers
+  your account there.</p>
 
   <h2>Who else is involved</h2>
 
   <ul class="limits">
-    <li><b>Vercel</b> hosts the site. Like any web host it keeps short-lived request logs, which
-    include IP addresses.</li>
+    <li><b>Vercel</b> hosts the site and the data the app reads. Like any web host it keeps short-lived
+    request logs, which include IP addresses.</li>
     <li><b>Supabase</b> holds accounts and the data listed above, and sends the sign-in emails.</li>
-    <li><b>Resend</b> sends earnings alerts, and only to people who switched them on.</li>
+    <li><b>Resend</b> delivers those sign-in emails for Supabase, and the earnings alerts, which go only
+    to people who switched them on.</li>
     <li><b>GitHub</b> runs the nightly job that sends the alerts. While it runs it reads the email
     address, cart and alert settings of people who switched alerts on, and keeps none of them.</li>
-    <li><b>Alpaca</b>, only if you connect a brokerage account.</li>
+    <li><b>Alpaca</b>, only if you connect a brokerage account on the website.</li>
     <li><b>Finnhub</b> supplies market data and news. Its requests come from this site's server
     and carry nothing about you.</li>
   </ul>
 
-  <p>These are the only services that handle anything about you. Nothing is sold, rented, shared
-  for marketing, or used to train AI models. The typeface and the sign-in library are served from
-  this site, not from a font service or a code CDN.</p>
+  <p>These are the only services that handle anything about you. Each gets only what its part needs,
+  uses it only to provide that part, and is bound by its own privacy and data-protection terms to
+  protect it at least as well as this page does. Nothing is sold, rented, shared for marketing, or
+  used to train AI models. The typeface and the sign-in library are served from this site, not from
+  a font service or a code CDN.</p>
+
+  <h2>How long it is kept</h2>
+
+  <p>Everything listed under "With an account" is kept until you delete the account, and goes at once
+  when you do; a signed-in session's record goes when you sign out on that device. The services above
+  keep their own short logs for security and delivery, then delete them: Vercel's request logs for a
+  day or less, Supabase's log of sign-ins for up to 7 days, and Resend's record of each email it sent
+  for 30 days. Without an account, nothing about you is kept anywhere but on your device, apart from
+  those request logs.</p>
 
   <h2>Cookies and browser storage</h2>
 
-  <p>Cookies are set only for a brokerage connection: the sealed connection described above, and,
-  while you are signing in to Alpaca, a second one that lasts ten minutes and only checks that the
-  sign-in came back to the browser that started it. Everything else stays in your browser's own
-  storage, because the app cannot work without it: your cart, the cards you have swiped, the
-  companies you have opened, your scoring style, the two companies in Compare and, once you sign in,
-  your session. While a sign-in link is on its way, the address it was sent to is kept too, so the
-  site can tell you if a link signs you in to a different account. It goes once the link is used or
-  when you sign out, and in any case the first time the site opens more than a day later. There are no advertising, analytics or tracking cookies,
-  and nothing optional, so there is nothing to accept or refuse and no cookie banner.</p>
+  <p>Cookies are set only for a brokerage connection on the website: the sealed connection described
+  above, and, while you are signing in to Alpaca, a second one that lasts ten minutes and only checks
+  that the sign-in came back to the browser that started it. Everything else stays in your browser's
+  own storage, or the app's, and is written only when you use the part it belongs to: your cart, the
+  cards you have swiped, your scoring style, whether the deck and Compare show companies or ETFs, the
+  two companies and the two funds in Compare, that you hid the earnings notice, and, once you sign
+  in, your session (you stay signed in on that device until you sign out) and which account the cart
+  on the device belongs to. In the app, switching reminders on also keeps
+  that choice and the date of the data they were last set from. If you add the website to your home
+  screen and open it from there, it keeps a copy of the site's own pages, scripts, typeface and public
+  data so it can open without a signal; a visit in a browser tab keeps no such copy. While a sign-in
+  link is on its way, the address it was sent to is kept too, so the site can tell you if a link signs
+  you in to a different account. It goes once you are signed in or when you sign out, and in any case
+  the first time StockOrNot opens more than a day later. Nothing is stored before you use the part it
+  is for, and none of it is advertising, analytics or tracking, so there is nothing to accept or
+  refuse and no cookie banner.</p>
 
   <h2>Getting a copy, and deleting it</h2>
 
   <p>Signed in, the Account tab has <b>Download my data</b>, a file with your account, the saved cart
-  with its notes and amounts, the alert settings and the alerts sent, and what this browser holds.
-  Supabase's sign-in records are kept by Supabase for security and are not in the file; write in for
-  a copy. Without an account, Export CSV in the cart gives you the cart.</p>
+  with its notes and amounts, the alert settings and the alerts sent, and every StockOrNot setting this
+  browser or the app holds (the sign-in session itself, a key to the account, is left out); in the app
+  it opens the share sheet. Supabase's sign-in records are kept by Supabase for
+  security and are not in the file; write in for a copy. Without an account, Export CSV in the cart
+  gives you the cart.</p>
 
   <p>The Account tab also has <b>Delete my account</b>. It asks once more, then deletes the account,
-  the email address and everything attached to it at once, for good, and disconnects this browser
-  from any brokerage account. You can also empty the cart and switch alerts off at any time, and
-  signing out removes the session from that browser. If anything here does not work, write to
-  <a href="mailto:hello@stockornot.com">hello@stockornot.com</a> from the account's address: a copy
-  or a deletion is done within 30 days, and you get a reply when it is.</p>
+  the email address and everything attached to it at once, for good, and on the website disconnects
+  that browser from any brokerage account. Supabase's own sign-in log and its routine backups keep
+  their copies only until those expire on their own schedule (the log within 7 days). You can also empty the cart and switch alerts off at any
+  time, and signing out removes the session from that browser or phone. If anything here does not
+  work, write to <a href="mailto:hello@stockornot.com">hello@stockornot.com</a> from the account's
+  address: a copy or a deletion is done within 30 days, and you get a reply when it is. The
+  <a href="/support">support page</a> has the rest.</p>
 
   <h2>Do Not Track, and children</h2>
 
@@ -143,7 +189,8 @@
 
   <h2>Changes</h2>
 
-  <p>If what is kept changes, this page changes first, and the date at the top moves.</p>
+  <p>If what is kept changes, for instance if paid membership is ever offered, this page changes
+  first, and the date at the top moves.</p>
 
 </main>
 
@@ -151,12 +198,12 @@
   <nav class="foot-nav" aria-label="Footer">
     <a href="/stock">Companies</a>
     <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
     <a href="/privacy" aria-current="page">Privacy</a>
     <a href="/terms">Terms</a>
+    <a href="/support">Support</a>
   </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
-  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
+  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the companies' and funds' own
   <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
   Read the actual filing before you buy anything.</p>
 </footer>

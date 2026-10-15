@@ -4,13 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Membership | StockOrNot</title>
-<meta name="description" content="What a StockOrNot membership includes, what it costs, and what stays free. Every S&P 500 company, an unlimited cart, and an email a week before anything in it reports." />
+<meta name="description" content="What a StockOrNot membership would include and cost once it opens. It is not open yet: today everything is free, with nothing to buy." />
 <link rel="canonical" href="https://stockornot.com/pricing" />
 <meta name="color-scheme" content="dark" />
 <meta name="theme-color" content="#0b0c0e" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="StockOrNot membership" />
-<meta property="og:description" content="Every company in the index, an unlimited cart and earnings alerts. $9 a month, or $79 a year." />
+<meta property="og:description" content="Not open yet: today everything is free, with nothing to buy. Once it opens, $9 a month or $79 a year." />
 <meta property="og:url" content="https://stockornot.com/pricing" />
 <meta property="og:image" content="https://stockornot.com/og.png" />
 <meta property="og:image:width" content="1200" />
@@ -33,7 +33,6 @@
   <nav class="topnav" aria-label="Site">
     <a href="/stock">Companies</a>
     <a href="/method">How the score works</a>
-    <a href="/pricing" aria-current="page">Pricing</a>
   </nav>
   <div class="topbar-actions">
     <a class="primary-btn" href="/">Open the deck</a>
@@ -44,6 +43,17 @@
   <p class="eyebrow">Membership</p>
 
   <h1>Read five. Then decide if the rest is worth nine dollars.</h1>
+
+  <!-- Read before the tiers, so nobody takes them for today's terms. Reword it,
+       and the two descriptions above, when membership opens (lib/tier.mjs
+       DEV_UNLIMITED back to false); /pricing goes back in the sitemap then. -->
+  <div class="notice-box" id="notLive">
+    <b>Not open yet.</b> There is no paid membership today. Nothing is for sale, and none of the
+    limits on this page applies: everything StockOrNot offers is free, with every company, an
+    unlimited cart and, once you sign in, earnings alerts. Membership waits on the market data
+    moving onto a commercial licence, which has to happen before anyone can be charged for it.
+    There is no waiting list; check back here.
+  </div>
 
   <p class="doc-standfirst">Everyone gets a real look before anything is asked for. A free account
   doubles it. Membership opens every company in the index and adds the things you cannot
@@ -88,7 +98,7 @@
 
   <p>Every company page, <a href="/stock">one for each company in the index</a>, stays open to
   anyone, with the score, the case for and against, the next earnings date, five years of
-  financials and every risk factor the 10-K lists. So does
+  financials and, where the filing could be read, every risk factor the 10-K lists. So does
   <a href="/method">the method</a>, including the part listing everything the score cannot see.
   Those pages are how people find this site, and putting them behind a payment would be both
   self-defeating and a little dishonest.</p>
@@ -120,24 +130,18 @@
     returned, no argument, no retention script.</dd>
   </dl>
 
-  <div class="notice-box" id="notLive">
-    <b>Not open yet.</b> Membership is not taking payment while the market data is being moved
-    onto a commercial licence, which has to happen before anyone can be charged for it. The free
-    tiers work today. There is no waiting list; check back here.
-  </div>
-
 </main>
 
 <footer class="sitefoot">
   <nav class="foot-nav" aria-label="Footer">
     <a href="/stock">Companies</a>
     <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
     <a href="/privacy">Privacy</a>
     <a href="/terms">Terms</a>
+    <a href="/support">Support</a>
   </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
-  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
+  <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the companies' and funds' own
   <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
   Read the actual filing before you buy anything.</p>
 </footer>

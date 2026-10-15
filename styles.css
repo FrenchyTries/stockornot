@@ -4,8 +4,9 @@
    One system for every page: the deck, the dialogs, the company pages, the
    method and pricing pages. Dark, quiet, precise. Hairline rules separate
    things; boxes are kept for the few objects that really are objects (the
-   card, a dialog, an input). One accent. Up and down carry a glyph and a
-   signed number as well as colour, so nothing depends on colour alone.
+   card, a dialog, an input). One accent, a deeper shade of it under white
+   words. Up and down carry a glyph and a signed number as well as colour,
+   so nothing depends on colour alone.
    ========================================================================== */
 
 @font-face {
@@ -36,12 +37,17 @@
   --accent:      #4c8dff;
   --accent-ink:  #8ab4ff;
   --accent-soft: rgba(76, 141, 255, .14);
+  /* the accent as a fill under white words: on #4c8dff white is only 3.2:1.
+     Lines, meters, rings and focus keep the brighter accent. */
+  --accent-fill:       #2f6fe0;   /* 4.7:1 with white */
+  --accent-fill-hover: #2862cc;   /* 5.7:1 */
   --good:        #2fbf71;
   --good-ink:    #45cf85;
   --good-soft:   rgba(47, 191, 113, .12);
   --bad:         #ef5a67;
   --bad-ink:     #f47983;
   --bad-soft:    rgba(239, 90, 103, .12);
+  --bad-fill:    #d63c4b;   /* under white words: 4.6:1 */
   --warning:     #e2a54b;
   --warn-soft:   rgba(226, 165, 75, .12);
 
@@ -58,6 +64,11 @@
   --topbar-h: 56px;
   --tabbar-h: 56px;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  /* The status bar and the Dynamic Island. The page asks for the whole screen
+     (viewport-fit=cover), so in the iPhone app the header has to step down
+     below them itself. 0 in a browser, whose own bar sits above the page. */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --topbar-full: calc(var(--topbar-h) + var(--safe-t));
 
   /* older names still used in a few places */
   --plane: var(--bg);
@@ -92,6 +103,20 @@ body {
 
 svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 [hidden] { display: none !important; }
+
+/* The iPhone app's copy of the page has <html data-app> (scripts/build-app.mjs).
+   Copy written for one of the two carries .app-only or .web-only, and the app
+   leaves out the brokerage, order amounts and membership, which it does not
+   have. */
+html:not([data-app]) .app-only { display: none !important; }
+html[data-app] .web-only, html[data-app] #acctBroker, html[data-app] #acctMember, html[data-app] #brokerPanel,
+html[data-app] #orderBar, html[data-app] .ci-amount, html[data-app] .ci-sent { display: none !important; }
+/* with no order bar between them, the last cart row's line is the divider */
+html[data-app] #cartFoot { border-top: 0; }
+/* an app does not bounce past its ends, and a long press on a card or a tab
+   is a drag, not a text selection or a link preview */
+html[data-app] { overscroll-behavior: none; }
+html[data-app] .card, html[data-app] .tabbar { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 a { color: var(--accent-ink); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
 b, strong { font-weight: 600; }
@@ -124,8 +149,8 @@ code { font-family: var(--mono); font-size: .9em; background: var(--surface-3); 
   white-space: nowrap;
   transition: background-color .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
 }
-.primary-btn { background: var(--accent); color: #fff; }
-.primary-btn:hover { background: #3f80f5; }
+.primary-btn { background: var(--accent-fill); color: #fff; }
+.primary-btn:hover { background: var(--accent-fill-hover); }
 .primary-btn[disabled] { opacity: .4; cursor: not-allowed; }
 
 .ghost-btn, .more-btn, .swipe-btn {
@@ -174,9 +199,11 @@ kbd { font: 500 11px var(--font); background: var(--surface-2); border: 1px soli
 
 .topbar {
   display: flex; align-items: center; gap: 16px;
-  height: var(--topbar-h); padding: 0 clamp(14px, 3vw, 28px);
+  height: var(--topbar-full); padding: 0 clamp(14px, 3vw, 28px);
+  padding-top: var(--safe-t);
   border-bottom: 1px solid var(--line);
   background: rgba(11, 12, 14, .88);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
   backdrop-filter: saturate(140%) blur(10px);
   position: sticky; top: 0; z-index: 20;
 }
@@ -243,13 +270,19 @@ kbd { font: 500 11px var(--font); background: var(--surface-2); border: 1px soli
   position: absolute; top: 4px; left: calc(50% + 7px);
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
   display: grid; place-items: center;
-  background: var(--accent); color: #fff; box-shadow: 0 0 0 2px var(--bg);
+  background: var(--accent-fill); color: #fff; box-shadow: 0 0 0 2px var(--bg);
   font-size: 10.5px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
 }
 .tab-badge.bump { animation: bump .3s ease; }
 
 /* nothing ends up under the bar */
 body:not(.docpage) { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
+/* A control reached with the keyboard is scrolled clear of the header and the
+   tab bar, and in the cart of the order bar stuck above it (taller when it
+   wraps on a narrow screen). */
+html { scroll-padding-top: var(--topbar-full); scroll-padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 12px); }
+html:has(#viewCart:not([hidden]) #orderBar:not([hidden])) { scroll-padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 140px); }
+@media (max-width: 359px) { html:has(#viewCart:not([hidden]) #orderBar:not([hidden])) { scroll-padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 180px); } }
 
 @media (min-width: 1100px) {
   :root { --tabbar-h: 0px; }
@@ -282,7 +315,7 @@ body:not(.docpage) { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
   margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line);
 }
 .page-head h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
-.page-head h1:focus { outline: none; }
+.page-head h1:focus, #detailTitle:focus { outline: none; }
 .page-head .head-note { flex: 0 1 auto; }
 .page-lead { margin: 0 0 18px; font-size: 14px; line-height: 1.6; color: var(--ink-2); max-width: 62ch; }
 @media (max-width: 460px) {
@@ -329,7 +362,9 @@ body:not(.docpage) { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
 /* the picker for a side */
 .pick-input { width: 100%; height: 42px; font-size: 16px; }      /* 16px stops iOS zooming */
 #pickMsg:empty { display: none; }
-.pick-list { display: grid; margin-top: 4px; }
+/* one column no wider than the list, so a long name wraps inside it rather
+   than pushing every row past the sheet's edge */
+.pick-list { display: grid; grid-template-columns: minmax(0, 1fr); margin-top: 4px; }
 .pick-h { margin: 16px 0 2px; font-size: 12.5px; font-weight: 600; color: var(--ink-muted); }
 #dlgPick .sheet-inner { height: min(88dvh, 640px); }
 
@@ -341,7 +376,7 @@ body:not(.docpage) { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
 }
 /* the companies stay in view down a long table */
 .cmp-table thead th, .cmp-table thead td {
-  position: sticky; top: var(--topbar-h); z-index: 3;
+  position: sticky; top: var(--topbar-full); z-index: 3;
   padding: 10px 8px 10px 0; background: var(--bg); vertical-align: top;
   border-bottom: 0; box-shadow: inset 0 -1px 0 var(--line-strong);
 }
@@ -402,7 +437,13 @@ body:not(.docpage) main { flex: 1; display: flex; }
 
 .stage { flex: 1; display: grid; place-items: start center; padding: clamp(14px, 3vh, 28px) 16px 24px; }
 .deck-wrap { width: 100%; max-width: 440px; min-width: 0; }
-.deck { position: relative; height: min(690px, calc(100dvh - 262px - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px))); min-height: 420px; }
+/* The Stocks | ETFs switch above the deck, once there are funds: the deck
+   gives up its height, as it does for the earnings notice (here and in the
+   phone rule below). 0 without the switch. */
+.deck-wrap.has-kinds { --kinds-h: 46px; }
+/* isolate: the cards' z-index orders them within the deck only, so a tall
+   card on a phone held sideways never paints over the header or the tab bar */
+.deck { position: relative; isolation: isolate; height: min(690px, calc(100dvh - 262px - var(--safe-t) - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px) - var(--kinds-h, 0px))); min-height: 420px; }
 
 /* Pass, Undo and Add under the deck. While a card is dragged, --pull (0–1)
    lights the button on that side; a choice made any way presses it. */
@@ -421,8 +462,8 @@ body:not(.docpage) main { flex: 1; display: flex; }
 .deck-btn svg { width: 17px; height: 17px; flex: none; }
 .deck-btn.pass { --ring: var(--bad-soft); }
 .deck-btn.pass:hover, .deck-btn.pass.is-pressed { color: var(--bad-ink); background: var(--surface-3); }
-.deck-btn.add { --ring: rgba(76, 141, 255, .32); background: var(--accent); color: #fff; box-shadow: 0 0 0 calc(var(--pull, 0) * 7px) var(--ring); }
-.deck-btn.add:hover { background: #3f80f5; }
+.deck-btn.add { --ring: rgba(76, 141, 255, .32); background: var(--accent-fill); color: #fff; box-shadow: 0 0 0 calc(var(--pull, 0) * 7px) var(--ring); }
+.deck-btn.add:hover { background: var(--accent-fill-hover); }
 .deck-btn.undo { flex: 0 0 46px; width: 46px; padding: 0; color: var(--ink-2); }
 .deck-btn.undo:hover { color: var(--ink); background: var(--surface-3); }
 .deck-btn:active, .deck-btn.is-pressed { transform: scale(.93); transition-duration: .08s; }
@@ -433,12 +474,15 @@ body:not(.docpage) main { flex: 1; display: flex; }
   border-radius: 5px; font: inherit; font-size: 12px; font-weight: 600;
   background: rgba(255, 255, 255, .08); box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .35); opacity: .8;
 }
-.deck-btn.add kbd { background: rgba(255, 255, 255, .2); }
+.deck-btn.add kbd { background: none; border-color: transparent; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45); opacity: 1; }   /* white on the fill itself: 4.7:1 */
 /* the keys only mean something where there is a keyboard */
 @media (hover: hover) and (pointer: fine) { .deck-btn kbd { display: inline-grid; } }
 /* a narrow window needs the room for the words */
 @media (max-width: 460px) { .deck-btn kbd { display: none; } }
 .deck-btn span { overflow: hidden; text-overflow: ellipsis; }
+/* 361-380 wide (iPhone SE, mini, X/11 Pro): less padding, so "Add to cart"
+   fits beside its icon. Before the 360 rule, which still wins below 361. */
+@media (max-width: 380px) { .deck-btn { padding: 0 12px; } }
 @media (max-width: 360px) {
   .deck-bar { gap: 10px; }
   .deck-btn { padding: 0 10px; font-size: 13.5px; }
@@ -692,8 +736,8 @@ body:not(.docpage) main { flex: 1; display: flex; }
 .swipe-btn { height: 42px; padding: 0 20px; font-size: 14.5px; }
 .swipe-btn svg { width: 17px; height: 17px; }
 .swipe-btn.pass:hover { color: var(--bad-ink); }
-.swipe-btn.add { background: var(--accent); color: #fff; box-shadow: none; }
-.swipe-btn.add:hover { background: #3f80f5; }
+.swipe-btn.add { background: var(--accent-fill); color: #fff; box-shadow: none; }
+.swipe-btn.add:hover { background: var(--accent-fill-hover); }
 .swipe-btn[disabled] { opacity: .35; pointer-events: none; }
 .deck-hint { text-align: center; color: var(--ink-muted); font-size: 12px; margin: 14px 0 0; }
 
@@ -737,6 +781,7 @@ body:not(.docpage) main { flex: 1; display: flex; }
 .style-line .link-btn { padding: 0; font-size: 12.5px; }
 #cmpStyle .style-line { margin: 12px 0 0; }
 .score-blurb .style-line { margin-top: 8px; }
+.score-blurb .score-advice { margin-top: 6px; font-size: 12.5px; }
 
 /* the style picker */
 .style-list { display: grid; gap: 8px; margin: 14px 0 16px; padding: 0; border: 0; }
@@ -790,7 +835,7 @@ body:not(.docpage) main { flex: 1; display: flex; }
 /* ============================== dialogs ============================== */
 
 .sheet { border: 0; padding: 0; background: transparent; max-width: 100%; max-height: 100%; color: var(--ink); }
-.sheet::backdrop { background: rgba(5, 6, 8, .72); backdrop-filter: blur(3px); }
+.sheet::backdrop { background: rgba(5, 6, 8, .72); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 
 .sheet-inner {
   width: min(94vw, 460px); max-height: 88dvh;
@@ -800,11 +845,17 @@ body:not(.docpage) main { flex: 1; display: flex; }
 }
 .sheet.wide .sheet-inner { width: min(94vw, 620px); }
 .sheet.full .sheet-inner { width: min(96vw, 860px); max-height: 94dvh; }
+/* The app runs under the status bar and over the home indicator, so a sheet
+   leaves room for both. Only there: a browser on the same phone keeps its
+   sheets as they were. */
+html[data-app] .sheet-inner { max-height: calc(88dvh - var(--safe-t) - var(--safe-b)); }
+html[data-app] .sheet.full .sheet-inner { max-height: calc(94dvh - var(--safe-t) - var(--safe-b)); }
 
 .sheet-head { display: flex; align-items: center; gap: 12px; padding: 16px 14px 14px 22px; border-bottom: 1px solid var(--line); }
 .sheet-head h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.015em; white-space: nowrap; }
 .head-note { font-size: 12.5px; color: var(--ink-muted); margin-left: auto; text-align: right; min-width: 0; flex: 1 1 auto; line-height: 1.35; }
 .sheet-head .icon-btn { margin-left: 4px; }
+.sheet-head h2 + .icon-btn { margin-left: auto; }   /* no head-note to take the space: keep the × in the corner */
 .sheet-body { padding: 20px 22px 24px; overflow-y: auto; }
 .sheet-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
 #cartFoot .link-btn { margin-left: auto; }
@@ -822,7 +873,9 @@ input[type="search"]::placeholder { color: var(--ink-muted); }
 .search-hit { display: flex; gap: 10px; align-items: baseline; padding: 9px 4px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13.5px; }
 .search-hit:hover { color: var(--accent-ink); }
 .search-hit b { min-width: 54px; }
-.search-hit span { color: var(--ink-2); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* long names (fund names run to 58 characters) wrap, so the whole name and
+   " · showing now" stay readable on a phone */
+.search-hit span { color: var(--ink-2); font-size: 12.5px; overflow-wrap: anywhere; }
 
 .switch { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--ink-2); margin-bottom: 10px; cursor: pointer; }
 .switch input { width: 16px; height: 16px; accent-color: var(--accent); }
@@ -838,6 +891,7 @@ input[type="search"]::placeholder { color: var(--ink-muted); }
 .dh-id p { margin: 1px 0 0; font-size: 12.5px; color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dh-price { margin-left: auto; text-align: right; }
 .dh-price #detailPrice { display: block; font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.dh-price #detailChange { white-space: nowrap; }   /* "+0.09% on Oct 13" on one line */
 
 #detailBody > .c-block { margin-top: 0; padding-top: 0; border-top: 0; }
 #detailBody > .c-block + .c-block { margin-top: 32px; }
@@ -898,17 +952,20 @@ input[type="search"]::placeholder { color: var(--ink-muted); }
 .rec-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 12px; }
 .rec-key { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
 .rec-chip { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-.rec-sb .rec-chip, .rec-seg.rec-sb { background: #2f6fd8; }
-.rec-b  .rec-chip, .rec-seg.rec-b  { background: #6d9ef5; }
-.rec-h  .rec-chip, .rec-seg.rec-h  { background: #4a5059; }
-.rec-s  .rec-chip, .rec-seg.rec-s  { background: #e48b93; }
-.rec-ss .rec-chip, .rec-seg.rec-ss { background: #d4515d; }
+/* the legend's chip carries the band's class itself (app.js buildAnalyst) */
+.rec-chip.rec-sb, .rec-seg.rec-sb { background: #2f6fd8; }
+.rec-chip.rec-b,  .rec-seg.rec-b  { background: #6d9ef5; }
+.rec-chip.rec-h,  .rec-seg.rec-h  { background: #4a5059; }
+.rec-chip.rec-s,  .rec-seg.rec-s  { background: #e48b93; }
+.rec-chip.rec-ss, .rec-seg.rec-ss { background: #d4515d; }
 .rec-rows { display: grid; gap: 8px; }
 .rec-row { display: grid; grid-template-columns: 64px 1fr 80px; align-items: center; gap: 12px; }
 .rec-period, .rec-total { font-size: 12px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 .rec-total { text-align: right; }
 .rec-bar { display: flex; height: 18px; border-radius: 4px; overflow: hidden; gap: 1px; background: var(--surface-3); }
 .rec-seg { display: grid; place-items: center; font-size: 11px; font-weight: 600; color: #fff; min-width: 3px; }
+/* the segments white fails on (2.5 to 4.1:1) take dark numbers */
+.rec-seg.rec-b, .rec-seg.rec-s, .rec-seg.rec-ss { color: var(--bg); }
 
 /* next report */
 .nr-head { margin: 0 0 12px; font-size: 14px; color: var(--ink-2); }
@@ -961,9 +1018,9 @@ input[type="search"]::placeholder { color: var(--ink-muted); }
 .acct-confirm { display: grid; gap: 10px; margin-top: 6px; padding: 14px; border-radius: var(--radius); background: var(--bad-soft); box-shadow: inset 0 0 0 1px rgba(239, 90, 103, .35); }
 .danger-btn {
   font: inherit; cursor: pointer; border: 0; height: 42px; border-radius: var(--radius-sm);
-  background: var(--bad); color: #fff; font-size: 14.5px; font-weight: 600;
+  background: var(--bad-fill); color: #fff; font-size: 14.5px; font-weight: 600;
 }
-.danger-btn:hover { background: #e04452; }
+.danger-btn:hover { background: #c93644; }
 .danger-btn[disabled] { opacity: .5; cursor: not-allowed; }
 .danger-btn.wide { width: 100%; }
 .auth-or::before, .auth-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
@@ -1131,6 +1188,7 @@ input[type="search"]::placeholder { color: var(--ink-muted); }
 .earn-alerts .switch input { margin-top: 3px; flex: none; }
 .earn-alerts .block-note { margin-top: 2px; }
 .earn-alerts .block-note .link-btn { font-size: 12.5px; padding: 0; }
+.earn-alerts #earnLocalRow { margin-top: 16px; }
 .earn-cal { display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
 .earn-cal .block-note { margin: 0; flex: 1 1 200px; }
 
@@ -1239,6 +1297,7 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
 
 /* method and pricing: tables, notes and the two price columns */
 .doc table:not(.doc-table):not(.fin-table) { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 8px 0 6px; }
+.doc .table-scroll > table:not(.doc-table):not(.fin-table) { margin: 0; }   /* the scroller keeps the space */
 .doc table:not(.doc-table):not(.fin-table) caption { text-align: left; font-size: 12.5px; color: var(--ink-muted); padding-bottom: 8px; }
 .doc table:not(.doc-table):not(.fin-table) th, .doc table:not(.doc-table):not(.fin-table) td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .doc table:not(.doc-table):not(.fin-table) thead th { font-size: 12px; font-weight: 500; color: var(--ink-muted); border-bottom-color: var(--line-strong); }
@@ -1264,8 +1323,8 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
 .tier li { position: relative; padding: 8px 0 8px 22px; border-bottom: 1px solid var(--line); font-size: 13.5px; color: var(--ink-2); line-height: 1.5; }
 .tier li::before { content: "✓"; position: absolute; left: 0; top: 8px; color: var(--accent-ink); font-size: 12px; }
 .tier li b { color: var(--ink); }
-.tier .cta { display: flex; align-items: center; justify-content: center; height: 40px; border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-weight: 550; font-size: 14px; }
-.tier .cta:hover { background: #3f80f5; text-decoration: none; }
+.tier .cta { display: flex; align-items: center; justify-content: center; height: 40px; border-radius: var(--radius-sm); background: var(--accent-fill); color: #fff; font-weight: 550; font-size: 14px; }
+.tier .cta:hover { background: var(--accent-fill-hover); text-decoration: none; }
 .tier .cta.ghost { background: var(--surface-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .tier .cta.ghost:hover { background: var(--surface-3); }
 .tier .cta[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
@@ -1303,10 +1362,18 @@ body.docpage .topbar .primary-btn { height: 34px; font-size: 13.5px; }
   .topbar-actions { margin-left: auto; }
   .stage { padding-bottom: 12px; }
   /* a short phone keeps the buttons above the tab bar; the card scrolls inside */
-  .deck { height: calc(100dvh - 168px - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px)); min-height: 260px; }
+  .deck { height: calc(100dvh - 168px - var(--safe-t) - var(--tabbar-h) - var(--safe-b) - var(--notice-h, 0px) - var(--kinds-h, 0px)); min-height: 260px; }
   .card-scroll { padding: 18px 18px 22px; }
   .c-price-v { font-size: 30px; }
   .topnav { display: none; }
+}
+
+/* Upright, the card's floor gives up the notice's and the switch's height as
+   the deck does, so a 320 x 568 screen showing both still has the buttons
+   clear of the tab bar; 180px at the least. On its side a phone has no room
+   for them above the tab bar anyway, and keeps the 260px card. */
+@media (max-width: 700px) and (orientation: portrait) {
+  .deck { min-height: max(180px, calc(260px - var(--notice-h, 0px) - var(--kinds-h, 0px))); }
 }
 
 @media (max-width: 460px) {
@@ -1368,6 +1435,120 @@ dialog .toast { bottom: calc(20px + var(--safe-b)); }
   .rangebar-fill, .rangebar-dot, .score-meter i, .factor-fill, .check-a::before { forced-color-adjust: none; }
   .primary-btn, .ghost-btn, .more-btn, .swipe-btn, .deck-btn, .toast { border: 1px solid ButtonText; }
   .tab[aria-current="page"] .tab-icon, .tab[aria-current="page"] { outline: 1px solid Highlight; }
+  /* the chosen chip of a toggle (Stocks | ETFs, chart range, order type):
+     its background and inset line are gone in forced colours */
+  .chip.is-on, .chip[aria-checked="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  /* ...and a keyboard's focus on it still shows: the ring goes back outside */
+  .chip.is-on:focus-visible, .chip[aria-checked="true"]:focus-visible { outline-offset: 2px; }
   .cmp-table td.is-top, .cmp-table td.is-top .cmp-big { color: Highlight; }
   .cmp-table tbody td.is-top { border-left: 2px solid Highlight; }
+}
+
+/* ============================== funds ==============================
+   Exchange-traded funds (lib/funds.mjs). Everything here is shown only when
+   data/etfs.json exists; without it none of these classes is on the page. */
+
+/* Stocks | ETFs, on the deck and in Compare: the segmented toggle */
+.kind-switch { display: flex; width: max-content; max-width: 100%; }
+/* each chip has a taller place to tap than it shows: 44px, with no change
+   to the layout (the deck reserves the switch's height in --kinds-h) */
+.kind-switch .chip { min-width: 76px; position: relative; }
+.deck-wrap .kind-switch { margin: 0 auto 12px; }
+#cmpKind { margin: 0 0 14px; }
+.kind-switch .chip::after { content: ""; position: absolute; left: 0; right: 0; top: -8px; bottom: -8px; }
+
+/* "ETF" beside a fund's issuer, and beside its ticker in the cart */
+.fund-chip {
+  display: inline-block; margin-right: 5px; padding: 1px 6px; border-radius: 4px; vertical-align: 1px;
+  font-size: 10.5px; font-weight: 650; letter-spacing: .04em; line-height: 1.5;
+  color: var(--accent-ink); background: var(--accent-soft);
+}
+.ci-ticker .fund-chip { margin: 0 0 0 7px; }
+
+/* A fund not read in full: in the number's place, what it is ("Partly
+   read") and the figure behind it, with no meter, so nothing looks as if it
+   were still loading. Plain words, no outline or fill, so it reads as a
+   label and never as a button to press. */
+.fund-brief { gap: 5px; }
+.fund-brief .fb-word {
+  white-space: nowrap; font-size: 18px; font-weight: 700; line-height: 1.15;
+  letter-spacing: -0.01em; color: var(--ink);
+}
+.fund-brief .sr-label { max-width: 150px; white-space: normal; text-align: right; line-height: 1.35; }
+.fund-brief.is-big .fb-word { font-size: 26px; letter-spacing: -0.02em; }
+.fund-brief.is-big .sr-label { text-align: left; max-width: none; }
+.cmp-brief { display: block; font-size: 15px; font-weight: 650; line-height: 1.25; color: var(--ink); }
+
+/* why a fund has no number */
+.fund-why {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12.5px; line-height: 1.5; color: var(--ink-2);
+}
+
+/* the reading's three parts: the figure behind each on its own line, so it
+   still shows on a phone, where a company's factor blurbs are hidden */
+.fund-factors .factor-row { grid-template-columns: 140px minmax(0, 1fr) 32px; row-gap: 4px; }
+.fund-factors .fl-name { white-space: nowrap; }
+.factor-why { grid-column: 1 / -1; margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-muted); }
+.fund-factors + .c-stats { margin-top: 10px; }
+
+/* the largest holdings, each with its weight and its score */
+.hold-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.hold-row {
+  display: grid; grid-template-columns: 60px minmax(0, 1fr) auto 36px; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.hold-t { position: relative; padding: 0; font-weight: 650; font-size: 13.5px; }
+/* as tall a place to tap as the row, with no change to the row's height */
+.hold-t:not(:disabled)::after { content: ""; position: absolute; left: 0; right: 0; top: -8px; bottom: -8px; }
+.hold-t:disabled { color: var(--ink); cursor: default; text-decoration: none; }
+.hold-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--ink-2); }
+.hold-w { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.hold-score {
+  justify-self: end; min-width: 30px; padding: 2px 6px; border-radius: 999px; text-align: center;
+  font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums; cursor: help;
+  color: var(--accent-ink); background: var(--accent-soft);
+}
+/* one hue, as for the score itself: stronger is darker, never red or green */
+.hold-score.tone-high { color: #fff; background: rgba(76, 141, 255, .55); }
+.hold-score.tone-good { color: #fff; background: rgba(76, 141, 255, .32); }
+.hold-score.tone-low, .hold-score.tone-bad { color: var(--ink-2); background: var(--surface-3); }
+.hold-score.tone-none { color: var(--ink-muted); background: none; }
+
+/* how the holdings split across the score words */
+.band-wrap { margin-top: 14px; }
+.band-bar { display: flex; gap: 1px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--surface-3); }
+.band-seg { display: block; min-width: 2px; }
+.band-high { background: var(--accent); }
+.band-good { background: rgba(76, 141, 255, .68); }
+.band-mid  { background: rgba(76, 141, 255, .42); }
+.band-low  { background: rgba(76, 141, 255, .24); }
+.band-bad  { background: rgba(76, 141, 255, .12); }
+.band-none { background: repeating-linear-gradient(135deg, var(--surface-3) 0 3px, var(--surface-2) 3px 6px); }
+.band-text { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+
+/* sectors, against the S&P 500's own (the tick) */
+.mix-list { display: grid; }
+.mix-row {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(70px, 1fr) 92px; align-items: center; gap: 4px 12px;
+  padding: 8px 0; border-bottom: 1px solid var(--line);
+}
+.mix-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink); }
+.mix-meter { position: relative; height: 6px; border-radius: 3px; background: var(--surface-3); }
+.mix-meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.mix-meter b { position: absolute; top: -3px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--ink-2); }
+.mix-val { display: flex; flex-direction: column; text-align: right; font-variant-numeric: tabular-nums; }
+.mix-val b { font-size: 13px; font-weight: 600; }
+.mix-val span { font-size: 11.5px; color: var(--ink-muted); white-space: nowrap; }
+@media (max-width: 460px) {
+  .mix-row { grid-template-columns: minmax(0, 1fr) 92px; }
+  .mix-meter { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* Compare, fund against fund: the overlap is one figure for the pair */
+.cmp-table td.cmp-span { font-weight: 550; }
+
+@media (forced-colors: active) {
+  .band-seg, .mix-meter i, .mix-meter b { forced-color-adjust: none; }
 }

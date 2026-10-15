@@ -11,13 +11,14 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { sessionDate } from "./dates.mjs";
+import { sessionDate, nyDate } from "./dates.mjs";
 import {
   num, money, cap, price, pct, pctPlain, x, dateShort, rangeSummary,
   FACTORS, scoreStock, scoreLabel, sectorRankText, prosAndCons, buildScoreContext, inputs
 } from "../lib/analysis.mjs";
 import { financialChecks, historyChecks } from "../lib/insight.mjs";
 import { CHECK_ICONS } from "../lib/icons.mjs";
+import { eps } from "../lib/earnings.mjs";
 
 const ROOT   = path.resolve(import.meta.dirname, "..");
 const DATA   = path.join(ROOT, "data");
@@ -81,7 +82,6 @@ ${extra}
   <nav class="topnav" aria-label="Site">
     <a href="/stock" aria-current="page">Companies</a>
     <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
   </nav>
   <div class="topbar-actions">
     <a class="primary-btn" href="/">Open the deck</a>
@@ -90,20 +90,28 @@ ${extra}
 <main class="doc">`;
 }
 
+/* The day the data was refreshed, on New York's calendar like the session
+   the prices belong to: the nightly run ends after midnight UTC, still the
+   evening before in New York, so the UTC date read as the next day. */
+const refreshedOn = (updated) => {
+  const d = new Date(updated);
+  return isNaN(d) ? null : nyDate(d);
+};
+
 const foot = (updated) => `</main>
 <footer class="sitefoot">
   <nav class="foot-nav" aria-label="Footer">
     <a href="/stock">Companies</a>
     <a href="/method">How the score works</a>
-    <a href="/pricing">Pricing</a>
     <a href="/privacy">Privacy</a>
     <a href="/terms">Terms</a>
+    <a href="/support">Support</a>
   </nav>
   <p><b>Not investment advice.</b> Every figure here comes from
   <a href="https://finnhub.io" rel="noopener">Finnhub</a> or the company's own
   <a href="https://www.sec.gov/edgar" rel="noopener">SEC filings</a> and may be stale, mis-parsed or wrong.
   Read the actual filing before you buy anything.</p>
-  ${updated ? `<p>Data refreshed ${esc(dateShort(updated.slice(0, 10)))}.</p>` : ""}
+  ${updated ? `<p>Data refreshed ${esc(dateShort(refreshedOn(updated)))}.</p>` : ""}
 </footer>
 </body>
 </html>`;
@@ -151,14 +159,18 @@ function companyPage(s, filing, deep, siblings, updated, session) {
   const range = rangeSummary(s);
   const url = `${SITE}/stock/${slug(s.t)}`;
 
-  const title = `${s.n} (${s.t}): financials, earnings date and 10-K summary`;
+  /* Promise only what this page shows: about one 10-K in five has no risk
+     section that could be read, and some have no readable text at all. */
+  const hasRisks = !!(filing && filing.risks && filing.risks.length);
+  const hasText = hasRisks || !!(filing && filing.business);
+  const title = `${s.n} (${s.t}): ${hasText ? "financials, earnings date and 10-K summary" : "financials and earnings date"}`;
   const description =
     `${s.n} (${s.t}) at ${price(s.price)}, ${cap(s.mc)} market cap. ` +
     (num(s.pe) && s.pe > 0 ? `${x(s.pe)} earnings, ` : "") +
     /* a bank's one-year "revenue" jump is an interest-income artefact the
        score throws away; never advertise it in a search result */
     (num(k.rg) ? `revenue ${pct(s.rg)} year over year, ` : num(s.rg5) && k.rgSuspect ? `revenue ${pct(s.rg5)} a year over five years, ` : "") +
-    `plus the balance sheet as filed and what the 10-K lists as risks.`;
+    (hasRisks ? `plus the balance sheet as filed and what the 10-K lists as risks.` : `plus the balance sheet as filed.`);
 
   const jsonld = {
     "@context": "https://schema.org",
@@ -191,7 +203,8 @@ function companyPage(s, filing, deep, siblings, updated, session) {
   const earnings = s.earnings && s.earnings.date
     ? `<p class="doc-lead">Next reports on <b>${esc(dateShort(s.earnings.date))}</b>` +
       (s.earnings.hour === "bmo" ? ", before the open" : s.earnings.hour === "amc" ? ", after the close" : "") +
-      (num(s.earnings.epsEst) ? `, with analysts expecting $${s.earnings.epsEst.toFixed(2)} in earnings per share` : "") +
+      /* "−$1.30", as the card, the full record and the email write it */
+      (num(s.earnings.epsEst) ? `, with analysts expecting ${esc(eps(s.earnings.epsEst))} in earnings per share` : "") +
       `.</p>`
     : `<p class="doc-lead">No earnings date is scheduled in the next few months.</p>`;
 
@@ -204,7 +217,7 @@ function companyPage(s, filing, deep, siblings, updated, session) {
   const list = (items, cls) => items.length
     ? `<ul class="doc-list ${cls}">${items.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>`
     : `<p class="block-note">${cls === "pro" ? "Nothing in the numbers stands out as a strength."
-        : "Nothing in these numbers stands out as a concern. That is not the same as no risk: read the risk factors below."}</p>`;
+        : `Nothing in these numbers stands out as a concern. That is not the same as no risk: ${hasRisks ? "read the risk factors below" : s.sec && s.sec.tenK ? "read the 10-K linked below" : "read the filings on EDGAR, linked below"}.`}</p>`;
 
   return head(title + " | StockOrNot", description, url, extra) + `
 <nav class="crumbs"><a href="/stock">All companies</a> <span>/</span> <span>${esc(s.t)}</span></nav>
@@ -253,10 +266,13 @@ ${historyTable(deep.history)}` : ""}
 ${filing && filing.business ? `<h2>What ${esc(s.n)} says it does</h2>
 <p class="doc-quote">${esc(filing.business)}</p>` : ""}
 
-${filing && filing.risks && filing.risks.length ? `<h2>Risk factors ${esc(s.t)} lists in its 10-K</h2>
+${hasRisks ? `<h2>Risk factors ${esc(s.t)} lists in its 10-K</h2>
 <ul class="doc-list risk">${filing.risks.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
 
 <h2>Filings</h2>
+${hasText ? "" : `<p class="block-note">${s.sec && s.sec.tenK
+  ? "The text of this 10-K could not be read automatically. The original is linked below."
+  : "No annual report is on file for this company."}</p>`}
 <div class="filing-links">
 ${s.sec && s.sec.tenK && s.sec.tenK.url ? `<a class="filing-link" href="${esc(s.sec.tenK.url)}" rel="noopener">10-K filed ${esc(dateShort(s.sec.tenK.date))}</a>` : ""}
 ${s.sec && s.sec.tenQ && s.sec.tenQ.url ? `<a class="filing-link" href="${esc(s.sec.tenQ.url)}" rel="noopener">10-Q filed ${esc(dateShort(s.sec.tenQ.date))}</a>` : ""}
@@ -319,8 +335,10 @@ ${body}
   <li><b>Price only.</b> Dividends and trading costs are not included.</li>
   <li><b>Fixed at the pick.</b> A group keeps the companies it was picked with, whatever their score
   does afterwards. One that leaves the index stops counting.</li>
-  <li><b>Splits.</b> A one-day move of 40% or more is set aside for that day, which removes stock
-  splits and, rarely, a real crash.</li>
+  <li><b>Splits.</b> A one-day fall of 40% or more, or a rise of two thirds or more, is set aside
+  for that day. That removes a 2-for-1 or larger split and, rarely, a real crash. A smaller split,
+  such as 3-for-2, is set aside when the price feed restates the day before's close for it, on a
+  night that follows the last one counted; after a missed night it is counted as that day's move.</li>
   <li><b>The method as it stood.</b> Each group was picked by the score as it was that week. When the
   method changes, earlier groups are left as they were picked.</li>
 </ul>
@@ -334,6 +352,11 @@ function indexPage(stocks, updated) {
   const bySector = {};
   for (const s of stocks) (bySector[s.s] ||= []).push(s);
   const sectors = Object.keys(bySector).sort();
+  /* GOOGL and GOOG are one company with two listings (the method page,
+     "Share classes"): count companies the way the sector ranks do, and
+     still list every ticker. */
+  const companies = (list) => new Set(list.map((s) => s.cik || s.t)).size;
+  const total = companies(stocks);
 
   const body = sectors.map((sec) => {
     const rows = bySector[sec]
@@ -348,7 +371,7 @@ function indexPage(stocks, updated) {
 <td>${num(res.overall) ? res.overall : "—"}</td>
 </tr>`;
       }).join("");
-    return `<h2 id="${slug(sec)}">${esc(sec)} <span class="count">${bySector[sec].length}</span></h2>
+    return `<h2 id="${slug(sec)}">${esc(sec)} <span class="count">${companies(bySector[sec])}</span></h2>
 <div class="table-scroll"><table class="doc-table list">
 <thead><tr><th>Company</th><th>Price</th><th>Market cap</th><th>Score</th></tr></thead>
 <tbody>${rows}</tbody></table></div>`;
@@ -356,13 +379,14 @@ function indexPage(stocks, updated) {
 
   const title = "Every S&P 500 company: financials, earnings dates and 10-K summaries | StockOrNot";
   const description =
-    `All ${stocks.length} companies in the S&P 500, each with its valuation, margins, balance sheet ` +
-    `as filed, next earnings date and the risk factors from its own 10-K.`;
+    `${total} S&P 500 companies, each with its valuation, margins, balance sheet ` +
+    `as filed, next earnings date and, where it could be read, the risk factors from its own 10-K.`;
 
   return head(title, description, `${SITE}/stock`) + `
 <h1>Every company in the S&amp;P 500</h1>
-<p class="doc-sub">${stocks.length} companies, grouped by sector. Each page carries the valuation,
-five years of financials as filed, the next earnings date and the risk factors from the company's own 10-K.</p>
+<p class="doc-sub">${total} companies, grouped by sector${stocks.length > total
+  ? ` (${stocks.length} listings: a company with two share classes is listed under each ticker)` : ""}. Each page carries the valuation,
+five years of financials as filed, the next earnings date and, where the filing could be read, the risk factors from the company's own 10-K.</p>
 <nav class="sector-nav">${sectors.map((sec) => `<a href="#${slug(sec)}">${esc(sec)}</a>`).join("")}</nav>
 ${body}
 ` + foot(updated);
@@ -382,9 +406,11 @@ async function main() {
 
   await fs.mkdir(OUTDIR, { recursive: true });
 
-  /* Clear out pages for companies that have left the index. A company that
-     merely failed to quote tonight is still in the index: its page stays up
-     (yesterday's version) rather than 404ing for anyone who follows a link. */
+  /* Clear out pages for companies that are not in tonight's snapshot. stock/
+     is build output (never committed), so on Vercel it starts empty: a
+     company that failed to quote tonight has no page, and no place in the
+     sitemap or /stock, until it quotes again. The universe check below only
+     spares a page left over from an earlier local build. */
   const universe = await readJSON(path.join(DATA, "sp500.json"));
   const keep = new Set(snap.stocks.map((s) => slug(s.t) + ".html"));
   for (const c of universe?.companies || []) keep.add(slug(c.t) + ".html");
@@ -426,9 +452,13 @@ async function main() {
     { loc: `${SITE}/stock`, pri: "0.9", freq: "daily" },
     { loc: `${SITE}/method`, pri: "0.8", freq: "monthly" },
     { loc: `${SITE}/track`, pri: "0.6", freq: "weekly" },
-    { loc: `${SITE}/pricing`, pri: "0.6", freq: "monthly" },
+    /* /pricing is published (the hidden Membership row and the upsell links
+       point at it) but stays out of the sitemap while membership is closed;
+       it comes back, with the notice at the top of pricing.html reworded,
+       when lib/tier.mjs DEV_UNLIMITED goes back to false. */
     { loc: `${SITE}/privacy`, pri: "0.3", freq: "yearly" },
     { loc: `${SITE}/terms`, pri: "0.3", freq: "yearly" },
+    { loc: `${SITE}/support`, pri: "0.3", freq: "yearly" },
     ...snap.stocks.map((s) => ({ loc: `${SITE}/stock/${slug(s.t)}`, pri: "0.7", freq: "daily" }))
   ];
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
@@ -454,14 +484,15 @@ ${urls.map((u) => `  <url><loc>${u.loc}</loc><lastmod>${today}</lastmod><changef
    a file the site does not need cannot be published by accident. The
    functions under api/ are deployed from the repository as before. */
 const PUBLIC_FILES = [
-  "index.html", "404.html", "method.html", "pricing.html", "privacy.html", "terms.html", "track.html",
+  "index.html", "404.html", "method.html", "pricing.html", "privacy.html", "terms.html", "support.html", "track.html",
   "app.js", "pricing.js", "styles.css", "sw.js", "manifest.webmanifest",
   "favicon.svg", "apple-touch-icon.png", "og.png", "sitemap.xml", "robots.txt",
   "data/snapshot.json"
 ];
 const PUBLIC_DIRS = ["stock", "lib", "fonts", "icons", "data/detail", "data/filings"];
-/* copied when they exist: the track record starts on the first nightly run */
-const PUBLIC_IF_ANY = ["data/track.json"];
+/* copied when they exist: the track record starts on the first nightly run,
+   and the funds (scripts/etfs.mjs) on the first night after they were added */
+const PUBLIC_IF_ANY = ["data/track.json", "data/etfs.json", "data/etf-closes.json"];
 
 async function assemblePublic() {
   const out = path.join(ROOT, "public");
@@ -475,6 +506,11 @@ async function assemblePublic() {
     try { await fs.copyFile(path.join(ROOT, f), path.join(out, f)); }
     catch (err) { if (err.code !== "ENOENT") throw err; }
   }
+  /* Until the nightly job has written the funds, an empty list stands in for
+     them, so a visit does not log a 404 for a file that does not exist.
+     app.js reads it as no funds: the Stocks | ETFs switch stays hidden. */
+  const fundsFile = path.join(out, "data", "etfs.json");
+  if (!(await fs.stat(fundsFile).catch(() => null))) await fs.writeFile(fundsFile, JSON.stringify({ v: 1, etfs: [] }));
   let n = 0;
   const count = async (dir) => {
     for (const e of await fs.readdir(dir, { withFileTypes: true })) {

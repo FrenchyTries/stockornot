@@ -10,16 +10,21 @@
 
    Each group is equal-weighted and rebalanced daily: its day is the average
    of its members' price changes. Prices are the snapshot's closes, without
-   dividends or trading costs. A split shows up as a one-day move of 40% or
-   more; any such move is set aside for that day rather than counted, which
-   also sets aside the rare real crash. A company that leaves the index simply
-   stops counting.
+   dividends or trading costs. A one-day fall of 40% or more, or a rise of
+   two thirds or more, is set aside for that day rather than counted: that
+   is how a 2-for-1 or larger split usually shows up, and it also sets aside
+   the rare real crash. Any split (3-for-2, 4-for-3, 2-for-1 and the rest, or
+   the reverse) is also set aside when the quote's previous close has been
+   restated for it, on a night that follows the last one counted. A company
+   that leaves the index simply stops counting. A limited test run (LIMIT)
+   is never counted.
 
    Writes data/track.json. Run after refresh.mjs and the audit. Exported
    pieces are pure, for tests.
    ========================================================================== */
 
 import fs from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildScoreContext, scoreStock, SCORE_VERSION } from "../lib/analysis.mjs";
@@ -30,8 +35,10 @@ const DATA = path.join(HERE, "..", "data");
 const OUT = path.join(DATA, "track.json");
 
 const TOP = 80, BOTTOM = 20;    /* the top and bottom fifths, as scoreLabel names them */
-const MAX_DAY = 0.4;            /* a one-day move of 40% or more is set aside */
+const MAX_DAY = 0.4;            /* a one-day fall of 40% or more, or rise of two thirds, is set aside */
 const FULL_INDEX = 400;         /* a smoke-test run with fewer companies is not counted */
+/* the usual split shapes, both ways; a large one inside the band when the day also moved */
+const SPLIT_SHAPES = [3 / 2, 4 / 3, 5 / 4, 2, 3, 4, 5, 10, 2 / 3, 3 / 4, 4 / 5, 1 / 2, 1 / 3, 1 / 4, 1 / 5, 1 / 10];
 
 /** "2026-W41": the ISO week a YYYY-MM-DD date falls in. */
 export function isoWeek(date) {
@@ -43,14 +50,23 @@ export function isoWeek(date) {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-/** Each company's price change since the last run, splits and bad prints set aside. */
-export function dayRatios(last, prices) {
+/**
+ * Each company's price change since the last run, splits and bad prints set
+ * aside. `prevs` holds tonight's quotes' previous closes, by ticker.
+ */
+export function dayRatios(last, prices, prevs = {}) {
   const out = {};
   for (const [t, p] of Object.entries(prices)) {
     const q = last?.[t];
     if (!(q > 0 && p > 0)) continue;
     const r = p / q;
     if (r <= 1 - MAX_DAY || r >= 1 / (1 - MAX_DAY)) continue;
+    /* A 3-for-2, 4-for-3 or 5-for-4 split is a smaller step than that. The
+       quote's previous close is restated for a split, so it then disagrees
+       with last night's close by the split's shape; on an ordinary night the
+       two are the same. A feed that does not restate it leaves this as it was. */
+    const pc = prevs[t];
+    if (pc > 0 && SPLIT_SHAPES.some((k) => Math.abs(q / pc / k - 1) < 0.01)) continue;
     out[t] = r;
   }
   return out;
@@ -87,13 +103,19 @@ const round = (v) => Math.round(v * 1e6) / 1e6;
  * changes nothing.
  */
 export function advance(track, snap, session) {
-  const prices = {};
-  for (const s of snap.stocks) if (s.price > 0) prices[s.t] = s.price;
+  const prices = {}, prevs = {};
+  for (const s of snap.stocks) if (s.price > 0) { prices[s.t] = s.price; if (s.prev > 0) prevs[s.t] = s.prev; }
   const t = track?.session ? track : { started: session, session: null, last: {}, groups: [] };
   if (t.session === session) return t;
 
   if (t.session) {
-    const ratios = dayRatios(t.last, prices);
+    /* Tonight's previous closes say whether last night was the last one
+       counted: then nearly all of them are last night's closes. After a
+       missed night most are not, and a real move of 20% or 25% on the day
+       missed would look like a restated split, so they are not used. */
+    const both = Object.keys(prevs).filter((x) => t.last?.[x] > 0);
+    const same = both.filter((x) => Math.abs(prevs[x] / t.last[x] - 1) < 0.0005).length;
+    const ratios = dayRatios(t.last, prices, both.length && same > both.length / 2 ? prevs : {});
     const all = step(Object.keys(ratios), ratios);
     for (const g of t.groups) {
       g.top = round(g.top * step(g.members.top, ratios));
@@ -114,10 +136,24 @@ export function advance(track, snap, session) {
   return t;
 }
 
+/**
+ * Why tonight's snapshot is not counted, or null if it is. A limited run
+ * (LIMIT) merges its few fresh rows into yesterday's full snapshot, so it
+ * never looks short; refresh.mjs marks it partialRun. Counted, it would file
+ * a whole day under a few prices, and that evening's full run, the same
+ * session, would then change nothing.
+ */
+export function notCounted(snap) {
+  if (snap?.counts?.partialRun !== undefined) return `a limited run of ${snap.counts.partialRun} companies is not the full index`;
+  if (!snap?.stocks || snap.stocks.length < FULL_INDEX) return `${snap?.stocks?.length || 0} companies is not the full index`;
+  return null;
+}
+
 async function main() {
   const snap = JSON.parse(await fs.readFile(path.join(DATA, "snapshot.json"), "utf8"));
-  if (!snap?.stocks || snap.stocks.length < FULL_INDEX) {
-    console.log(`Track record: ${snap?.stocks?.length || 0} companies is not the full index, so tonight is not counted.`);
+  const why = notCounted(snap);
+  if (why) {
+    console.log(`Track record: ${why}, so tonight is not counted.`);
     return;
   }
   const session = snap.session || sessionDate(snap.updated);
@@ -132,6 +168,10 @@ async function main() {
     `${g.members.top.length} in the top fifth and ${g.members.bottom.length} in the bottom.`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/* the file's real path: argv keeps a symlinked path, import.meta.url does not */
+const calledDirectly = (() => {
+  try { return !!process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href; } catch { return false; }
+})();
+if (calledDirectly) {
   main().catch((err) => { console.error(err); process.exit(1); });
 }
