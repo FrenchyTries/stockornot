@@ -71,6 +71,7 @@ function head(title, description, canonical, extra = "") {
 <link rel="manifest" href="/manifest.webmanifest" />
 <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="/styles.css" />
+<script src="/in-app.js"></script>
 ${extra}
 </head>
 <body class="docpage">
@@ -485,7 +486,7 @@ ${urls.map((u) => `  <url><loc>${u.loc}</loc><lastmod>${today}</lastmod><changef
    functions under api/ are deployed from the repository as before. */
 const PUBLIC_FILES = [
   "index.html", "404.html", "method.html", "pricing.html", "privacy.html", "terms.html", "support.html", "track.html",
-  "app.js", "pricing.js", "styles.css", "sw.js", "manifest.webmanifest",
+  "app.js", "pricing.js", "in-app.js", "styles.css", "sw.js", "manifest.webmanifest",
   "favicon.svg", "apple-touch-icon.png", "og.png", "sitemap.xml", "robots.txt",
   "data/snapshot.json"
 ];

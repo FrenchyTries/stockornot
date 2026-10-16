@@ -21,6 +21,8 @@
    - marks <html> with data-app, which lib/native.mjs and styles.css read.
    - adds the site's Content-Security-Policy as a <meta> tag. Bundled files
      come with no response headers, so without it the app would have none.
+   - copies the funds in only once every fund card is complete
+     (scripts/etf-ready.mjs), and an empty list until then.
    Then it checks the result, and if anything is wrong it deletes the output
    and stops, so `cap sync` never copies a build that failed.
 
@@ -30,6 +32,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { etfReadinessIn, notReadyReason } from "./etf-ready.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT  = path.resolve(ROOT, process.env.APP_OUT || "mobile/www");
@@ -48,9 +51,11 @@ const FILES = [
   "fonts/inter-var.woff2", "fonts/Inter-LICENSE.txt",
   "data/snapshot.json"
 ];
-/* copied when they exist: the track record starts on the first nightly run,
-   and the funds (scripts/etfs.mjs) on the first night after they were added */
-const FILES_IF_ANY = ["data/track.json", "data/etfs.json", "data/etf-closes.json"];
+/* copied when it exists: the track record starts on the first nightly run */
+const FILES_IF_ANY = ["data/track.json"];
+/* the funds (scripts/etfs.mjs), copied only once they are ready for App
+   Review (scripts/etf-ready.mjs) */
+const FUNDS_FILES = ["data/etfs.json", "data/etf-closes.json"];
 /* What the card and the detail sheet read. Not data/fundamentals: only the
    nightly job reads that. With these the app opens offline, on the data of
    the day it was built. */
@@ -216,15 +221,18 @@ async function main() {
     await fs.mkdir(path.dirname(path.join(OUT, f)), { recursive: true });
     await fs.copyFile(path.join(ROOT, f), path.join(OUT, f));
   }
-  for (const f of FILES_IF_ANY) {
+  /* The funds go in only when every card they show is complete. */
+  const funds = etfReadinessIn(ROOT);
+  const withFunds = Boolean(funds && funds.ready);
+  for (const f of withFunds ? [...FILES_IF_ANY, ...FUNDS_FILES] : FILES_IF_ANY) {
     try { await fs.copyFile(path.join(ROOT, f), path.join(OUT, f)); }
     catch (err) { if (err.code !== "ENOENT") throw err; }
   }
-  /* Until the nightly job has written the funds, an empty list stands in for
-     them, as on the website (build-pages.mjs). The app reads its own copy
-     before anything else (lib/funds.mjs loadFundsFile), and a missing file
-     would be a red 404 in Safari's console on every launch. An empty list is
-     no funds: no switch, and the website is never asked for its file. */
+  /* Until then, an empty list stands in for them, as on the website before
+     the first ETF night (build-pages.mjs). The app reads its own copy before
+     anything else (lib/funds.mjs loadFundsFile), and a missing file would be
+     a red 404 in Safari's console on every launch. An empty list is no
+     funds: no switch, and the website is never asked for its file. */
   const fundsFile = path.join(OUT, "data", "etfs.json");
   if (!(await fs.stat(fundsFile).catch(() => null))) await fs.writeFile(fundsFile, JSON.stringify({ v: 1, etfs: [] }));
   for (const d of DIRS) await fs.cp(path.join(ROOT, d), path.join(OUT, d), { recursive: true });
@@ -258,6 +266,8 @@ async function main() {
   for (const f of files) bytes += (await fs.stat(f)).size;
   console.log(`Built the app's copy of the site in ${rel(OUT)}: ${files.length} files, ` +
     `${(bytes / 1048576).toFixed(1)} MB${CSP_OFF ? ", without the <meta> CSP (CSP=off)" : ""}.`);
+  if (withFunds) console.log(`With the funds: all ${funds.funds} are ready.`);
+  else if (funds) console.log(`Without the funds, which are not ready (${notReadyReason(funds)}): see node scripts/etf-ready.mjs.`);
 }
 
 main().catch((err) => { console.error(err.message || err); process.exit(1); });

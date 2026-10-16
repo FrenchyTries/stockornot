@@ -88,6 +88,14 @@ test("company pages, /stock and the sitemap say what the pages show", (t) => {
   assert.match(read("stock/pos.html"), /close of Oct 9, 2026/);
   for (const f of ["stock/pos.html", "stock/index.html", "track.html"]) assert.match(read(f), /Data refreshed Oct 9, 2026\./, f);
 
+  /* every page the app can open in its Safari sheet loads in-app.js in its
+     <head>, which takes the website's deck off it there, and the file is
+     published beside them */
+  for (const f of ["stock/pos.html", "stock/index.html", "track.html", "terms.html", "privacy.html", "support.html", "method.html", "404.html"]) {
+    assert.match(read(f).split("</head>")[0], /<script src="\/in-app\.js"><\/script>/, f);
+  }
+  assert.match(read("in-app.js"), /app=1/);
+
   /* /pricing stays published for the hidden Membership row, but out of the
      sitemap while membership is closed; back in it once it opens (PAYWALL.md) */
   if (DEV_UNLIMITED) assert.doesNotMatch(read("sitemap.xml"), /pricing/);
