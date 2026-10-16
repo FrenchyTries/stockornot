@@ -68,7 +68,9 @@ October 11, 2026:
 | `mobile/ios/` | The Xcode project, committed: iPhone only, portrait, iOS 16.0, the icon, a plain dark launch screen, the privacy manifest. |
 | `mobile/broker-stub.js` | Takes the place of `lib/broker.mjs` in the app, so no brokerage code can reach the network. |
 | `scripts/build-app.mjs` | Copies the interface and a copy of the data into `mobile/www`, marks the page as the app, and checks the result. |
+| `scripts/etf-ready.mjs` | Whether the funds are ready for App Review; the build carries them only then. |
 | `lib/native.mjs` | What the app does differently: data from stockornot.com, links in an in-app Safari sheet, haptics, the share sheet, notifications. |
+| `in-app.js` | On the website's pages opened from the app (`?app=1`): takes every way back to the website's deck off them. |
 
 `mobile/www`, `mobile/node_modules` and the copy inside `mobile/ios/App/App/public`
 are build output and are never committed (rule 8).
@@ -76,7 +78,10 @@ are build output and are never committed (rule 8).
 In the app, the brokerage, order amounts, the order bar, membership and every
 limit are gone, sign-in asks for the emailed code, and Pricing is out of the
 navigation of every page on the site, because the in-app Safari sheet shows
-those pages as they are.
+those pages as they are. For the same reason the app opens the site's pages
+with `?app=1`, and `in-app.js` then takes every way back to the website's
+deck off them: no "Open the deck", and the logo is not a link. In the sheet
+that deck would look just like the app, yet offer the brokerage.
 
 ### Rules that come with the app
 
@@ -99,6 +104,15 @@ those pages as they are.
   gains funds, which Apple would count as a hidden feature (Guideline
   2.3.1). Keep it that way: any new kind of screen that appears with the data
   is gated on the build's own copy in the same way.
+- **A build carries the funds only once they are ready.**
+  `scripts/build-app.mjs` asks `scripts/etf-ready.mjs`, and until every fund
+  with holdings has a fee, five closes and holdings under 200 days old, it
+  puts an empty list in their place and says why. Keep the rule in that one
+  file.
+- **Every page the app can open loads `in-app.js`** in its `<head>`: the
+  hand-written pages and the ones `scripts/build-pages.mjs` writes.
+  `tests/pages.test.mjs` checks them; a new page the app links to gets the
+  same line.
 - **The website and the app ship separately.** A change to `app.js` reaches
   the website on the next deploy, but the app only with a new version through
   App Review. Test both.
@@ -305,11 +319,10 @@ password, it is the Mac's own login password, and nothing shows as you type.
      the list includes Haptics, Share, LocalNotifications, Browser and
      Filesystem.
    - **Stocks | ETFs:** the Deck shows this switch only when the build
-     carries `data/etfs.json`, which exists from the first nightly run
-     after the merge of pull request #4 that reads most funds' holdings
-     (`docs/ETFS.md`, "The first file"), and no earlier. Note whether it
-     shows: the listing must match ("ETFs in the listing", under "Store
-     listing").
+     carries the funds, which it does only once every fund card is complete
+     ("When to make the ETF build"); `npm run ios` says which in its last
+     line. Note whether it shows: the listing must match ("ETFs in the
+     listing", under "Store listing").
    - If the Console shows something blocked by the Content Security Policy:
      in Terminal (still in the `mobile` folder) run `CSP=off npm run sync`,
      press ⌘R again, and tell Claude. A `CSP=off` build is only for finding
@@ -333,8 +346,10 @@ password, it is the Mac's own login password, and nothing shows as you type.
    - Every link opens in a Safari sheet inside the app with a Done button:
      "Not investment advice", "How the score works", Terms and Privacy in the
      sign-in box, the rows at the bottom of Account, the SEC filing links, a
-     headline. None of those pages shows Pricing. (Contact support is the
-     exception: it opens Mail.)
+     headline. None of those pages shows Pricing, and none leads back to
+     the deck: no "Open the deck" button, and the logo at the top is not a
+     link, on the next page either (tap Companies, then a company). (Contact
+     support is the exception: it opens Mail.)
    - Cart: no Amount boxes, no order bar, nothing about a brokerage. Export
      CSV → Save to Files works.
    - Cart → Earnings dates → "Notify me on this iPhone" → iOS asks for
@@ -375,9 +390,9 @@ password, it is the Mac's own login password, and nothing shows as you type.
     ```
     Then run `npm run sync` (exactly that, with no `CSP=off` in front), so
     the build that goes to Apple is the current code with its security
-    policy. (Once `data/etfs.json` exists but the ETF build is not ready
-    yet, use the line in "ETFs in the listing" instead, which leaves the
-    funds out.) Then at the top of Xcode pick "Any iOS Device (arm64)", then
+    policy. Its last line says whether the build carries the funds; the
+    listing has to match ("ETFs in the listing"). Then at the top of Xcode
+    pick "Any iOS Device (arm64)", then
     Product → Archive. When the Organizer window opens: Distribute App →
     App Store Connect → Distribute. Xcode makes the certificates it needs.
 11. **TestFlight.** App Store Connect → Apps → StockOrNot → TestFlight. Wait
@@ -565,15 +580,14 @@ holdings have been read. A build without one (it carries an empty list in its
 place) never shows funds, even once the website has them: it does not ask
 stockornot.com for the file. A build with one reads the website's newer file
 when online, and its own copy offline.
-`scripts/build-app.mjs` copies the file in whenever it is in the `stockornot`
-folder, which it is from the data commit of the first nightly run after pull
-request #4 is merged that reads most funds' holdings (`docs/ETFS.md`, "The
-first file"; `git pull origin main` first).
+`scripts/build-app.mjs` copies the file in only once every fund card is
+complete ("When to make the ETF build" below), and says in its last line
+whether it did.
 
 So the listing follows the build:
 
-- **No switch** (any build made before that first ETF night, or with the
-  funds left out as below): the text above as it is, and nothing about ETFs
+- **No switch** (any build made before the funds are ready): the text above
+  as it is, and nothing about ETFs
   in the description, keywords, screenshots or review notes. ETFs join the
   listing with the next version.
 - **The switch shows:** the ETF description paragraph, keywords and
@@ -595,20 +609,16 @@ filing's address; the data commit of the night after it is merged carries
 them. Then `git pull origin main` in the `stockornot` folder and run this
 there:
 ```bash
-node -e '
-const f = require("./data/etfs.json").etfs.filter((e) => e.nport && (e.hold || []).length);
-const c = require("./data/etf-closes.json").closes;
-const miss = (bad) => f.filter(bad).map((e) => e.t).join(" ") || "none";
-console.log(f.length + " funds with holdings");
-console.log("no fee: " + miss((e) => typeof e.er !== "number"));
-console.log("fewer than five closes: " + miss((e) => (c[e.t] || []).length < 5));
-console.log("out of date: " + miss((e) => Date.now() - Date.parse(e.nport.period) > 200 * 864e5));'
+node scripts/etf-ready.mjs
 ```
-Make the ETF build only when its last three lines all say `none`. If some
-funds still have fewer than five closes a week on, Finnhub is probably not
-quoting them, and a fund "out of date" has missed its quarterly filings:
-either way, tell Claude instead of building. Then check in the Simulator
-that the switch shows, with Wi-Fi on and again in Airplane Mode, and go
+It lists the funds with no fee, with fewer than five closes, and out of
+date, and ends "Ready" only when all three say `none`; until then every app
+build leaves the funds out by itself (`scripts/build-app.mjs` asks the same
+script). If some funds still have fewer than five closes a week on, Finnhub
+is probably not quoting them, and a fund "out of date" has missed its
+quarterly filings: either way, tell Claude. Once it says "Ready", build as
+usual, then check in the Simulator that the switch shows, with Wi-Fi on and
+again in Airplane Mode, and go
 through the fund cards and a few full records against "Before submitting",
 check 3 in particular. A fund that cannot be read in full says "Partly read",
 "Holdings only" or "Out of date" where the number would be, with the figure
@@ -617,14 +627,10 @@ are): that is what it is, not something still loading, and the review notes
 say so.
 
 Until then, a build for App Review (a fix after a rejection, say) leaves the
-funds out. In Terminal in the `mobile` folder, in place of step 10's
-`npm run sync`:
-```bash
-mv ../data/etfs.json ../etfs-aside.json; npm run sync; mv ../etfs-aside.json ../data/etfs.json
-```
-Then press ⌘R and check the Deck shows no Stocks | ETFs switch before
-archiving, and submit the listing without ETFs, with no ETF in the App Review
-account's cart ("Before submitting").
+funds out by itself: `npm run sync` ends "Without the funds". Press ⌘R and
+check the Deck shows no Stocks | ETFs switch before archiving, and submit the
+listing without ETFs, with no ETF in the App Review account's cart ("Before
+submitting").
 
 When the build shows ETFs, all of these:
 

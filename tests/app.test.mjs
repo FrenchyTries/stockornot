@@ -7,6 +7,7 @@ import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { loadFundsFile } from "../lib/funds.mjs";
+import { etfReadiness, etfReadinessIn } from "../scripts/etf-ready.mjs";
 
 /* The iPhone app: its copy of the site (scripts/build-app.mjs) and the two
    response headers on the website it depends on. */
@@ -45,12 +46,13 @@ test("the app's copy of the site passes its own checks, with modules as .js and 
   for (const f of files) {
     assert.ok(!/^(stock\/|pricing|sw\.js|manifest|favicon|apple-touch-icon|og\.png|icons\/|data\/fundamentals|api\/|scripts\/|docs\/)/.test(f), f + " should not be in the app");
   }
-  /* the funds go in once the nightly job has written them, and until then an
-     empty list stands in for etfs.json, so the app's first read of its own
-     copy is never a 404; the job's own working files never go in */
-  const own = await fs.readFile(path.join(ROOT, "data", "etfs.json"), "utf8").catch(() => null);
+  /* the funds go in once every card is complete, and until then an empty
+     list stands in for etfs.json, so the app's first read of its own copy is
+     never a 404; the job's own working files never go in */
+  const ready = etfReadinessIn(ROOT)?.ready === true;
+  const own = ready ? await fs.readFile(path.join(ROOT, "data", "etfs.json"), "utf8") : null;
   assert.equal(await fs.readFile(path.join(out, "data", "etfs.json"), "utf8"), own ?? JSON.stringify({ v: 1, etfs: [] }));
-  assert.equal(files.includes("data/etf-closes.json"), await fs.stat(path.join(ROOT, "data", "etf-closes.json")).then(() => true, () => false));
+  assert.equal(files.includes("data/etf-closes.json"), ready && await fs.stat(path.join(ROOT, "data", "etf-closes.json")).then(() => true, () => false));
   assert.ok(!files.includes("data/lei.json") && !files.includes("data/etf-list.json"));
 
   /* every module path names the .js copy, and nothing names an .mjs */
@@ -120,6 +122,61 @@ test("the app shows funds only when the copy built into it has them", async () =
   /* and app.js reads the funds through it, telling it whether it is the app */
   const app = await fs.readFile(path.join(ROOT, "app.js"), "utf8");
   assert.match(app, /funds\.loadFundsFile\(\{\s*inApp: native\.inApp,/);
+});
+
+/* App Review meeting "Not read" fees and charts with no history, fund after
+   fund, turns a build down as unfinished: the funds go into a build only once
+   every card they show is complete (docs/APP_STORE.md, "When to make the ETF
+   build"). */
+test("a fund is ready with a fee, five closes and holdings under 200 days old", () => {
+  const now = Date.UTC(2026, 9, 15);
+  const fund = (t, over = {}) => ({ t, er: 0.03, nport: { period: "2026-06-30" }, hold: [["AAPL", 100]], ...over });
+  const five = [1, 2, 3, 4, 5];
+  const closes = { VOO: five, IVV: five, SPY: five, DIA: [1, 2, 3, 4] };
+
+  assert.deepEqual(etfReadiness([fund("VOO"), fund("IVV")], closes, now), { funds: 2, noFee: [], fewCloses: [], outOfDate: [], ready: true });
+  const r = etfReadiness([fund("VOO"), fund("SPY", { er: null }), fund("DIA"), fund("IVV", { nport: { period: "2026-03-01" } })], closes, now);
+  assert.deepEqual([r.noFee, r.fewCloses, r.outOfDate, r.ready], [["SPY"], ["DIA"], ["IVV"], false]);
+  /* a fund whose holdings were never read is not shown, so it holds nothing up */
+  assert.equal(etfReadiness([fund("VOO"), fund("IVV"), { t: "NEW", nport: null, hold: [] }, fund("OLD", { hold: [] })], closes, now).ready, true);
+  /* no closes file, or a holdings date that is not a date */
+  assert.deepEqual(etfReadiness([fund("VOO")], undefined, now).fewCloses, ["VOO"]);
+  assert.deepEqual(etfReadiness([fund("VOO", { nport: { period: "soon" } })], closes, now).outOfDate, ["VOO"]);
+});
+
+test("the app build carries the funds only once they are ready, and says which", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "stockornot-repo-"));
+  const out = await fs.mkdtemp(path.join(os.tmpdir(), "stockornot-app-"));
+  t.after(() => Promise.all([dir, out].map((d) => fs.rm(d, { recursive: true, force: true }))));
+  /* a copy of what the build reads, with funds made up here */
+  const skip = /^(\.git|node_modules|public|stock|marketing|docs|tests|supabase|api|data|mobile\/(node_modules|ios|www))(\/|$)/;
+  await fs.cp(ROOT, dir, { recursive: true, filter: (src) => !skip.test(path.relative(ROOT, src).split(path.sep).join("/")) });
+  for (const d of ["data/detail", "data/filings"]) await fs.mkdir(path.join(dir, d), { recursive: true });
+  await fs.copyFile(path.join(ROOT, "data", "snapshot.json"), path.join(dir, "data", "snapshot.json"));
+
+  const write = (f, v) => fs.writeFile(path.join(dir, "data", f), JSON.stringify(v));
+  const recent = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  const fund = (t, er) => ({ t, kind: "etf", er, nport: { period: recent }, hold: [["AAPL", 100]], reading: "full" });
+  const run = () => spawnSync(process.execPath, [path.join(dir, "scripts", "build-app.mjs")], {
+    cwd: dir, encoding: "utf8", env: { ...process.env, CSP: "", APP_OUT: out }
+  });
+  const built = async () => ({
+    etfs: JSON.parse(await fs.readFile(path.join(out, "data", "etfs.json"), "utf8")).etfs.map((f) => f.t),
+    closes: (await listFiles(out)).includes("data/etf-closes.json")
+  });
+  await write("etf-closes.json", { v: 1, closes: { VOO: [1, 2, 3, 4, 5], IVV: [1, 2, 3, 4, 5] } });
+
+  await write("etfs.json", { v: 1, etfs: [fund("VOO", 0.03), fund("IVV", null)] });
+  let r = run();
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  assert.deepEqual(await built(), { etfs: [], closes: false });
+  assert.match(r.stdout, /Without the funds, which are not ready \(1 with no fee\)/);
+
+  await write("etfs.json", { v: 1, etfs: [fund("VOO", 0.03), fund("IVV", 0.03)] });
+  r = run();
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  assert.deepEqual(await built(), { etfs: ["VOO", "IVV"], closes: true });
+  assert.match(r.stdout, /With the funds: all 2 are ready\./);
 });
 
 test("the app build will not empty a folder that is not an earlier build", async (t) => {
@@ -357,6 +414,78 @@ test("the cart's account line never says \"yet\"", () => {
   assert.equal(said.length, 4);
   assert.deepEqual(new Set(said).size, 4);
   for (const s of said) assert.doesNotMatch(s, /\byet\b/i, s);
+});
+
+/* The site's pages, opened in the app's Safari sheet with ?app=1, take every
+   way back to the website's deck off themselves: there it would look like the
+   app, yet offer the brokerage the app leaves out (in-app.js). */
+test("a page opened from the app leads nowhere near the website's deck", () => {
+  const src = readFileSync(path.join(ROOT, "in-app.js"), "utf8");
+  const box = () => ({ children: [], textContent: "\n  ", gone: false, remove() { this.gone = true; } });
+  const anchor = (href, cls = "", parent = null) => {
+    const a = {
+      href, className: cls, parentNode: parent, childNodes: ["its words"], gone: false, replacedBy: null,
+      classList: { contains: (c) => cls.split(" ").includes(c) },
+      getAttribute: (n) => (n === "href" ? a.href : null),
+      setAttribute: (n, v) => { if (n === "href") a.href = v; },
+      removeAttribute: (n) => { if (n === "href") a.href = null; },
+      remove() { a.gone = true; if (parent) parent.children = parent.children.filter((c) => c !== a); },
+      replaceWith: (...nodes) => { a.replacedBy = nodes; },
+      closest: (sel) => (sel === "a[href]" && a.href != null ? a : null)
+    };
+    if (parent) parent.children.push(a);
+    return a;
+  };
+  const open = (search, links) => {
+    const listeners = {};
+    const document = { body: {}, addEventListener: (type, fn) => { listeners[type] = fn; }, querySelectorAll: () => links };
+    const location = { search, href: "https://stockornot.com/terms" + search, origin: "https://stockornot.com" };
+    vm.runInNewContext(src, { document, location, URL, URLSearchParams });
+    return listeners;
+  };
+
+  /* on the website, as before */
+  const plain = anchor("/", "primary-btn");
+  assert.deepEqual(open("", [plain]), {});
+  assert.equal(plain.href, "/");
+
+  const actions = box(), cta = box(), para = box();
+  para.children.push({ tag: "span" });
+  const links = {
+    brand: anchor("/", "brand"),
+    openDeck: anchor("/", "primary-btn", actions),
+    openTicker: anchor("/?t=AAPL", "primary-btn", cta),
+    back: anchor("/index.html", "backlink", para),
+    pricing: anchor("/pricing"),
+    privacy: anchor("/privacy"),
+    method: anchor("/method#funds"),
+    stock: anchor("/stock/aapl?x=1"),
+    support: anchor("https://stockornot.com/support"),
+    sec: anchor("https://www.sec.gov/x?y=1"),
+    mail: anchor("mailto:hello@stockornot.com")
+  };
+  const on = open("?app=1", Object.values(links));
+
+  /* a tap before the page has loaded goes nowhere near the deck either */
+  const tap = (target) => { const ev = { target, prevented: false, preventDefault() { this.prevented = true; } }; on.click(ev); return ev.prevented; };
+  assert.equal(tap(links.openDeck), true);
+  assert.equal(tap(links.pricing), true);
+  assert.equal(tap(links.privacy), false);
+  assert.equal(tap(links.sec), false);
+
+  on.DOMContentLoaded();
+  assert.equal(links.brand.href, null, "the logo stays, as no link");
+  assert.equal(links.brand.gone, false);
+  assert.ok(links.openDeck.gone && actions.gone, "the button and the box it sat in");
+  assert.ok(links.openTicker.gone && cta.gone);
+  assert.ok(links.back.gone && !para.gone, "a box with more in it stays");
+  assert.deepEqual(links.pricing.replacedBy, ["its words"]);
+  assert.equal(links.privacy.href, "/privacy?app=1");
+  assert.equal(links.method.href, "/method?app=1#funds");
+  assert.equal(links.stock.href, "/stock/aapl?x=1&app=1");
+  assert.equal(links.support.href, "/support?app=1");
+  assert.equal(links.sec.href, "https://www.sec.gov/x?y=1");
+  assert.equal(links.mail.href, "mailto:hello@stockornot.com");
 });
 
 /* ...and nor do the site's pages the app opens in its Safari sheet */

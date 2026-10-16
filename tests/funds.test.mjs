@@ -243,13 +243,15 @@ test("the website, the app and the home-screen copy carry the fund files once th
   for (const p of ["/data/lei.json", "/data/etf-list.json", "/data/detail/AAPL.json"]) assert.equal(keep(p), false, p);
 
   /* the website and the app, built from a copy holding the fund files and
-     the job's own working files beside them */
+     the job's own working files beside them; the fund is ready for the app,
+     with a fee, five closes and recent holdings (scripts/etf-ready.mjs) */
   const root = copyRepo();
   const app = fs.mkdtempSync(path.join(os.tmpdir(), "stockornot-funds-app-"));
   t.after(() => { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(app, { recursive: true, force: true }); });
+  const closes = ["2026-10-08", "2026-10-09", "2026-10-10", "2026-10-13", "2026-10-14"].map((d) => [d, 100]);
   const files = {
     "data/etfs.json": JSON.stringify({ v: 1, session: "2026-10-14", etfs: [fund({ t: "AAA", hold: [["AAPL", 100]] })] }),
-    "data/etf-closes.json": JSON.stringify({ v: 1, closes: { AAA: [["2026-10-14", 100]] } }),
+    "data/etf-closes.json": JSON.stringify({ v: 1, closes: { AAA: closes } }),
     "data/lei.json": JSON.stringify({ v: 1, lei: {} })
   };
   for (const [f, body] of Object.entries(files)) fs.writeFileSync(path.join(root, f), body);

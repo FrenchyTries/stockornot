@@ -162,8 +162,11 @@ sheet and earnings reminders scheduled on the phone. It is built on a Mac with
 `data/*.json` may only gain fields. A build shows funds only when it carries
 its own copy of `data/etfs.json` with funds in it (`loadFundsFile` in
 `lib/funds.mjs`), so a copy that went to App Review without the ETF side never
-grows one when the website's data gains funds. Everything else, from the Mac's
-setup to the store listing, is in [`docs/APP_STORE.md`](docs/APP_STORE.md).
+grows one when the website's data gains funds, and the build carries them
+only once every fund card is complete (`scripts/etf-ready.mjs`). The site's
+pages the app opens in its Safari sheet come with `?app=1`, and `in-app.js`
+takes every way back to the website's deck off them. Everything else, from
+the Mac's setup to the store listing, is in [`docs/APP_STORE.md`](docs/APP_STORE.md).
 
 ## The cart
 

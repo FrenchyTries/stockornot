@@ -387,7 +387,15 @@ test("links leave for a Safari sheet on the website; tabs, anchors and mail stay
 
   assert.equal(click(phoneDoc, link("/terms", { target: "_blank" })), true);
   assert.equal(click(phoneDoc, link("https://www.sec.gov/edgar")), true);
-  assert.deepEqual(calls("Browser").map(([, a]) => a.url), ["https://stockornot.com/terms", "https://www.sec.gov/edgar"]);
+  /* the site's own pages open marked as from the app, so they lead nowhere
+     near the website's deck (in-app.js); anywhere else opens as it is */
+  assert.equal(click(phoneDoc, link("/method#funds")), true);
+  assert.equal(click(phoneDoc, link("https://stockornot.com/stock/aapl?x=1")), true);
+  assert.equal(click(phoneDoc, link("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany")), true);
+  assert.deepEqual(calls("Browser").map(([, a]) => a.url), [
+    "https://stockornot.com/terms?app=1", "https://www.sec.gov/edgar", "https://stockornot.com/method?app=1#funds",
+    "https://stockornot.com/stock/aapl?x=1&app=1", "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
+  ]);
   assert.equal(calls("Browser")[0][1].toolbarColor, "#0b0c0e");
 
   for (const [href, attrs] of [["#cart", { "data-view": "" }], ["#", {}], ["mailto:hello@stockornot.com", {}],
@@ -395,5 +403,5 @@ test("links leave for a Safari sheet on the website; tabs, anchors and mail stay
     assert.equal(click(phoneDoc, link(href, attrs)), false, href);
   }
   assert.equal(click(phoneDoc, { closest: () => null }), false);
-  assert.equal(calls("Browser").length, 2);
+  assert.equal(calls("Browser").length, 5);
 });

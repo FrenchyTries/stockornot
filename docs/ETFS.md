@@ -25,7 +25,9 @@ the files mean, and the half hour a quarter the hand-kept list needs.*
   job writes that first file only once it has read the holdings of at least
   80% of the listed funds (see "Safety"). Until then the website and any
   build of the app carry an empty list in its place (`scripts/build-pages.mjs`,
-  `scripts/build-app.mjs`), so nothing logs a 404 for it.
+  `scripts/build-app.mjs`), so nothing logs a 404 for it. The app keeps the
+  empty list until every fund card is complete as well
+  (`scripts/etf-ready.mjs`).
 
 ## Sources and licences, field by field
 
