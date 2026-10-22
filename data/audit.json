@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-10-21T23:27:52.131Z",
-  "snapshotUpdated": "2026-10-21T23:27:51.864Z",
+  "ranAt": "2026-10-22T23:20:47.627Z",
+  "snapshotUpdated": "2026-10-22T23:20:47.359Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -141,12 +141,16 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "19 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "30 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
+        "ALLE 2027-02-15",
         "BKR 2027-04-21",
+        "CBRE 2027-02-10",
         "CB 2027-02-01",
         "CME 2027-02-02",
+        "FIX 2027-02-17",
         "CCI 2027-02-02",
+        "DXCM 2027-02-10",
         "DPZ 2027-02-22",
         "EFX 2027-02-02",
         "GPC 2027-02-15",
@@ -155,15 +159,17 @@
         "HAS 2027-02-08",
         "DOC 2027-02-01",
         "MCO 2027-02-16",
+        "NEM 2027-02-17",
+        "OMC 2027-02-16",
         "PEP 2027-02-01",
+        "PCG 2027-02-10",
         "PM 2027-02-04",
+        "POOL 2027-02-17",
         "PGR 2027-03-01",
-        "RTX 2027-04-19",
-        "ROL 2027-02-09",
-        "TDY 2027-04-19",
-        "WAB 2027-02-09"
+        "DGX 2027-02-08",
+        "RTX 2027-04-19"
       ],
-      "count": 19
+      "count": 30
     },
     {
       "level": "warn",
