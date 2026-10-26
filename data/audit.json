@@ -1,14 +1,23 @@
 {
-  "ranAt": "2026-10-23T23:25:39.067Z",
-  "snapshotUpdated": "2026-10-23T23:25:38.712Z",
+  "ranAt": "2026-10-26T23:39:07.415Z",
+  "snapshotUpdated": "2026-10-26T23:39:07.179Z",
   "companies": 501,
   "deep": {
     "present": 501,
-    "charts": 501,
+    "charts": 500,
     "analysts": 500
   },
   "verdict": "published with warnings",
   "findings": [
+    {
+      "level": "warn",
+      "code": "tickers-dropped",
+      "msg": "1 tickers present yesterday are missing today.",
+      "tickers": [
+        "EQR"
+      ],
+      "count": 1
+    },
     {
       "level": "warn",
       "code": "capex-missing",
@@ -28,7 +37,7 @@
         "DLR",
         "D",
         "DTE",
-        "EQR",
+        "VMRK",
         "ESS",
         "FRT",
         "INCY",
@@ -61,7 +70,7 @@
       "msg": "3 companies have no financials.",
       "tickers": [
         "APA",
-        "EQR",
+        "VMRK",
         "LHX"
       ],
       "count": 3
@@ -72,7 +81,7 @@
       "msg": "2 companies have no earnings.",
       "tickers": [
         "SATS",
-        "EQR"
+        "PSKY"
       ],
       "count": 2
     },
@@ -94,7 +103,7 @@
         "DELL",
         "DG",
         "EIX",
-        "EQR",
+        "VMRK",
         "EXPD",
         "GRMN",
         "GE",
@@ -141,35 +150,35 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "31 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "27 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
         "ALLE 2027-02-15",
         "BKR 2027-04-21",
+        "CDNS 2027-02-16",
         "CBRE 2027-02-10",
-        "CB 2027-02-01",
-        "CME 2027-02-02",
+        "CINF 2027-02-08",
         "FIX 2027-02-17",
-        "CCI 2027-02-02",
         "DXCM 2027-02-10",
         "DPZ 2027-02-22",
-        "EFX 2027-02-02",
         "GPC 2027-02-15",
-        "GL 2027-02-02",
         "GS 2027-04-12",
         "HAS 2027-02-08",
-        "DOC 2027-02-01",
         "MCO 2027-02-16",
         "NEM 2027-02-17",
         "OMC 2027-02-16",
-        "PSKY 2027-05-03",
-        "PEP 2027-02-01",
+        "OKE 2027-02-22",
         "PCG 2027-02-10",
         "PM 2027-02-04",
         "POOL 2027-02-17",
+        "PFG 2027-02-08",
         "PGR 2027-03-01",
-        "DGX 2027-02-08"
+        "PSA 2027-02-10",
+        "DGX 2027-02-08",
+        "RTX 2027-04-19",
+        "ROL 2027-02-09",
+        "TDY 2027-04-19"
       ],
-      "count": 31
+      "count": 27
     },
     {
       "level": "warn",
@@ -180,6 +189,15 @@
         "EA"
       ],
       "count": 2
+    },
+    {
+      "level": "warn",
+      "code": "renamed",
+      "msg": "1 tickers were found under a new symbol. Update data/sp500.json.",
+      "tickers": [
+        "EQR→VMRK"
+      ],
+      "count": 1
     },
     {
       "level": "warn",
