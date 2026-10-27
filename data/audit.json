@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-10-26T23:39:07.415Z",
-  "snapshotUpdated": "2026-10-26T23:39:07.179Z",
+  "ranAt": "2026-10-27T23:23:28.836Z",
+  "snapshotUpdated": "2026-10-27T23:23:28.513Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -9,15 +9,6 @@
   },
   "verdict": "published with warnings",
   "findings": [
-    {
-      "level": "warn",
-      "code": "tickers-dropped",
-      "msg": "1 tickers present yesterday are missing today.",
-      "tickers": [
-        "EQR"
-      ],
-      "count": 1
-    },
     {
       "level": "warn",
       "code": "capex-missing",
@@ -150,35 +141,35 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "27 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "42 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
         "ALLE 2027-02-15",
+        "AMT 2027-02-22",
+        "ACGL 2027-02-08",
         "BKR 2027-04-21",
         "CDNS 2027-02-16",
         "CBRE 2027-02-10",
+        "CNP 2027-02-17",
         "CINF 2027-02-08",
+        "KO 2027-02-08",
         "FIX 2027-02-17",
+        "GLW 2027-04-26",
+        "CSGP 2027-02-22",
         "DXCM 2027-02-10",
         "DPZ 2027-02-22",
+        "ECL 2027-02-08",
+        "EQT 2027-02-15",
+        "EXE 2027-02-15",
+        "EXR 2027-02-17",
+        "FE 2027-02-15",
         "GPC 2027-02-15",
         "GS 2027-04-12",
         "HAS 2027-02-08",
+        "HLT 2027-02-09",
         "MCO 2027-02-16",
-        "NEM 2027-02-17",
-        "OMC 2027-02-16",
-        "OKE 2027-02-22",
-        "PCG 2027-02-10",
-        "PM 2027-02-04",
-        "POOL 2027-02-17",
-        "PFG 2027-02-08",
-        "PGR 2027-03-01",
-        "PSA 2027-02-10",
-        "DGX 2027-02-08",
-        "RTX 2027-04-19",
-        "ROL 2027-02-09",
-        "TDY 2027-04-19"
+        "NEM 2027-02-17"
       ],
-      "count": 27
+      "count": 42
     },
     {
       "level": "warn",
