@@ -1,10 +1,10 @@
 {
-  "ranAt": "2026-10-29T23:28:18.521Z",
-  "snapshotUpdated": "2026-10-29T23:28:18.252Z",
+  "ranAt": "2026-10-30T23:30:14.219Z",
+  "snapshotUpdated": "2026-10-30T23:30:13.920Z",
   "companies": 501,
   "deep": {
     "present": 501,
-    "charts": 500,
+    "charts": 501,
     "analysts": 500
   },
   "verdict": "published with warnings",
@@ -14,7 +14,7 @@
       "code": "price-jump",
       "msg": "1 companies moved more than 25% since the last run.",
       "tickers": [
-        "NOW 150.13→109.67"
+        "INTC 92.07→65.76"
       ],
       "count": 1
     },
@@ -78,12 +78,13 @@
     {
       "level": "warn",
       "code": "earnings-missing",
-      "msg": "2 companies have no earnings.",
+      "msg": "3 companies have no earnings.",
       "tickers": [
         "SATS",
+        "FRT",
         "PSKY"
       ],
-      "count": 2
+      "count": 3
     },
     {
       "level": "warn",
@@ -150,7 +151,7 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "80 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "83 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
         "ALLE 2027-02-15",
         "LNT 2027-02-17",
@@ -172,13 +173,13 @@
         "CSGP 2027-02-22",
         "CRH 2027-02-16",
         "DXCM 2027-02-10",
+        "D 2027-02-22",
         "DPZ 2027-02-22",
         "EBAY 2027-02-16",
         "ECL 2027-02-08",
-        "EIX 2027-02-16",
-        "EME 2027-02-24"
+        "EIX 2027-02-16"
       ],
-      "count": 80
+      "count": 83
     },
     {
       "level": "warn",
