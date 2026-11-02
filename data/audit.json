@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-10-30T23:30:14.219Z",
-  "snapshotUpdated": "2026-10-30T23:30:13.920Z",
+  "ranAt": "2026-11-02T23:38:39.445Z",
+  "snapshotUpdated": "2026-11-02T23:38:39.156Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -9,15 +9,6 @@
   },
   "verdict": "published with warnings",
   "findings": [
-    {
-      "level": "warn",
-      "code": "price-jump",
-      "msg": "1 companies moved more than 25% since the last run.",
-      "tickers": [
-        "INTC 92.07→65.76"
-      ],
-      "count": 1
-    },
     {
       "level": "warn",
       "code": "capex-missing",
@@ -151,35 +142,35 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "83 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "53 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
+        "AES 2027-02-24",
         "ALLE 2027-02-15",
         "LNT 2027-02-17",
-        "AEP 2027-02-10",
         "AMT 2027-02-22",
         "AWK 2027-02-16",
-        "ACGL 2027-02-08",
+        "AXON 2027-02-22",
         "BKR 2027-04-21",
-        "BAX 2027-02-10",
+        "BRK.B 2027-02-26",
         "BLDR 2027-02-15",
         "CDNS 2027-02-16",
         "CVNA 2027-02-16",
-        "CBRE 2027-02-10",
         "CNP 2027-02-17",
-        "CINF 2027-02-08",
-        "KO 2027-02-08",
         "FIX 2027-02-17",
         "GLW 2027-04-26",
         "CSGP 2027-02-22",
         "CRH 2027-02-16",
-        "DXCM 2027-02-10",
+        "FANG 2027-02-22",
         "D 2027-02-22",
         "DPZ 2027-02-22",
+        "DASH 2027-02-16",
         "EBAY 2027-02-16",
-        "ECL 2027-02-08",
-        "EIX 2027-02-16"
+        "EIX 2027-02-16",
+        "EME 2027-02-24",
+        "EQT 2027-02-15",
+        "ERIE 2027-02-22"
       ],
-      "count": 83
+      "count": 53
     },
     {
       "level": "warn",
