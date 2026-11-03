@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-11-02T23:38:39.445Z",
-  "snapshotUpdated": "2026-11-02T23:38:39.156Z",
+  "ranAt": "2026-11-03T23:32:59.089Z",
+  "snapshotUpdated": "2026-11-03T23:32:58.788Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -69,13 +69,14 @@
     {
       "level": "warn",
       "code": "earnings-missing",
-      "msg": "3 companies have no earnings.",
+      "msg": "4 companies have no earnings.",
       "tickers": [
         "SATS",
         "FRT",
-        "PSKY"
+        "PSKY",
+        "SWKS"
       ],
-      "count": 3
+      "count": 4
     },
     {
       "level": "warn",
@@ -142,7 +143,7 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "53 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "62 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
         "AES 2027-02-24",
         "ALLE 2027-02-15",
@@ -152,6 +153,8 @@
         "AXON 2027-02-22",
         "BKR 2027-04-21",
         "BRK.B 2027-02-26",
+        "XYZ 2027-02-24",
+        "BKNG 2027-02-16",
         "BLDR 2027-02-15",
         "CDNS 2027-02-16",
         "CVNA 2027-02-16",
@@ -166,11 +169,9 @@
         "DASH 2027-02-16",
         "EBAY 2027-02-16",
         "EIX 2027-02-16",
-        "EME 2027-02-24",
-        "EQT 2027-02-15",
-        "ERIE 2027-02-22"
+        "EME 2027-02-24"
       ],
-      "count": 53
+      "count": 62
     },
     {
       "level": "warn",
