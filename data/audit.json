@@ -1,14 +1,23 @@
 {
-  "ranAt": "2026-11-07T02:30:47.826Z",
-  "snapshotUpdated": "2026-11-07T02:30:47.509Z",
+  "ranAt": "2026-11-10T04:49:05.201Z",
+  "snapshotUpdated": "2026-11-10T04:49:04.921Z",
   "companies": 501,
   "deep": {
     "present": 501,
     "charts": 501,
-    "analysts": 500
+    "analysts": 501
   },
   "verdict": "published with warnings",
   "findings": [
+    {
+      "level": "warn",
+      "code": "margin-out-of-range",
+      "msg": "1 margins fall outside any plausible range.",
+      "tickers": [
+        "SATS -10957%"
+      ],
+      "count": 1
+    },
     {
       "level": "warn",
       "code": "capex-missing",
@@ -69,17 +78,15 @@
     {
       "level": "warn",
       "code": "earnings-missing",
-      "msg": "7 companies have no earnings.",
+      "msg": "5 companies have no earnings.",
       "tickers": [
         "DDOG",
-        "SATS",
         "EQR",
         "FRT",
         "PSKY",
-        "Q",
-        "SWKS"
+        "Q"
       ],
-      "count": 7
+      "count": 5
     },
     {
       "level": "warn",
@@ -117,12 +124,13 @@
     {
       "level": "warn",
       "code": "revenue-implausible",
-      "msg": "2 companies' filed revenue is more than 3× off what their price/sales implies.",
+      "msg": "3 companies' filed revenue is more than 3× off what their price/sales implies.",
       "tickers": [
         "CPT filed 0.0B vs ~1.6B",
+        "SATS filed 15.0B vs ~0.0B",
         "EVRG filed 6.0B vs ~1.4B"
       ],
-      "count": 2
+      "count": 3
     },
     {
       "level": "warn",
@@ -146,35 +154,35 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "90 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "46 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
         "AES 2027-02-24",
         "AFL 2027-04-27",
-        "AKAM 2027-02-17",
-        "ALLE 2027-02-15",
-        "LNT 2027-02-17",
         "AMT 2027-02-22",
-        "AWK 2027-02-16",
         "APA 2027-02-23",
         "AXON 2027-02-22",
         "BKR 2027-04-21",
         "BRK.B 2027-02-26",
         "XYZ 2027-02-24",
-        "BKNG 2027-02-16",
-        "BLDR 2027-02-15",
-        "CDNS 2027-02-16",
-        "CVNA 2027-02-16",
-        "CNP 2027-02-17",
-        "CF 2027-02-16",
-        "CRL 2027-02-16",
-        "FIX 2027-02-17",
-        "ED 2027-02-17",
+        "CEG 2027-02-22",
         "GLW 2027-04-26",
         "CSGP 2027-02-22",
-        "CRH 2027-02-16",
-        "DVN 2027-02-15"
+        "FANG 2027-02-22",
+        "D 2027-02-22",
+        "DPZ 2027-02-22",
+        "SATS 2027-03-17",
+        "EME 2027-02-24",
+        "EOG 2027-02-22",
+        "ERIE 2027-02-22",
+        "FIS 2027-02-22",
+        "FSLR 2027-02-22",
+        "GDDY 2027-02-22",
+        "GS 2027-04-12",
+        "HSIC 2027-02-22",
+        "KDP 2027-02-22",
+        "MNST 2027-02-24"
       ],
-      "count": 90
+      "count": 46
     },
     {
       "level": "warn",
