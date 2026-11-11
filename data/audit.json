@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-11-10T04:49:05.201Z",
-  "snapshotUpdated": "2026-11-10T04:49:04.921Z",
+  "ranAt": "2026-11-11T02:40:17.823Z",
+  "snapshotUpdated": "2026-11-11T02:40:17.530Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -154,7 +154,7 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "46 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "45 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
         "AES 2027-02-24",
         "AFL 2027-04-27",
@@ -182,7 +182,7 @@
         "KDP 2027-02-22",
         "MNST 2027-02-24"
       ],
-      "count": 46
+      "count": 45
     },
     {
       "level": "warn",
