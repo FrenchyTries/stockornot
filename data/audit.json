@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-11-13T03:11:36.816Z",
-  "snapshotUpdated": "2026-11-13T03:11:36.614Z",
+  "ranAt": "2026-11-14T03:04:59.655Z",
+  "snapshotUpdated": "2026-11-14T03:04:59.496Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -9,15 +9,6 @@
   },
   "verdict": "published with warnings",
   "findings": [
-    {
-      "level": "warn",
-      "code": "range-inconsistent",
-      "msg": "1 companies have a 52-week range that disagrees with the price.",
-      "tickers": [
-        "CTVA"
-      ],
-      "count": 1
-    },
     {
       "level": "warn",
       "code": "margin-out-of-range",
