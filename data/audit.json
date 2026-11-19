@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-11-18T04:15:04.914Z",
-  "snapshotUpdated": "2026-11-18T04:15:04.699Z",
+  "ranAt": "2026-11-19T04:20:54.484Z",
+  "snapshotUpdated": "2026-11-19T04:20:54.336Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -9,15 +9,6 @@
   },
   "verdict": "published with warnings",
   "findings": [
-    {
-      "level": "warn",
-      "code": "range-inconsistent",
-      "msg": "1 companies have a 52-week range that disagrees with the price.",
-      "tickers": [
-        "WBD"
-      ],
-      "count": 1
-    },
     {
       "level": "warn",
       "code": "margin-out-of-range",
@@ -87,15 +78,17 @@
     {
       "level": "warn",
       "code": "earnings-missing",
-      "msg": "5 companies have no earnings.",
+      "msg": "7 companies have no earnings.",
       "tickers": [
         "EQR",
         "HD",
+        "LOW",
         "PSKY",
         "Q",
+        "ROST",
         "WSM"
       ],
-      "count": 5
+      "count": 7
     },
     {
       "level": "warn",
@@ -167,13 +160,13 @@
       "tickers": [
         "AFL 2027-04-27",
         "BKR 2027-04-21",
-        "BRK.B 2027-02-26",
         "GLW 2027-04-26",
         "SATS 2027-03-17",
         "GS 2027-04-12",
         "NCLH 2027-03-01",
         "PGR 2027-03-01",
         "RTX 2027-04-19",
+        "TGT 2027-03-03",
         "TDY 2027-04-19"
       ],
       "count": 10
