@@ -1,20 +1,25 @@
 {
-  "ranAt": "2026-11-21T03:47:15.161Z",
-  "snapshotUpdated": "2026-11-21T03:47:14.988Z",
-  "companies": 501,
+  "ranAt": "2026-11-24T06:54:06.178Z",
+  "snapshotUpdated": "2026-11-24T06:54:06.011Z",
+  "companies": 500,
   "deep": {
-    "present": 501,
-    "charts": 501,
-    "analysts": 501
+    "present": 500,
+    "charts": 500,
+    "analysts": 500
   },
   "verdict": "published with warnings",
   "findings": [
     {
       "level": "warn",
-      "code": "range-inconsistent",
-      "msg": "1 companies have a 52-week range that disagrees with the price.",
+      "code": "coverage-dip",
+      "msg": "Company count fell from 501 to 500."
+    },
+    {
+      "level": "warn",
+      "code": "tickers-dropped",
+      "msg": "1 tickers present yesterday are missing today.",
       "tickers": [
-        "NVDA"
+        "WBD"
       ],
       "count": 1
     },
@@ -23,7 +28,7 @@
       "code": "price-jump",
       "msg": "1 companies moved more than 25% since the last run.",
       "tickers": [
-        "SNDK 755.16→79.24"
+        "NVDA 125.53→165.05"
       ],
       "count": 1
     },
@@ -96,17 +101,12 @@
     {
       "level": "warn",
       "code": "earnings-missing",
-      "msg": "7 companies have no earnings.",
+      "msg": "2 companies have no earnings.",
       "tickers": [
         "EQR",
-        "HD",
-        "LOW",
-        "PSKY",
-        "Q",
-        "ROST",
-        "WSM"
+        "PSKY"
       ],
-      "count": 7
+      "count": 2
     },
     {
       "level": "warn",
@@ -174,35 +174,38 @@
     {
       "level": "warn",
       "code": "earnings-far",
-      "msg": "10 companies show a next report more than 100 days out; they report quarterly.",
+      "msg": "12 companies show a next report more than 100 days out; they report quarterly.",
       "tickers": [
         "AFL 2027-04-27",
         "BKR 2027-04-21",
         "GLW 2027-04-26",
         "SATS 2027-03-17",
         "GS 2027-04-12",
-        "NCLH 2027-03-01",
-        "PGR 2027-03-01",
+        "HPE 2027-03-08",
+        "HD 2027-05-17",
+        "LOW 2027-05-18",
         "RTX 2027-04-19",
-        "TGT 2027-03-03",
-        "TDY 2027-04-19"
+        "ROST 2027-05-19",
+        "TDY 2027-04-19",
+        "WSM 2027-05-19"
       ],
-      "count": 10
+      "count": 12
     },
     {
       "level": "warn",
       "code": "skipped",
-      "msg": "2 tickers in data/sp500.json could not be priced and are not in the deck.",
+      "msg": "3 tickers in data/sp500.json could not be priced and are not in the deck.",
       "tickers": [
         "AVB",
-        "EA"
+        "EA",
+        "WBD"
       ],
-      "count": 2
+      "count": 3
     },
     {
       "level": "warn",
       "code": "share-count-step",
-      "msg": "12 companies show a step change in share count (split, or mixed filing conventions).",
+      "msg": "11 companies show a step change in share count (split, or mixed filing conventions).",
       "tickers": [
         "AMCR FY2025→FY2026 ×1.46",
         "APO FY2021→FY2022 ×2.47",
@@ -214,10 +217,9 @@
         "HOOD FY2021→FY2022 ×1.78",
         "SW FY2023→FY2024 ×1.50",
         "TKO FY2023→FY2024 ×2.08",
-        "VICI FY2021→FY2022 ×1.52",
-        "WBD FY2021→FY2022 ×2.92"
+        "VICI FY2021→FY2022 ×1.52"
       ],
-      "count": 12
+      "count": 11
     }
   ]
 }
