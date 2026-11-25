@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-11-24T06:54:06.178Z",
-  "snapshotUpdated": "2026-11-24T06:54:06.011Z",
+  "ranAt": "2026-11-25T05:27:01.333Z",
+  "snapshotUpdated": "2026-11-25T05:27:01.021Z",
   "companies": 500,
   "deep": {
     "present": 500,
@@ -9,29 +9,6 @@
   },
   "verdict": "published with warnings",
   "findings": [
-    {
-      "level": "warn",
-      "code": "coverage-dip",
-      "msg": "Company count fell from 501 to 500."
-    },
-    {
-      "level": "warn",
-      "code": "tickers-dropped",
-      "msg": "1 tickers present yesterday are missing today.",
-      "tickers": [
-        "WBD"
-      ],
-      "count": 1
-    },
-    {
-      "level": "warn",
-      "code": "price-jump",
-      "msg": "1 companies moved more than 25% since the last run.",
-      "tickers": [
-        "NVDA 125.53→165.05"
-      ],
-      "count": 1
-    },
     {
       "level": "warn",
       "code": "margin-out-of-range",
@@ -101,12 +78,13 @@
     {
       "level": "warn",
       "code": "earnings-missing",
-      "msg": "2 companies have no earnings.",
+      "msg": "3 companies have no earnings.",
       "tickers": [
+        "DLTR",
         "EQR",
         "PSKY"
       ],
-      "count": 2
+      "count": 3
     },
     {
       "level": "warn",
