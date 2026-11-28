@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-11-27T04:55:35.088Z",
-  "snapshotUpdated": "2026-11-27T04:55:34.781Z",
+  "ranAt": "2026-11-28T04:34:02.888Z",
+  "snapshotUpdated": "2026-11-28T04:34:02.678Z",
   "companies": 500,
   "deep": {
     "present": 500,
@@ -14,7 +14,7 @@
       "code": "margin-out-of-range",
       "msg": "1 margins fall outside any plausible range.",
       "tickers": [
-        "SATS -10957%"
+        "SATS -2235%"
       ],
       "count": 1
     },
